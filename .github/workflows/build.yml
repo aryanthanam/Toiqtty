@@ -1,0 +1,58 @@
+name: Windows build
+on: [push, pull_request, workflow_dispatch]
+jobs:
+  posix-adapters:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install test shell
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y zsh
+      - name: Bash and Zsh PTY integration
+        run: python3 tests/posix-adapters.py
+  windows-x64:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Build pinned libghostty
+        shell: pwsh
+        run: ./scripts/build-native.ps1
+      - name: Terminal and ConPTY integration
+        shell: pwsh
+        run: ./scripts/test.ps1 -SkipNative
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Browser models, cookie bridge, and companion extensions
+        shell: pwsh
+        run: |
+          dotnet run --project tests/Oroterm.Smoke -c Release -- --browser-only
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node --test tests/browser-companion.test.cjs
+      - name: Build WinUI application
+        run: dotnet build src/Oroterm/Oroterm.csproj -c Release
+      - name: Persistent ConPTY host lifecycle
+        shell: pwsh
+        run: dotnet run --project tests/Oroterm.Smoke -c Release -- --session-host "$PWD/src/Oroterm.SessionHost/bin/Release/net10.0-windows/win-x64/Oroterm.SessionHost.exe"
+      - name: Lua configuration and constrained evaluation
+        shell: pwsh
+        run: dotnet run --project tests/Oroterm.Smoke -c Release -- --lua-config "$PWD/src/Oroterm.SessionHost/bin/Release/net10.0-windows/win-x64/Oroterm.SessionHost.exe"
+      - name: Host scheduling, metadata batching and disconnect recovery
+        shell: pwsh
+        run: |
+          $hostExecutable="$PWD/src/Oroterm.SessionHost/bin/Release/net10.0-windows/win-x64/Oroterm.SessionHost.exe"
+          foreach ($phase in @('--host-scheduling','--metadata-batch','--host-accept-storm','--architecture-host')) {
+            dotnet run --project tests/Oroterm.Smoke -c Release -- $phase $hostExecutable
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
+      - name: Publish portable application
+        shell: pwsh
+        run: ./scripts/publish.ps1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Oroterm-win-x64
+          path: artifacts/Oroterm-win-x64.zip

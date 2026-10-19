@@ -1,0 +1,105 @@
+diff --git a/src/lib_vt.zig b/src/lib_vt.zig
+index c2fb3af..6f6aa9f 100644
+--- a/src/lib_vt.zig
++++ b/src/lib_vt.zig
+@@ -323,6 +323,8 @@ comptime {
+         }
+         @export(&c.terminal_new, .{ .name = "ghostty_terminal_new" });
+         @export(&c.terminal_free, .{ .name = "ghostty_terminal_free" });
++        @export(&c.kitty_graphics.oroterm_dnd, .{ .name = "ghostty_oroterm_dnd" });
++        @export(&c.kitty_graphics.oroterm_dnd_subscribe, .{ .name = "ghostty_oroterm_dnd_subscribe" });
+         @export(&c.terminal_reset, .{ .name = "ghostty_terminal_reset" });
+         @export(&c.terminal_resize, .{ .name = "ghostty_terminal_resize" });
+         @export(&c.terminal_set, .{ .name = "ghostty_terminal_set" });
+diff --git a/src/terminal/c/kitty_graphics.zig b/src/terminal/c/kitty_graphics.zig
+index 7c06e3a..96521c4 100644
+--- a/src/terminal/c/kitty_graphics.zig
++++ b/src/terminal/c/kitty_graphics.zig
+@@ -2190,3 +2190,61 @@ test "generation never recurs across resets and screen switches" {
+     try testing.expectEqual(Result.success, get(graphics, .generation, @ptrCast(&gen)));
+     try testing.expect(gen > gen_alt);
+ }
++
++// Drop target adapter: all OSC 72 parsing, negotiation and retained data stay upstream.
++pub const DndItem = extern struct { mime: lib.String, data: lib.String };
++pub fn oroterm_dnd_subscribe(terminal_: terminal_c.Terminal,
++    callback: ?*const fn (terminal_c.Terminal, ?*anyopaque, u32) callconv(lib.calling_conv) void) callconv(lib.calling_conv) void {
++    const wrapper = terminal_ orelse return;
++    wrapper.oroterm_dnd_callback = callback;
++    wrapper.stream.handler.effects.drag_and_drop = &terminal_c.orotermDndTrampoline;
++}
++pub fn oroterm_dnd(terminal_: terminal_c.Terminal, action: u32, x: i32, y: i32,
++    cell_width: u32, cell_height: u32, operations: u32, items: ?[*]const DndItem, count: usize) callconv(lib.calling_conv) i32 {
++    const wrapper = terminal_ orelse return -1;
++    const t = wrapper.terminal;
++    const state = t.kitty_dnd orelse return 0;
++    if (action == 0) return 1;
++    if (action == 4) {
++        const fallback: @import("../kitty/dnd.zig").Operation =
++            if (operations & 1 != 0) .copy else if (operations & 2 != 0) .move else .none;
++        const accepted = @intFromEnum(state.clientAccepted() orelse fallback);
++        return if (operations & @as(u32, accepted) != 0) accepted else 0;
++    }
++    if (count > 16 or cell_width == 0 or cell_height == 0) return -1;
++    const alloc = t.gpa();
++    var aw: std.Io.Writer.Allocating = .init(alloc);
++    defer aw.deinit();
++    if (action == 5) {
++        // Use the upstream cancellation/conclusion path, preserving registration.
++        _ = @import("../kitty/dnd.zig").handleCommand(&t.kitty_dnd, alloc, &aw.writer,
++            .{ .metadata = "t=r:o=0", .payload = null, .terminator = .st }) catch return -1;
++        return 1;
++    }
++    const ev: @import("../kitty/dnd_drop.zig").State.MoveEvent = .{
++        .cell_x = @intCast(@divTrunc(@max(0, x), @as(i32, @intCast(cell_width)))),
++        .cell_y = @intCast(@divTrunc(@max(0, y), @as(i32, @intCast(cell_height)))),
++        .pixel_x = x, .pixel_y = y,
++        .operations = .{ .copy = operations & 1 != 0, .move = operations & 2 != 0 },
++    };
++    var mimes: [16][]const u8 = undefined;
++    var contents: [16]@import("../kitty/dnd_drop.zig").State.Item = undefined;
++    var total: usize = 0;
++    for (0..count) |i| {
++        const item = items.?[i];
++        total += item.data.len;
++        if (total > 8 * 1024 * 1024 or item.mime.len > 200) return -1;
++        mimes[i] = item.mime.ptr[0..item.mime.len];
++        contents[i] = .{ .mime = mimes[i], .data = item.data.ptr[0..item.data.len] };
++    }
++    switch (action) {
++        1 => state.dragMove(alloc, &aw.writer, ev, mimes[0..count]) catch return -1,
++        2 => state.dragLeave(alloc, &aw.writer) catch return -1,
++        3 => state.dragDrop(alloc, &aw.writer, ev, contents[0..count]) catch return -1,
++        else => return -1,
++    }
++    if (aw.written().len > 0) {
++        if (wrapper.effects.write_pty) |write| write(terminal_, wrapper.effects.userdata, aw.written().ptr, aw.written().len);
++    }
++    return 1;
++}
+diff --git a/src/terminal/c/terminal.zig b/src/terminal/c/terminal.zig
+index 06cab9b..c6d4112 100644
+--- a/src/terminal/c/terminal.zig
++++ b/src/terminal/c/terminal.zig
+@@ -85,6 +85,7 @@ const TerminalWrapper = struct {
+     terminfo_name_buf: [Handler.max_terminfo_name_bytes]u8,
+     stream: Stream,
+     effects: Effects = .{},
++    oroterm_dnd_callback: ?*const fn (Terminal, ?*anyopaque, u32) callconv(lib.calling_conv) void = null,
+     tracked_grid_refs: std.AutoArrayHashMapUnmanaged(*grid_ref_tracked_c.TrackedGridRef, void) = .{},
+     searches: std.AutoArrayHashMapUnmanaged(*search_c.SearchWrapper, void) = .{},
+ 
+@@ -95,6 +96,13 @@ const TerminalWrapper = struct {
+     }
+ };
+ 
++/// Narrow host adapter for the existing upstream drop-target effect.
++pub fn orotermDndTrampoline(handler: *Handler, event: @import("../kitty/dnd.zig").Event) void {
++    const wrapper = TerminalWrapper.fromHandler(handler);
++    const callback = wrapper.oroterm_dnd_callback orelse return;
++    callback(wrapper, wrapper.effects.userdata, @intFromEnum(event));
++}
++
+ /// A single MIME representation in a clipboard write.
+ ///
+ /// C: GhosttyClipboardContent

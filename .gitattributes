@@ -1,0 +1,9 @@
+# Unified patch context uses a single space for an empty source line.
+native/patches/*.patch whitespace=-blank-at-eol
+src/Oroterm/Integration/**/*.sh text eol=lf
+src/Oroterm/Integration/**/*.bash text eol=lf
+src/Oroterm/Integration/**/*.zsh text eol=lf
+src/Oroterm/Integration/**/.zshenv text eol=lf
+src/Oroterm/Integration/**/.zprofile text eol=lf
+src/Oroterm/Integration/**/.zshrc text eol=lf
+src/Oroterm/Integration/**/.zlogin text eol=lf

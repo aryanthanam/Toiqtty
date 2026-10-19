@@ -1,0 +1,10 @@
+.deps/
+.tools/
+**/bin/
+**/obj/
+.vs/
+artifacts/
+*.user
+*.log
+/flood.exe
+/flood.pdb

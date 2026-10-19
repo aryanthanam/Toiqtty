@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType><TargetFramework>net10.0-windows</TargetFramework>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier><SelfContained>true</SelfContained>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks><ImplicitUsings>enable</ImplicitUsings><Nullable>enable</Nullable>
+    <PublishReadyToRun Condition="'$(Configuration)' == 'Release'">true</PublishReadyToRun>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Oroterm.Core/Oroterm.Core.csproj" />
+    <PackageReference Include="Microsoft.Windows.Console.ConPTY" Version="1.25.260930003" GeneratePathProperty="true" ExcludeAssets="build" />
+    <Content Include="$(PkgMicrosoft_Windows_Console_ConPTY)\build\native\runtimes\x64\OpenConsole.exe" Link="OpenConsole.exe" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="../../artifacts/native/*.dll" Link="%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="../Oroterm/Integration/powershell.ps1" Link="Integration/powershell.ps1" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="../Oroterm/Integration/posix/**" Link="Integration/posix/%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>

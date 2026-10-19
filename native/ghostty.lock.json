@@ -1,0 +1,5 @@
+{
+  "repository": "https://github.com/ghostty-org/ghostty.git",
+  "commit": "1e9e14af5df14211892f5fc15fd21a49c7d94868",
+  "zig": "0.16.0"
+}

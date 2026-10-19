@@ -1,0 +1,177 @@
+using Windows.ApplicationModel;
+using Windows.ApplicationModel.Activation;
+using Windows.Foundation;
+using Windows.Foundation.Collections;
+using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Controls.Primitives;
+using Microsoft.UI.Xaml.Data;
+using Microsoft.UI.Xaml.Input;
+using Microsoft.UI.Xaml.Media;
+using Microsoft.UI.Xaml.Navigation;
+using Microsoft.UI.Xaml.Shapes;
+
+// To learn more about WinUI, the WinUI project structure,
+// and more about our project templates, see: http://aka.ms/winui-project-info.
+
+namespace Oroterm;
+
+/// <summary>
+/// Provides application-specific behavior to supplement the default Application class.
+/// </summary>
+public partial class App : Application
+{
+    private MainWindow? _window;
+    private Window? _upgradeWindow;
+    private Models.InstanceCoordinator? _instance;
+    private Notifications.DesktopNotifications? _notifications;
+    private (string Workspace, string Pane)? _pendingNotification;
+    private readonly TaskCompletionSource<(string Workspace, string Pane)> _notificationActivation = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private readonly object _notificationGate = new();
+
+    /// <summary>
+    /// Initializes the singleton application object.  This is the first line of authored code
+    /// executed, and as such is the logical equivalent of main() or WinMain().
+    /// </summary>
+    public App()
+    {
+        Models.StartupTrace.Mark("app-constructor");
+        InitializeComponent();
+        UnhandledException += (_, args) =>
+        {
+            try
+            {
+                System.IO.Directory.CreateDirectory(Models.SessionStore.Folder);
+                System.IO.File.AppendAllText(System.IO.Path.Combine(Models.SessionStore.Folder, "crash.log"), DateTimeOffset.Now + " " + args.Exception + Environment.NewLine);
+            }
+            catch { /* Preserve the original exception if logging fails. */ }
+        };
+    }
+
+    /// <summary>
+    /// Invoked when the application is launched.
+    /// </summary>
+    /// <param name="args">Details about the launch request and process.</param>
+    protected override async void OnLaunched(Microsoft.UI.Xaml.LaunchActivatedEventArgs args)
+    {
+        Models.StartupTrace.Mark("on-launched");
+        if (Environment.GetCommandLineArgs().Contains("--notification-probe"))
+        {
+            await RunNotificationProbe(); Exit(); return;
+        }
+        var diagnostics=Diagnostics.WindowDiagnosticOptions.Read();
+        if(diagnostics.Ui && Environment.GetEnvironmentVariable("OROTERM_DIRECTX_DEBUG")=="1")
+            Microsoft.Graphics.Canvas.CanvasDevice.DebugLevel=Microsoft.Graphics.Canvas.CanvasDebugLevel.Warning;
+        bool smoke=diagnostics.Ui, startupProbe=diagnostics.Startup, hardware=diagnostics.Hardware;
+        _instance = Models.InstanceCoordinator.TryAcquire(Models.SessionStore.Folder);
+        if (_instance is null)
+        {
+            // A COM-launched process can race an already running instance.
+            // Receive the toast target before forwarding and exiting.
+            if (Environment.GetCommandLineArgs().Any(arg => arg.Contains("AppNotificationActivated", StringComparison.Ordinal)))
+            {
+                using var notifications = new Notifications.DesktopNotifications(true, DispatcherNotification);
+                notifications.ReadInitialActivation();
+                try
+                {
+                    var target = await _notificationActivation.Task.WaitAsync(TimeSpan.FromSeconds(3));
+                    await Models.InstanceCoordinator.ActivateExisting(Models.SessionStore.Folder, target.Workspace, target.Pane);
+                }
+                catch (TimeoutException) { await Models.InstanceCoordinator.ActivateExisting(Models.SessionStore.Folder); }
+            }
+            else await Models.InstanceCoordinator.ActivateExisting(Models.SessionStore.Folder);
+            Exit(); return;
+        }
+        Models.StartupTrace.Mark("host-probe-begin");
+        Hosting.SessionHostClient? runningHost;
+        try { runningHost = await Task.Run(() => Hosting.SessionHostClient.TryConnect(Models.SessionStore.Folder)); }
+        catch (Hosting.SessionHostVersionException ex)
+        {
+            var panel = new StackPanel { Spacing = 20, Margin = new Thickness(28), RequestedTheme = ElementTheme.Dark };
+            panel.Children.Add(new TextBlock { Text = "Finish the Oroterm upgrade", FontSize = 22 });
+            panel.Children.Add(new TextBlock { Text = ex.Message, TextWrapping = TextWrapping.Wrap, MaxWidth = 460 });
+            var close = new Button { Content = "Close" }; panel.Children.Add(close);
+            _upgradeWindow = new Window { Title = "Oroterm update", Content = new Border {
+                RequestedTheme = ElementTheme.Dark, Background = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 25, 28, 34)),
+                Child = new ScrollViewer { Content = panel, VerticalScrollBarVisibility = ScrollBarVisibility.Auto }
+            } };
+            _upgradeWindow.AppWindow.Resize(new Windows.Graphics.SizeInt32(600, 420));
+            close.Click += (_, _) => _upgradeWindow.Close();
+            _instance.Activated += () => _upgradeWindow.DispatcherQueue.TryEnqueue(_upgradeWindow.Activate);
+            _upgradeWindow.Closed += (_, _) => _instance.Dispose();
+            _upgradeWindow.Activate(); return;
+        }
+        Models.StartupTrace.Mark("host-probe-end");
+        bool usesHost=diagnostics.Persistent;
+        var saved = Models.SessionStartupPolicy.Select(runningHost?.Layout ?? Models.SessionStore.Load(),
+            runningHost is { Panes.Length: > 0 });
+        bool needsShell = saved.Workspaces.Count == 0 || saved.Workspaces.SelectMany(w => w.AllPanes()).Any(p => !p.IsBrowser);
+        // Lua may replace a cold layout with browser-only sessions. Decide after
+        // evaluating it rather than starting an unnecessary shell host.
+        Task<Hosting.SessionHostClient>? startingHost = usesHost && runningHost is null && needsShell && !System.IO.File.Exists(Configuration.LuaConfigService.ConfigPath)
+            ? Task.Run(() => Hosting.SessionHostClient.Start(Models.SessionStore.Folder)) : null;
+        Models.StartupTrace.Mark("notifications-begin");
+        _notifications = new(!smoke || Environment.GetEnvironmentVariable("OROTERM_NOTIFICATION_SMOKE") == "1", DispatcherNotification, smoke || hardware || startupProbe);
+        _notifications.ReadInitialActivation();
+        Models.StartupTrace.Mark("notifications-end");
+        Models.StartupTrace.Mark("window-create-begin");
+        var mainWindow = new MainWindow(_notifications, runningHost, startingHost, saved);
+        Models.StartupTrace.Mark("window-create-end");
+        lock (_notificationGate) { _window = mainWindow; }
+        _instance.NavigationRequested += DispatcherNotification;
+        _instance.Activated += () => _window.DispatcherQueue.TryEnqueue(() =>
+        {
+            var handle = WinRT.Interop.WindowNative.GetWindowHandle(_window);
+            ShowWindowAsync(handle, 9); SetForegroundWindow(handle); _window.Activate();
+        });
+        _window.Closed += (_, _) => { _instance.Dispose(); _notifications.Dispose(); };
+        _window.Activate();
+        Models.StartupTrace.Mark("window-activated");
+        lock (_notificationGate)
+        {
+            if (_pendingNotification is { } pending) _window.NavigateNotification(pending.Workspace, pending.Pane);
+            _pendingNotification = null;
+        }
+    }
+    private void DispatcherNotification(string workspace, string pane)
+    {
+        _notificationActivation.TrySetResult((workspace, pane));
+        MainWindow? window;
+        lock (_notificationGate)
+        {
+            window = _window;
+            if (window is null) { _pendingNotification = (workspace, pane); return; }
+        }
+        window.DispatcherQueue.TryEnqueue(() => { window.NavigateNotification(workspace, pane); window.RecordHardwareNotification(workspace, pane); });
+    }
+    private static async Task RunNotificationProbe()
+    {
+        string folder = Models.SessionStore.Folder;
+        if (!System.IO.Path.GetFileName(folder).StartsWith("notification-probe-", StringComparison.Ordinal))
+            throw new InvalidOperationException("Notification probe requires its own data directory.");
+        System.IO.Directory.CreateDirectory(folder);
+        try
+        {
+            var received = new TaskCompletionSource<(string Workspace, string Pane)>(TaskCreationOptions.RunContinuationsAsynchronously);
+            using var notifications = new Notifications.DesktopNotifications(true, (workspace, pane) => received.TrySetResult((workspace, pane)), true);
+            if (!notifications.Available) throw new InvalidOperationException(notifications.UnavailableReason);
+            string key = Environment.ProcessPath!.Replace('\\', '.');
+            using var pathKey = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(@"Software\Classes\AppUserModelId\" + key);
+            string appId = pathKey?.GetValue("NotificationGUID") as string ?? throw new InvalidOperationException("Notification app registration not found.");
+            using var appKey = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(@"Software\Classes\AppUserModelId\" + appId);
+            string clsid = appKey?.GetValue("CustomActivator") as string ?? throw new InvalidOperationException("Notification COM registration not found.");
+            var probe = Notifications.DesktopNotifications.Build("hardware-workspace", "hardware-pane", "Probe", new(DateTimeOffset.Now, "Probe", ""));
+            string arguments = System.Xml.Linq.XDocument.Parse(probe.Payload).Root!.Attribute("launch")!.Value;
+            System.IO.File.WriteAllText(System.IO.Path.Combine(folder, "ready.json"), System.Text.Json.JsonSerializer.Serialize(new { appId, clsid, arguments, processId = Environment.ProcessId }));
+            bool initialPayload = notifications.ReadInitialActivation();
+            var target = await received.Task.WaitAsync(TimeSpan.FromSeconds(15));
+            System.IO.File.WriteAllText(System.IO.Path.Combine(folder, "result.json"), System.Text.Json.JsonSerializer.Serialize(new { passed = true, initialPayload, workspace = target.Workspace, pane = target.Pane }));
+        }
+        catch (Exception ex)
+        {
+            System.IO.File.WriteAllText(System.IO.Path.Combine(folder, "result.json"), System.Text.Json.JsonSerializer.Serialize(new { passed = false, error = ex.ToString() }));
+        }
+    }
+    [System.Runtime.InteropServices.DllImport("user32")] private static extern bool ShowWindowAsync(nint window, int command);
+    [System.Runtime.InteropServices.DllImport("user32")] private static extern bool SetForegroundWindow(nint window);
+}

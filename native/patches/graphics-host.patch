@@ -1,0 +1,88 @@
+diff --git a/src/lib_vt.zig b/src/lib_vt.zig
+index 517ccce..c2fb3af 100644
+--- a/src/lib_vt.zig
++++ b/src/lib_vt.zig
+@@ -193,6 +193,9 @@ comptime {
+         _ = @import("quirks_memset.zig");
+ 
+         const c = terminal.c_api;
++        // Oroterm host hooks. Keep protocol parsing and image layout upstream.
++        @export(&c.kitty_graphics.oroterm_tick, .{ .name = "ghostty_oroterm_graphics_tick" });
++        @export(&c.kitty_graphics.oroterm_virtual, .{ .name = "ghostty_oroterm_graphics_virtual" });
+         const features = terminal.options;
+         if (features.input_encode) {
+             @export(&c.key_event_new, .{ .name = "ghostty_key_event_new" });
+diff --git a/src/terminal/c/kitty_graphics.zig b/src/terminal/c/kitty_graphics.zig
+index 2bd5e86..7c06e3a 100644
+--- a/src/terminal/c/kitty_graphics.zig
++++ b/src/terminal/c/kitty_graphics.zig
+@@ -13,6 +13,35 @@ const Terminal = @import("../Terminal.zig");
+ const PageList = @import("../PageList.zig");
+ const Result = @import("result.zig").Result;
+ 
++// Host hooks pending equivalent public C API entry points. These delegate to
++// Ghostty's own animation clock and Unicode-placeholder geometry implementation.
++pub fn oroterm_tick(terminal_: terminal_c.Terminal, now_ms: u64) callconv(lib.calling_conv) u32 {
++    if (comptime !build_options.kitty_graphics) return std.math.maxInt(u32);
++    const wrapper = terminal_ orelse return std.math.maxInt(u32);
++    const delay = wrapper.terminal.screens.active.kitty_images.animationTick(wrapper.io.io(), now_ms) orelse return std.math.maxInt(u32);
++    return @intCast(@min(delay, std.math.maxInt(u32) - 1));
++}
++pub const VirtualCallback = *const fn (?*anyopaque, u32, u32, i32, i32, u32, u32, u32, u32, u32, u32, u32, u32) callconv(lib.calling_conv) void;
++pub fn oroterm_virtual(terminal_: terminal_c.Terminal, cell_width: u32, cell_height: u32, context: ?*anyopaque, callback: VirtualCallback) callconv(lib.calling_conv) void {
++    if (comptime !build_options.kitty_graphics) return;
++    const wrapper = terminal_ orelse return;
++    const t = wrapper.terminal;
++    const storage = &t.screens.active.kitty_images;
++    const top = t.screens.active.pages.getTopLeft(.viewport);
++    const bot = t.screens.active.pages.getBottomRight(.viewport) orelse return;
++    var it = @import("../kitty/graphics_unicode.zig").placementIterator(top, bot);
++    while (it.next()) |p| {
++        const image = storage.imageById(p.image_id) orelse continue;
++        if (image.data.isPending()) continue;
++        const rp = p.renderPlacement(storage, &image, cell_width, cell_height) catch continue;
++        if (rp.dest_width == 0 or rp.dest_height == 0) continue;
++        const vp = t.screens.active.pages.pointFromPin(.viewport, rp.top_left) orelse continue;
++        callback(context, image.id, p.placement_id, @intCast(vp.viewport.x), @intCast(vp.viewport.y),
++            rp.offset_x, rp.offset_y, rp.dest_width, rp.dest_height,
++            rp.source_x, rp.source_y, rp.source_width, rp.source_height);
++    }
++}
++
+ /// C: GhosttyKittyGraphics
+ pub const KittyGraphics = if (build_options.kitty_graphics)
+     *kitty_storage.ImageStorage
+@@ -626,7 +655,32 @@ fn computeViewportPos(
+                     .col_offset = chain.horizontal_offset,
+                     .row_offset = chain.vertical_offset,
+                 },
+-                .virtual => return .{ .col = 0, .row = 0, .visible = false },
++                .virtual => {
++                    // Same origin rule as renderer/image.zig: minimum viewport
++                    // x/y of all placeholders that resolve to this parent.
++                    const pages = &t.screens.active.pages;
++                    const top = pages.getTopLeft(.viewport);
++                    const bot = pages.getBottomRight(.viewport) orelse return .{ .col = 0, .row = 0, .visible = false };
++                    var it = @import("../kitty/graphics_unicode.zig").placementIterator(top, bot);
++                    var min_x: ?u32 = null;
++                    var min_y: u32 = std.math.maxInt(u32);
++                    while (it.next()) |placeholder| {
++                        const target = storage.placeholderTarget(placeholder.image_id, placeholder.placement_id) orelse continue;
++                        if (!std.meta.eql(target.key, chain.root_key)) continue;
++                        const vp = pages.pointFromPin(.viewport, placeholder.pin) orelse continue;
++                        min_x = @min(min_x orelse vp.viewport.x, vp.viewport.x);
++                        min_y = @min(min_y, vp.viewport.y);
++                    }
++                    const x = min_x orelse return .{ .col = 0, .row = 0, .visible = false };
++                    const col: i64 = @as(i64, x) + chain.horizontal_offset;
++                    const row: i64 = @as(i64, min_y) + chain.vertical_offset;
++                    const grid = p.gridSize(image.*, t);
++                    return .{
++                        .col = std.math.cast(i32, col) orelse return .{ .col = 0, .row = 0, .visible = false },
++                        .row = std.math.cast(i32, row) orelse return .{ .col = 0, .row = 0, .visible = false },
++                        .visible = col < t.cols and col + grid.cols > 0 and row < t.rows and row + grid.rows > 0,
++                    };
++                },
+                 .relative => unreachable, // resolveChain roots are never relative
+             }
+         },

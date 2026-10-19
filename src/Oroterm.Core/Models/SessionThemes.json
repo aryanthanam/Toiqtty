@@ -1,0 +1,82 @@
+[
+  {
+    "Name": "Adventure Time",
+    "Accent": "#EFC11A",
+    "Background": "#1F1D45",
+    "Foreground": "#F8DCC0",
+    "Cursor": "#EFBF38",
+    "Palette": "#050404 #BD0013 #4AB118 #E7741E #0F4AC6 #665993 #70A598 #F8DCC0 #4E7CBF #FC5F5A #9EFF6E #EFC11A #1997C6 #9B5953 #C8FAF4 #F6F5FB"
+  },
+  {
+    "Name": "Alien Blood",
+    "Accent": "#18E000",
+    "Background": "#0F1610",
+    "Foreground": "#73FA91",
+    "Cursor": "#73FA91",
+    "Palette": "#112616 #7F2B27 #2F7E25 #717F24 #2F6A7F #47587F #327F77 #647D75 #3C4812 #E08009 #18E000 #BDE000 #00AAE0 #0058E0 #00E0C4 #73FA91"
+  },
+  {
+    "Name": "Cobalt2",
+    "Accent": "#FFE50A",
+    "Background": "#132738",
+    "Foreground": "#FFFFFF",
+    "Cursor": "#F0CC09",
+    "Palette": "#000000 #FF0000 #38DE21 #FFE50A #1460D2 #FF005D #00BBBB #BBBBBB #555555 #F40E17 #3BD01D #EDC809 #5555FF #FF55FF #6AE3FA #FFFFFF"
+  },
+  {
+    "Name": "Dracula",
+    "Accent": "#FF79C6",
+    "Background": "#282A36",
+    "Foreground": "#F8F8F2",
+    "Cursor": "#F8F8F2",
+    "Palette": "#21222C #FF5555 #50FA7B #F1FA8C #BD93F9 #FF79C6 #8BE9FD #F8F8F2 #6272A4 #FF6E6E #69FF94 #FFFFA5 #D6ACFF #FF92DF #A4FFFF #FFFFFF"
+  },
+  {
+    "Name": "Fun Forrest",
+    "Accent": "#FFCB1B",
+    "Background": "#251200",
+    "Foreground": "#DEC165",
+    "Cursor": "#E5591C",
+    "Palette": "#000000 #D6262B #919C00 #BE8A13 #4699A3 #8D4331 #DA8213 #DDC265 #7F6A55 #E55A1C #BFC65A #FFCB1B #7CC9CF #D26349 #E6A96B #FFEAA3"
+  },
+  {
+    "Name": "Hot Dog Stand",
+    "Accent": "#FFFF54",
+    "Background": "#EA3323",
+    "Foreground": "#FFFFFF",
+    "Cursor": "#FFFF54",
+    "Palette": "#000000 #FFFF54 #FFFF54 #FFFF54 #000000 #FFFF54 #FFFFFF #C6C6C6 #000000 #FFFF54 #FFFF54 #FFFF54 #000000 #FFFF54 #FFFFFF #C6C6C6"
+  },
+  {
+    "Name": "Hot Dog Stand (Mustard)",
+    "Accent": "#EA3323",
+    "Background": "#FFFF54",
+    "Foreground": "#000000",
+    "Cursor": "#EA3323",
+    "Palette": "#000000 #EA3323 #EA3323 #EA3323 #000000 #EA3323 #000000 #B9B9B9 #000000 #EA3323 #EA3323 #EA3323 #000000 #EA3323 #000000 #C6C6C6"
+  },
+  {
+    "Name": "Solarized Light",
+    "Accent": "#2176C7",
+    "Background": "#FCF4DC",
+    "Foreground": "#536870",
+    "Cursor": "#536870",
+    "Palette": "#002831 #D11C24 #738A05 #A57706 #2176C7 #C61C6F #259286 #EAE3CB #001E27 #BD3613 #475B62 #536870 #708284 #5956BA #819090 #FCF4DC"
+  },
+  {
+    "Name": "Catppuccin Latte",
+    "Accent": "#FE85D8",
+    "Background": "#EFF1F5",
+    "Foreground": "#4C4F69",
+    "Cursor": "#DC8A78",
+    "Palette": "#5C5F77 #D20F39 #40A02B #DF8E1D #1E66F5 #EA76CB #179299 #ACB0BE #6C6F85 #DE293E #49AF3D #EEA02D #456EFF #FE85D8 #2D9FA8 #BCC0CC"
+  },
+  {
+    "Name": "Sakura",
+    "Accent": "#E90CDD",
+    "Background": "#18131E",
+    "Foreground": "#DD7BDC",
+    "Cursor": "#FF65FD",
+    "Palette": "#000000 #D52370 #41AF1A #BC7053 #6964AB #C71FBF #939393 #998EAC #786D69 #F41D99 #22E529 #F59574 #9892F1 #E90CDD #EEEEEE #CBB6FF"
+  }
+]

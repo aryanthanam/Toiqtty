@@ -1,0 +1,84 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows10.0.26100.0</TargetFramework>
+    <TargetPlatformMinVersion>10.0.19041.0</TargetPlatformMinVersion>
+    <RootNamespace>Oroterm</RootNamespace>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>Assets\AppIcon.ico</ApplicationIcon>
+    <Platforms>x64</Platforms>
+    <PlatformTarget>x64</PlatformTarget>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <UseWinUI>true</UseWinUI>
+    <WindowsPackageType>None</WindowsPackageType>
+    <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
+    <SelfContained>true</SelfContained>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <PublishTrimmed>false</PublishTrimmed>
+    <PublishReadyToRun Condition="'$(Configuration)' == 'Release'">true</PublishReadyToRun>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Oroterm.SessionHost/Oroterm.SessionHost.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="../Oroterm.Cli/Oroterm.Cli.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="../Oroterm.Client/Oroterm.Client.csproj" />
+    <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.28000.2705" />
+    <PackageReference Include="Microsoft.WindowsAppSDK" Version="2.5.1" />
+    <PackageReference Include="Microsoft.Graphics.Win2D" Version="1.4.0" />
+    <PackageReference Include="Microsoft.Windows.Console.ConPTY" Version="1.25.260930003" GeneratePathProperty="true" ExcludeAssets="build" />
+    <Content Include="$(PkgMicrosoft_Windows_Console_ConPTY)\build\native\runtimes\x64\OpenConsole.exe" Link="OpenConsole.exe" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="Assets\**" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="Integration\powershell.ps1" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="Integration\posix\**" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="Configuration\*.lua" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="..\..\LUA_CONFIG.md" Link="LUA_CONFIG.md" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="BrowserCompanion\**" Exclude="BrowserCompanion\common\**" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="BrowserCompanion\common\**" Link="BrowserCompanion/chromium/%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="BrowserCompanion\common\**" Link="BrowserCompanion/firefox/%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="..\..\artifacts\native\*.dll" Exclude="..\..\artifacts\native\oroterm-renderer.dll" Link="%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="..\..\artifacts\native\oroterm-renderer.dll" Link="oroterm-renderer.dll" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+  <Target Name="CopySessionHost" AfterTargets="Build">
+    <MSBuild Projects="../Oroterm.SessionHost/Oroterm.SessionHost.csproj" Targets="GetTargetPath" Properties="Configuration=$(Configuration)">
+      <Output TaskParameter="TargetOutputs" ItemName="SessionHostAssembly" />
+    </MSBuild>
+    <ItemGroup>
+      <SessionHostFiles Include="@(SessionHostAssembly);@(SessionHostAssembly->'%(RootDir)%(Directory)Oroterm.SessionHost.exe');@(SessionHostAssembly->'%(RootDir)%(Directory)Oroterm.SessionHost.deps.json');@(SessionHostAssembly->'%(RootDir)%(Directory)Oroterm.SessionHost.runtimeconfig.json')" />
+    </ItemGroup>
+    <Copy SourceFiles="@(SessionHostFiles)" DestinationFolder="$(OutDir)" SkipUnchangedFiles="true" />
+  </Target>
+  <Target Name="PublishSessionHost" AfterTargets="Publish">
+    <Exec Command="dotnet publish &quot;$(MSBuildProjectDirectory)/../Oroterm.SessionHost/Oroterm.SessionHost.csproj&quot; -c $(Configuration) -o &quot;$(PublishDir).&quot; --no-restore" />
+  </Target>
+  <Target Name="CopyCommandLine" AfterTargets="Build">
+    <MSBuild Projects="../Oroterm.Cli/Oroterm.Cli.csproj" Targets="GetTargetPath" Properties="Configuration=$(Configuration)">
+      <Output TaskParameter="TargetOutputs" ItemName="CommandLineAssembly" />
+    </MSBuild>
+    <Copy SourceFiles="@(CommandLineAssembly);@(CommandLineAssembly->'%(RootDir)%(Directory)oro.exe');@(CommandLineAssembly->'%(RootDir)%(Directory)oro.deps.json');@(CommandLineAssembly->'%(RootDir)%(Directory)oro.runtimeconfig.json')" DestinationFolder="$(OutDir)" SkipUnchangedFiles="true" />
+  </Target>
+  <Target Name="PublishCommandLine" AfterTargets="Publish">
+    <Exec Command="dotnet publish &quot;$(MSBuildProjectDirectory)/../Oroterm.Cli/Oroterm.Cli.csproj&quot; -c $(Configuration) -o &quot;$(PublishDir).&quot; --no-restore" />
+  </Target>
+  <Target Name="RequireGhostty" BeforeTargets="PrepareForBuild" Condition="!Exists('..\..\artifacts\native\oroterm-native.dll')">
+    <Error Text="Build libghostty first: powershell -ExecutionPolicy Bypass -File scripts/build-native.ps1" />
+  </Target>
+  <Target Name="BuildDirectXRenderer" BeforeTargets="PrepareForBuild"
+          Inputs="..\..\native\renderer.cpp;..\..\native\renderer-dx12.h;..\..\native\renderer-lifetime.h;..\..\native\renderer.h;..\..\native\renderer.hlsl;..\..\scripts\build-renderer.ps1"
+          Outputs="..\..\artifacts\native\oroterm-renderer.dll">
+    <Exec Command="powershell -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)\..\..\scripts\build-renderer.ps1&quot;" />
+  </Target>
+  <Target Name="CopySdkInsightsResource" AfterTargets="Build">
+    <Exec Command="powershell -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)\..\..\scripts\copy-sdk-resources.ps1&quot; -RuntimeArchive &quot;$(NuGetPackageRoot)microsoft.windowsappsdk.runtime\2.5.1\tools\MSIX\win10-x64\Microsoft.WindowsAppRuntime.2.msix&quot; -Destination &quot;$(OutDir).&quot;" />
+  </Target>
+  <!-- WinUI's unpackaged build generates these after standard Content discovery.
+       Explicitly carry them into dotnet publish as well as the build output. -->
+  <Target Name="PublishXamlResources" AfterTargets="ComputeFilesToPublish">
+    <ItemGroup>
+      <ResolvedFileToPublish Include="$(OutDir)$(AssemblyName).pri" RelativePath="$(AssemblyName).pri" CopyToPublishDirectory="PreserveNewest" />
+      <ResolvedFileToPublish Include="$(OutDir)App.xbf" RelativePath="App.xbf" CopyToPublishDirectory="PreserveNewest" />
+      <ResolvedFileToPublish Include="$(OutDir)MainWindow.xbf" RelativePath="MainWindow.xbf" CopyToPublishDirectory="PreserveNewest" />
+      <ResolvedFileToPublish Include="$(OutDir)Microsoft.WindowsAppRuntime.Insights.Resource.dll" RelativePath="Microsoft.WindowsAppRuntime.Insights.Resource.dll" CopyToPublishDirectory="PreserveNewest" />
+    </ItemGroup>
+  </Target>
+</Project>
