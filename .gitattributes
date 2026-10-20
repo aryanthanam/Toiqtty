@@ -1,5 +1,5 @@
 # Unified patch context uses a single space for an empty source line.
-native/patches/*.patch whitespace=-blank-at-eol
+native/patches/*.patch text eol=lf whitespace=-blank-at-eol
 src/Toiqtty/Integration/**/*.sh text eol=lf
 src/Toiqtty/Integration/**/*.bash text eol=lf
 src/Toiqtty/Integration/**/*.zsh text eol=lf
