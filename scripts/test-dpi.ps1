@@ -4,18 +4,18 @@ $repoRoot = Split-Path $PSScriptRoot -Parent
 $appFolder = if ([IO.Path]::IsPathRooted($AppDirectory)) { $AppDirectory } else { Join-Path $repoRoot $AppDirectory }
 $clientFolder = if ([IO.Path]::IsPathRooted($ClientDirectory)) { $ClientDirectory } else { Join-Path $repoRoot $ClientDirectory }
 if (!$SkipBuild) {
-    dotnet build "$repoRoot/tests/Oroterm.Smoke" -c Release -o $clientFolder
+    dotnet build "$repoRoot/tests/Toiqtty.Smoke" -c Release -o $clientFolder
     if ($LASTEXITCODE -ne 0) { throw 'DPI fixture build failed.' }
-    dotnet build "$repoRoot/src/Oroterm" -c Debug -o $appFolder
+    dotnet build "$repoRoot/src/Toiqtty" -c Debug -o $appFolder
     if ($LASTEXITCODE -ne 0) { throw 'DPI WinUI build failed.' }
 }
 $data = Join-Path $repoRoot ('artifacts/dpi-check-' + [Guid]::NewGuid().ToString('N'))
-$start = [Diagnostics.ProcessStartInfo]::new((Join-Path $appFolder 'Oroterm.exe'))
+$start = [Diagnostics.ProcessStartInfo]::new((Join-Path $appFolder 'toiqtty.exe'))
 $start.UseShellExecute = $false
 $start.WorkingDirectory = $repoRoot
 $start.ArgumentList.Add('--dpi-smoke')
-$start.Environment['OROTERM_DATA_DIR'] = $data
-$start.Environment['OROTERM_SMOKE_EXE'] = Join-Path $clientFolder 'Oroterm.Smoke.exe'
+$start.Environment['TOIQTTY_DATA_DIR'] = $data
+$start.Environment['TOIQTTY_SMOKE_EXE'] = Join-Path $clientFolder 'Toiqtty.Smoke.exe'
 $start.Environment.Remove('NO_COLOR') | Out-Null
 $process = [Diagnostics.Process]::Start($start)
 $deadline = [DateTime]::UtcNow.AddSeconds(90)

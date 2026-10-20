@@ -6,14 +6,14 @@ $testFolder = if ([IO.Path]::IsPathRooted($TestDirectory)) { $TestDirectory } el
 Push-Location $repoRoot
 try {
     if (!$SkipBuild) {
-        dotnet build "$repoRoot/tests/Oroterm.Smoke/Oroterm.Smoke.csproj" -c Release -o $testFolder
+        dotnet build "$repoRoot/tests/Toiqtty.Smoke/Toiqtty.Smoke.csproj" -c Release -o $testFolder
         if ($LASTEXITCODE -ne 0) { throw 'Navigation test build failed.' }
-        dotnet build "$repoRoot/src/Oroterm/Oroterm.csproj" -c Debug -o $appFolder
+        dotnet build "$repoRoot/src/Toiqtty/Toiqtty.csproj" -c Debug -o $appFolder
         if ($LASTEXITCODE -ne 0) { throw 'Navigation app build failed.' }
     }
-    & "$testFolder/Oroterm.Smoke.exe" --navigation-layout
+    & "$testFolder/Toiqtty.Smoke.exe" --navigation-layout
     if ($LASTEXITCODE -ne 0) { throw 'Navigation layout checks failed.' }
-    & "$testFolder/Oroterm.Smoke.exe" --navigation-ui "$appFolder/Oroterm.exe"
+    & "$testFolder/Toiqtty.Smoke.exe" --navigation-ui "$appFolder/toiqtty.exe"
     if ($LASTEXITCODE -ne 0) { throw 'Persistent navigation checks failed.' }
 }
 finally { Pop-Location }

@@ -29,7 +29,7 @@ try {
         $sourceClient=[IO.Path]::GetFullPath($TestDirectory)
         Copy-Item -Path (Join-Path $sourceClient '*') -Destination $client -Recurse
     }else{
-        dotnet build (Join-Path $root 'tests/Oroterm.Smoke') -c Release -o $client *> (Join-Path $run 'fixture-build.log')
+        dotnet build (Join-Path $root 'tests/Toiqtty.Smoke') -c Release -o $client *> (Join-Path $run 'fixture-build.log')
         if($LASTEXITCODE -ne 0){throw 'Endurance fixture build failed.'}
         $sourceClient=$client
     }
@@ -50,27 +50,27 @@ try {
     $procDump=Join-Path $root '.tools/procdump/procdump64.exe'
     $signature=Get-AuthenticodeSignature -LiteralPath $procDump
     if($signature.Status -ne 'Valid' -or $signature.SignerCertificate.Subject -notlike '*Microsoft Corporation*'){throw 'Microsoft-signed ProcDump is required.'}
-    $start=[Diagnostics.ProcessStartInfo]::new((Join-Path $app 'Oroterm.exe'))
+    $start=[Diagnostics.ProcessStartInfo]::new((Join-Path $app 'toiqtty.exe'))
     $start.UseShellExecute=$false; $start.WorkingDirectory=$root; $start.ArgumentList.Add('--ui-smoke')
-    foreach($key in @($start.Environment.Keys)){if($key -like 'OROTERM_*'){$start.Environment.Remove($key) | Out-Null}}
-    $start.Environment['OROTERM_DATA_DIR']=$data
-    $start.Environment['OROTERM_SESSION_UI_PROBE']='endurance'
-    if($CommandTrace){$start.Environment['OROTERM_PERFORMANCE_COMMAND_TRACE']='1'}
-    if($PauseCheck){$start.Environment['OROTERM_ENDURANCE_PAUSE_CHECK']='1'}
-    $start.Environment['OROTERM_SESSION_SOAK_SECONDS']=$Seconds.ToString()
-    $start.Environment['OROTERM_SMOKE_EXE']=Join-Path $client 'Oroterm.Smoke.exe'
-    $start.Environment['OROTERM_NOTIFICATION_SMOKE']='0'; $start.Environment.Remove('NO_COLOR') | Out-Null
-    $foreground=Get-OrotermForegroundWindow
+    foreach($key in @($start.Environment.Keys)){if($key -like 'TOIQTTY_*'){$start.Environment.Remove($key) | Out-Null}}
+    $start.Environment['TOIQTTY_DATA_DIR']=$data
+    $start.Environment['TOIQTTY_SESSION_UI_PROBE']='endurance'
+    if($CommandTrace){$start.Environment['TOIQTTY_PERFORMANCE_COMMAND_TRACE']='1'}
+    if($PauseCheck){$start.Environment['TOIQTTY_ENDURANCE_PAUSE_CHECK']='1'}
+    $start.Environment['TOIQTTY_SESSION_SOAK_SECONDS']=$Seconds.ToString()
+    $start.Environment['TOIQTTY_SMOKE_EXE']=Join-Path $client 'Toiqtty.Smoke.exe'
+    $start.Environment['TOIQTTY_NOTIFICATION_SMOKE']='0'; $start.Environment.Remove('NO_COLOR') | Out-Null
+    $foreground=Get-ToiqttyForegroundWindow
     $appProcess=[Diagnostics.Process]::Start($start)
     $record['appProcessId']=$appProcess.Id; $record['dataDirectory']=$data
-    $record['windowPlacement']=Move-OrotermTestWindow $appProcess -Topmost:$Topmost -Primary:$FixedViewport
+    $record['windowPlacement']=Move-ToiqttyTestWindow $appProcess -Topmost:$Topmost -Primary:$FixedViewport
     if($FixedViewport){
         Start-Sleep -Milliseconds 300
-        $geometry=Get-OrotermTestWindowGeometry $appProcess.MainWindowHandle
+        $geometry=Get-ToiqttyTestWindowGeometry $appProcess.MainWindowHandle
         $width=[int][Math]::Round(1280*$geometry.dpi/96); $height=[int][Math]::Round(820*$geometry.dpi/96)
-        $record['windowPlacement']=Move-OrotermTestWindow $appProcess -Topmost:$Topmost -Primary -Width $width -Height $height
+        $record['windowPlacement']=Move-ToiqttyTestWindow $appProcess -Topmost:$Topmost -Primary -Width $width -Height $height
     }
-    $record['foregroundRestored']=Restore-OrotermForegroundWindow $foreground
+    $record['foregroundRestored']=Restore-ToiqttyForegroundWindow $foreground
     if($FrontendDebuggerMode -ne 'None'){
         $frontendArguments=@('-accepteula','-ma','-e')
         if($FrontendDebuggerMode -eq 'Native'){$frontendArguments+='-g'}
@@ -88,7 +88,7 @@ try {
     }while($null -eq $hostIdentity -and !$appProcess.HasExited -and [DateTime]::UtcNow -lt $hostReady)
     if($null -eq $hostIdentity){throw 'The isolated session host did not start for crash monitoring.'}
     $ownedHost=Get-CimInstance Win32_Process -Filter "ProcessId=$([int]$hostIdentity.processId)"
-    if(!$ownedHost -or $ownedHost.ParentProcessId -ne $appProcess.Id -or $ownedHost.ExecutablePath -ne (Join-Path $app 'Oroterm.SessionHost.exe') -or $ownedHost.CommandLine -notlike "*$data*"){
+    if(!$ownedHost -or $ownedHost.ParentProcessId -ne $appProcess.Id -or $ownedHost.ExecutablePath -ne (Join-Path $app 'Toiqtty.SessionHost.exe') -or $ownedHost.CommandLine -notlike "*$data*"){
         throw 'The session-host identity does not belong to this isolated test.'
     }
     $hostProcess=Get-Process -Id $ownedHost.ProcessId; $hostProcess.EnableRaisingEvents=$true
@@ -130,8 +130,8 @@ try {
         }
         if($null -ne $monitor -and $monitor.HasExited -and !$appProcess.HasExited){throw 'Crash monitor exited before the isolated test.'}
         if($null -ne $hostMonitor){$hostMonitor.Refresh();if($hostMonitor.HasExited -and !$appProcess.HasExited){throw 'Session-host crash monitor exited before the isolated test.'}}
-        if($FixedViewport -and ![OrotermTestPlacement]::IsIconic($appProcess.MainWindowHandle)){
-            try{$currentGeometry=Get-OrotermTestWindowGeometry $appProcess.MainWindowHandle}
+        if($FixedViewport -and ![ToiqttyTestPlacement]::IsIconic($appProcess.MainWindowHandle)){
+            try{$currentGeometry=Get-ToiqttyTestWindowGeometry $appProcess.MainWindowHandle}
             catch{if($appProcess.WaitForExit(1000)){break};throw}
             if($currentGeometry.width -ne $width -or $currentGeometry.height -ne $height -or $currentGeometry.dpi -ne $geometry.dpi){throw 'Fixed-viewport endurance size or DPI changed; exclude this performance measurement.'}
         }
@@ -156,7 +156,7 @@ finally {
     if($null -ne $appProcess -and !$appProcess.HasExited){$appProcess.CloseMainWindow() | Out-Null; if(!$appProcess.WaitForExit(10000)){$appProcess.Kill(); $appProcess.WaitForExit()}}
     if($null -ne $monitor -and !$monitor.HasExited){ & $procDump -cancel $appProcess.Id *> (Join-Path $run 'procdump-cancel.log'); $monitor.WaitForExit(10000) | Out-Null }
     if($null -ne $counters -and !$counters.HasExited){$counters.Kill();$counters.WaitForExit()}
-    if(Test-Path -LiteralPath (Join-Path $client 'Oroterm.Smoke.exe')){ & (Join-Path $client 'Oroterm.Smoke.exe') --stop-endurance-host $data }
+    if(Test-Path -LiteralPath (Join-Path $client 'Toiqtty.Smoke.exe')){ & (Join-Path $client 'Toiqtty.Smoke.exe') --stop-endurance-host $data }
     if($null -ne $hostProcess){
         if(!$hostProcess.WaitForExit(15000)){$record.status='failed';$record.passed=$false;$record['hostCleanupError']='The isolated host did not exit after its authorized shutdown.'}
         else{$record['hostExitCode']=$hostProcess.ExitCode;if($hostProcess.ExitCode -ne 0){$record.status='failed';$record.passed=$false;$record['hostCleanupError']="Host exited abnormally: $($hostProcess.ExitCode)"}}

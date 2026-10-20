@@ -3,11 +3,11 @@ $ErrorActionPreference='Stop'
 $root=Split-Path $PSScriptRoot -Parent
 Push-Location -LiteralPath $root
 try {
-    $app=[IO.Path]::GetFullPath($AppDirectory); $client=Join-Path ([IO.Path]::GetFullPath($TestDirectory)) 'Oroterm.Smoke.exe'
+    $app=[IO.Path]::GetFullPath($AppDirectory); $client=Join-Path ([IO.Path]::GetFullPath($TestDirectory)) 'Toiqtty.Smoke.exe'
     $folder=Join-Path $root ('artifacts/performance-regressions-'+[Guid]::NewGuid().ToString('N'))
     New-Item -ItemType Directory -Force $folder | Out-Null
     if(!$SkipBuild){
-        dotnet build (Join-Path $root 'tests/Oroterm.Smoke') -c Release -o ([IO.Path]::GetFullPath($TestDirectory)) *> (Join-Path $folder 'fixture-build.log')
+        dotnet build (Join-Path $root 'tests/Toiqtty.Smoke') -c Release -o ([IO.Path]::GetFullPath($TestDirectory)) *> (Join-Path $folder 'fixture-build.log')
         if($LASTEXITCODE -ne 0){throw "Performance regression fixture build failed: $folder"}
     }
     $results=@()
@@ -19,7 +19,7 @@ try {
     $results+=@{phase='flood-handshake';exitCode=0;checks=3}
     foreach($phase in @('pane-reuse','frame-delta','background','navigation','resize','scrolling','input','input-close','input-native-close')){
         $watch=[Diagnostics.Stopwatch]::StartNew()
-        & $client ("--$phase-ui") (Join-Path $app 'Oroterm.exe') *> (Join-Path $folder "$phase.log")
+        & $client ("--$phase-ui") (Join-Path $app 'toiqtty.exe') *> (Join-Path $folder "$phase.log")
         $code=$LASTEXITCODE
         $checks=@(Select-String -LiteralPath (Join-Path $folder "$phase.log") -Pattern '^PASS:').Count
         $results+=@{phase=$phase;exitCode=$code;checks=$checks;seconds=$watch.Elapsed.TotalSeconds}
@@ -29,7 +29,7 @@ try {
     }
     if($LegacyHostDirectory){
         foreach($phase in @('frame-delta-compat','input-compat')){
-            & $client ("--$phase-ui") (Join-Path $app 'Oroterm.exe') (Join-Path ([IO.Path]::GetFullPath($LegacyHostDirectory)) 'Oroterm.SessionHost.exe') *> (Join-Path $folder "$phase.log")
+            & $client ("--$phase-ui") (Join-Path $app 'toiqtty.exe') (Join-Path ([IO.Path]::GetFullPath($LegacyHostDirectory)) 'Toiqtty.SessionHost.exe') *> (Join-Path $folder "$phase.log")
             if($LASTEXITCODE -ne 0){throw "$phase regression failed: $folder"}
             $results+=@{phase=$phase;exitCode=$LASTEXITCODE;checks=@(Select-String -LiteralPath (Join-Path $folder "$phase.log") -Pattern '^PASS:').Count}
         }

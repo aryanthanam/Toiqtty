@@ -11,8 +11,10 @@ $ErrorActionPreference='Stop'
 function Read-Reports([string[]]$paths){
     foreach($path in $paths){
         $report=Get-Content -LiteralPath $path -Raw | ConvertFrom-Json
-        if($report.benchmarkVersion -notin 2,3){throw "Only event-based benchmark versions 2 and 3 are supported: $path"}
+        if($report.benchmarkVersion -notin 2,3,4){throw "Only event-based benchmark versions 2, 3 and 4 are supported: $path"}
         if($report.benchmarkVersion -ne $script:benchmarkVersion){throw "Cannot compare different benchmark versions: $path"}
+        $corpus=if($report.textCorpus){$report.textCorpus}else{'ascii'}
+        if($corpus -ne $script:textCorpus){throw "Cannot compare different text corpora: $path"}
         $keys=@{}
         foreach($measurement in $report.measurements){
             if($measurement.phase -eq 'idle'){continue}
@@ -49,6 +51,8 @@ function Aggregate($cases){
 }
 if(!$BaselineReports.Count -or !$FinalReports.Count){throw 'Both baseline and final reports are required.'}
 $script:benchmarkVersion=(Get-Content -LiteralPath $BaselineReports[0] -Raw | ConvertFrom-Json).benchmarkVersion
+$script:textCorpus=(Get-Content -LiteralPath $BaselineReports[0] -Raw | ConvertFrom-Json).textCorpus
+if(!$script:textCorpus){$script:textCorpus='ascii'}
 $script:expectedKeys=$null
 $baseline=@(Read-Reports $BaselineReports); $final=@(Read-Reports $FinalReports); $comparisons=@()
 foreach($count in @($baseline.paneCount | Sort-Object -Unique)){foreach($phase in @($baseline | Where-Object paneCount -eq $count | Select-Object -ExpandProperty phase -Unique)){

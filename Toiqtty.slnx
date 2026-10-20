@@ -1,0 +1,12 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Toiqtty.Core/Toiqtty.Core.csproj" />
+    <Project Path="src/Toiqtty.Client/Toiqtty.Client.csproj" />
+    <Project Path="src/Toiqtty/Toiqtty.csproj" />
+    <Project Path="src/Toiqtty.SessionHost/Toiqtty.SessionHost.csproj" />
+    <Project Path="src/Toiqtty.Cli/Toiqtty.Cli.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Toiqtty.Smoke/Toiqtty.Smoke.csproj" />
+  </Folder>
+</Solution>

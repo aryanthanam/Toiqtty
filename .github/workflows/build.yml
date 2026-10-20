@@ -30,23 +30,23 @@ jobs:
       - name: Browser models, cookie bridge, and companion extensions
         shell: pwsh
         run: |
-          dotnet run --project tests/Oroterm.Smoke -c Release -- --browser-only
+          dotnet run --project tests/Toiqtty.Smoke -c Release -- --browser-only
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node --test tests/browser-companion.test.cjs
       - name: Build WinUI application
-        run: dotnet build src/Oroterm/Oroterm.csproj -c Release
+        run: dotnet build src/Toiqtty/Toiqtty.csproj -c Release
       - name: Persistent ConPTY host lifecycle
         shell: pwsh
-        run: dotnet run --project tests/Oroterm.Smoke -c Release -- --session-host "$PWD/src/Oroterm.SessionHost/bin/Release/net10.0-windows/win-x64/Oroterm.SessionHost.exe"
+        run: dotnet run --project tests/Toiqtty.Smoke -c Release -- --session-host "$PWD/src/Toiqtty.SessionHost/bin/Release/net10.0-windows/win-x64/Toiqtty.SessionHost.exe"
       - name: Lua configuration and constrained evaluation
         shell: pwsh
-        run: dotnet run --project tests/Oroterm.Smoke -c Release -- --lua-config "$PWD/src/Oroterm.SessionHost/bin/Release/net10.0-windows/win-x64/Oroterm.SessionHost.exe"
+        run: dotnet run --project tests/Toiqtty.Smoke -c Release -- --lua-config "$PWD/src/Toiqtty.SessionHost/bin/Release/net10.0-windows/win-x64/Toiqtty.SessionHost.exe"
       - name: Host scheduling, metadata batching and disconnect recovery
         shell: pwsh
         run: |
-          $hostExecutable="$PWD/src/Oroterm.SessionHost/bin/Release/net10.0-windows/win-x64/Oroterm.SessionHost.exe"
+          $hostExecutable="$PWD/src/Toiqtty.SessionHost/bin/Release/net10.0-windows/win-x64/Toiqtty.SessionHost.exe"
           foreach ($phase in @('--host-scheduling','--metadata-batch','--host-accept-storm','--architecture-host')) {
-            dotnet run --project tests/Oroterm.Smoke -c Release -- $phase $hostExecutable
+            dotnet run --project tests/Toiqtty.Smoke -c Release -- $phase $hostExecutable
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           }
       - name: Publish portable application
@@ -54,5 +54,5 @@ jobs:
         run: ./scripts/publish.ps1
       - uses: actions/upload-artifact@v4
         with:
-          name: Oroterm-win-x64
-          path: artifacts/Oroterm-win-x64.zip
+          name: toiqtty-win-x64
+          path: artifacts/toiqtty-win-x64.zip

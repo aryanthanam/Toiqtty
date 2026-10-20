@@ -1,4 +1,4 @@
-param([switch]$SkipDownload)
+param([switch]$SkipDownload,[switch]$DisableSimd)
 $ErrorActionPreference = 'Stop'
 $repoRoot = Split-Path $PSScriptRoot -Parent
 $lock = Get-Content "$repoRoot/native/ghostty.lock.json" -Raw | ConvertFrom-Json
@@ -42,9 +42,9 @@ foreach ($hostPatch in @("$repoRoot/native/patches/graphics-host.patch", "$repoR
     }
 }
 Push-Location $deps
-try { Invoke-Checked { & $zig build -Demit-lib-vt -Doptimize=ReleaseFast -Dsimd=false } }
+try { $simd=if($DisableSimd){'false'}else{'true'}; Invoke-Checked { & $zig build -Demit-lib-vt -Doptimize=ReleaseFast "-Dsimd=$simd" } }
 finally { Pop-Location }
 Copy-Item "$deps/zig-out/bin/ghostty-vt.dll" "$repoRoot/artifacts/native" -Force
-Invoke-Checked { & $zig cc -shared -O2 -I "$deps/include" "$repoRoot/native/oroterm.c" "$repoRoot/native/png.c" "$deps/zig-out/lib/ghostty-vt.lib" -lole32 -lwindowscodecs -o "$repoRoot/artifacts/native/oroterm-native.dll" }
+Invoke-Checked { & $zig cc -shared -O2 -I "$deps/include" "$repoRoot/native/toiqtty.c" "$repoRoot/native/png.c" "$deps/zig-out/lib/ghostty-vt.lib" -lole32 -lwindowscodecs -o "$repoRoot/artifacts/native/toiqtty-native.dll" }
 Copy-Item "$deps/LICENSE" "$repoRoot/artifacts/native/GHOSTTY-LICENSE" -Force
-Write-Host 'libghostty-vt and Oroterm bridge built for Windows x64.'
+Write-Host 'libghostty-vt and Toiqtty bridge built for Windows x64.'

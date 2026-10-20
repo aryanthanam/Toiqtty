@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const vm = require('node:vm');
 const fs = require('node:fs');
 const path = require('node:path');
-const common = path.join(__dirname, '../src/Oroterm/BrowserCompanion/common');
+const common = path.join(__dirname, '../src/Toiqtty/BrowserCompanion/common');
 function fixture() {
   const sent = [], queried = [], state = { connection: { port: 12345, token: 'A'.repeat(64) }, cookieStoreId: 'firefox-container-2' };
   const cookie = (name, domain, hostOnly = false, extra = {}) => ({ name, value: name, domain, hostOnly, path: '/', secure: true, httpOnly: true, session: false, expirationDate: 2000000000, sameSite: 'strict', ...extra });

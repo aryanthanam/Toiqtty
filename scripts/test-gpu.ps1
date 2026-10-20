@@ -18,7 +18,7 @@ New-Item -ItemType Directory -Force $run | Out-Null
 $resultPath=Join-Path $run 'result.json'
 $record=[ordered]@{status='preparing';passed=$false;started=[DateTimeOffset]::Now.ToString('o');requestedSeconds=$Seconds;runDirectory=$run;sourceApp=$stage
     mode='Exact published app copy; original local-terminal GPU/UIA smoke scenario; offscreen rendering, not onscreen FPS or a physical driver reset.'
-    productionProcessIds=@(Get-Process Oroterm,Oroterm.SessionHost -ErrorAction SilentlyContinue | ForEach-Object Id)}
+    productionProcessIds=@(Get-Process Toiqtty,Toiqtty.SessionHost,toiqtty,toiqtty.SessionHost -ErrorAction SilentlyContinue | ForEach-Object Id)}
 function Save-Record { $record | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $resultPath }
 Save-Record
 $process=$null; $dumpMonitor=$null; $counters=$null
@@ -33,22 +33,22 @@ try {
         $matched++
     }
     $record['releaseCopyFilesVerified']=$matched
-    dotnet build (Join-Path $root 'tests/Oroterm.Smoke') -c Release -o $client *> (Join-Path $run 'client-build.log')
+    dotnet build (Join-Path $root 'tests/Toiqtty.Smoke') -c Release -o $client *> (Join-Path $run 'client-build.log')
     if($LASTEXITCODE -ne 0){throw 'GPU fixture build failed.'}
     $procDump=Join-Path $root '.tools/procdump/procdump64.exe'
     $signature=Get-AuthenticodeSignature -LiteralPath $procDump
     if($signature.Status -ne 'Valid' -or $signature.SignerCertificate.Subject -notlike '*Microsoft Corporation*'){throw 'A Microsoft-signed ProcDump is required.'}
-    $start=[Diagnostics.ProcessStartInfo]::new((Join-Path $app 'Oroterm.exe'))
+    $start=[Diagnostics.ProcessStartInfo]::new((Join-Path $app 'toiqtty.exe'))
     $start.UseShellExecute=$false; $start.WorkingDirectory=$root
     $start.ArgumentList.Add('--ui-smoke')
     foreach($key in @($start.Environment.Keys)){
-        if($key -like 'OROTERM_*PROBE*' -or $key -like 'OROTERM_*SMOKE*' -or $key -in @('OROTERM_CONFIG','OROTERM_STARTUP_TRACE')){$start.Environment.Remove($key) | Out-Null}
+        if($key -like 'TOIQTTY_*PROBE*' -or $key -like 'TOIQTTY_*SMOKE*' -or $key -in @('TOIQTTY_CONFIG','TOIQTTY_STARTUP_TRACE')){$start.Environment.Remove($key) | Out-Null}
     }
-    $start.Environment['OROTERM_DATA_DIR']=$data
-    $start.Environment['OROTERM_SMOKE_EXE']=Join-Path $client 'Oroterm.Smoke.exe'
-    $start.Environment['OROTERM_UI_SOAK_SECONDS']=$Seconds.ToString()
-    $start.Environment['OROTERM_UI_SOAK_OFFSCREEN']='1'
-    $start.Environment['OROTERM_NOTIFICATION_SMOKE']='0'
+    $start.Environment['TOIQTTY_DATA_DIR']=$data
+    $start.Environment['TOIQTTY_SMOKE_EXE']=Join-Path $client 'Toiqtty.Smoke.exe'
+    $start.Environment['TOIQTTY_UI_SOAK_SECONDS']=$Seconds.ToString()
+    $start.Environment['TOIQTTY_UI_SOAK_OFFSCREEN']='1'
+    $start.Environment['TOIQTTY_NOTIFICATION_SMOKE']='0'
     $start.Environment.Remove('NO_COLOR') | Out-Null
     $process=[Diagnostics.Process]::Start($start)
     $record['appProcessId']=$process.Id; $record['appExecutable']=$start.FileName
@@ -88,7 +88,7 @@ try {
         # Expose only this test window as the requested interval ends; retain
         # all existing assertions and deadlines, and do not take input focus.
         if(!$postSoakWindowPrepared -and $clock.Elapsed.TotalSeconds -ge $Seconds){
-            $record['postSoakWindowPreparation']=Show-OrotermTestWindowForChecks -Process $process -ExpectedExecutable $start.FileName
+            $record['postSoakWindowPreparation']=Show-ToiqttyTestWindowForChecks -Process $process -ExpectedExecutable $start.FileName
             $postSoakWindowPrepared=$true;Save-Record
         }
         if($clock.Elapsed.TotalSeconds -lt $nextGpu){continue}

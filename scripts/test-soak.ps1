@@ -4,9 +4,9 @@ $repoRoot = Split-Path $PSScriptRoot -Parent
 Push-Location $repoRoot
 try {
     $smokeFolder = "$repoRoot/artifacts/soak-test-$([Guid]::NewGuid().ToString('N'))"
-    dotnet build tests/Oroterm.Smoke -c Release -o $smokeFolder
+    dotnet build tests/Toiqtty.Smoke -c Release -o $smokeFolder
     if ($LASTEXITCODE -ne 0) { throw 'Terminal soak build failed.' }
-    & "$smokeFolder/Oroterm.Smoke.exe" --soak $Seconds
+    & "$smokeFolder/Toiqtty.Smoke.exe" --soak $Seconds
     if ($LASTEXITCODE -ne 0) { throw 'Terminal soak failed.' }
 }
 finally {

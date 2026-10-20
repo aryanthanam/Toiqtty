@@ -1,0 +1,6 @@
+{
+  "tool": "built-in image_gen",
+  "reference": "toiqtty-logo-v1.png",
+  "asset": "toiqtty-icon-v1.png",
+  "prompt": "Use case: precise-object-edit, logo-brand. Edit the supplied toiqtty logo into its square Windows app icon. Preserve the EXACT cyan interlocking t/q monogram on the LEFT of the reference, including its lavender cursor parallelogram, its thick stroke widths, angled ends, geometric silhouette, and the open negative spaces. Remove the entire 'toiqtty' wordmark. Center the existing monogram by itself on a square, uniform solid deep charcoal #181825 background. Enlarge the mark to occupy about 76% of the square width, with balanced padding on every side; preserve its aspect ratio. Flat vector-like cyan #74C7EC and lavender #B4BEFE fills, crisp clean edges, no texture, no speckles, no gradients, no outlines, no shadow, no glow, no rounded container, no border. This is one final square icon, not a presentation sheet. No text anywhere. Match the existing mark faithfully; do not redesign it."
+}

@@ -17,7 +17,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument('--zsh', default=shutil.which('zsh'))
 parser.add_argument('--zsh-root')
 args = parser.parse_args()
-source = pathlib.Path(__file__).resolve().parents[1] / 'src/Oroterm/Integration/posix'
+source = pathlib.Path(__file__).resolve().parents[1] / 'src/Toiqtty/Integration/posix'
 passed = 0
 
 
@@ -34,7 +34,7 @@ class Shell:
         self.data = b''
         self.pid, self.fd = pty.fork()
         if self.pid == 0:
-            env = dict(os.environ, HOME=str(home), TERM='xterm-256color', TERM_PROGRAM='Oroterm')
+            env = dict(os.environ, HOME=str(home), TERM='xterm-256color', TERM_PROGRAM='toiqtty')
             for name in ('ENV', 'ZDOTDIR', 'PROMPT_COMMAND', 'BASH_ENV', 'POSIXLY_CORRECT', 'BASHOPTS', 'SHELLOPTS', 'HISTFILE'):
                 env.pop(name, None)
             env.update(extra or {})
@@ -131,7 +131,7 @@ def exercises(shell, adapter, home):
     shell.command('true')
 
 
-with tempfile.TemporaryDirectory(prefix='oroterm-adapters-') as temp:
+with tempfile.TemporaryDirectory(prefix='toiqtty-adapters-') as temp:
     root = pathlib.Path(temp)
     assets = root / "assets ' $(touch NEVER_CREATED)"
     shutil.copytree(source, assets)

@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="Models/SessionThemes.json" LogicalName="Toiqtty.SessionThemes.json" />
+    <InternalsVisibleTo Include="toiqtty" />
+    <InternalsVisibleTo Include="Toiqtty.Client" />
+    <InternalsVisibleTo Include="Toiqtty.SessionHost" />
+    <InternalsVisibleTo Include="Toiqtty.Smoke" />
+    <PackageReference Include="LuaCSharp" Version="0.5.7" />
+    <PackageReference Include="Microsoft.Windows.Console.ConPTY" Version="1.25.260930003" GeneratePathProperty="true" ExcludeAssets="build" />
+    <Content Include="$(PkgMicrosoft_Windows_Console_ConPTY)/build/native/runtimes/x64/OpenConsole.exe" Link="OpenConsole.exe" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="../../artifacts/native/*.dll" Link="%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="../Toiqtty/Integration/**" Link="Integration/%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="Configuration/*.lua" Link="Configuration/%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>

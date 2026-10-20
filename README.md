@@ -1,24 +1,28 @@
-# Oroterm
+# toiqtty
 
-A native Windows terminal built with **libghostty-vt**, **WinUI 3**, **Direct3D 12/DirectWrite**, and **ConPTY**. Inspired by cmux’s compact session sidebar, split panes, and attention indicators. Optional **WebView2** panes provide an embedded browser. Terminal composition uses a dedicated native GPU renderer; Win2D supplies the managed DirectWrite shaping and measurement adapter.
+![toiqtty logo](src/Toiqtty/Assets/Brand/toiqtty-logo-v1.png)
+
+Launch `toiqtty.exe` or use the `toiq` CLI. Version 0.10.0 uses toiqtty names throughout its projects, assemblies, native libraries, IPC, Lua API and installation. Settings live in `%LOCALAPPDATA%\toiqtty`; the Lua entry point is `toiqtty.lua`, using `require('toiqtty')`.
+
+A native Windows terminal built with **libghostty-vt**, **WinUI 3**, **Direct3D 12/DirectWrite**, and **ConPTY**. Inspired by cmux’s compact session sidebar, split panes, and attention indicators. Optional **WebView2** panes provide an embedded browser. Terminal composition uses a dedicated native GPU renderer. HarfBuzz shapes eligible ASCII runs; DirectWrite preserves Windows font fallback, Unicode, color and italic text. Win2D supplies font configuration, measurement and reference fixtures.
 
 This is a working first version, not a production-complete terminal. It starts real local shells and maintains independent terminal sessions across workspace switches.
 
 ## Run
 
-Requires Windows 11 x64 or Windows 10 build 19041+, .NET 10 SDK, Visual Studio 2022 C++ build tools, a Windows SDK including FXC, Git, and internet access for the first build. The scripts download a checksum-verified Zig 0.16.0 compiler inside `.tools/` and fetch a pinned Ghostty commit into `.deps/`. The WinUI build automatically builds the native Direct3D renderer and precompiles its shaders with the installed Windows SDK.
+Requires Windows 11 x64 or Windows 10 build 19041+, .NET 10 SDK, Visual Studio 2022 C++ build tools, a Windows SDK including FXC, Git, and internet access for the first build. The scripts download a checksum-verified Zig 0.16.0 compiler inside `.tools/`, fetch a pinned Ghostty commit, and fetch checksum-pinned HarfBuzz source into `.deps/`. The WinUI build builds the native Direct3D renderer and HarfBuzz core and precompiles its shaders with the installed Windows SDK. HarfBuzz uses its DirectWrite adapter without external FreeType, GLib or Graphite libraries.
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts/run.ps1
 ```
 
-The first native build takes longer; subsequent builds reuse Zig’s cache. You can also open `Oroterm.slnx` in Visual Studio with WinUI development support. Run `scripts/build-native.ps1` first.
+The first native build takes longer; subsequent builds reuse Zig’s cache. You can also open `Toiqtty.slnx` in Visual Studio with WinUI development support. Run `scripts/build-native.ps1` first.
 
 To build without launching:
 
 ```powershell
 ./scripts/build-native.ps1
-dotnet build src/Oroterm/Oroterm.csproj
+dotnet build src/Toiqtty/Toiqtty.csproj
 ```
 
 ## What works
@@ -26,7 +30,7 @@ dotnet build src/Oroterm/Oroterm.csproj
 - Real PowerShell, Command Prompt, PowerShell 7 when installed, and WSL shell profiles.
 - PowerShell 7 (`pwsh`) is the default when installed; Windows PowerShell is the fallback. Older settings and restored panes using the original default migrate once. Custom shell commands are preserved.
 - Persistent sessions in the left sidebar, with directories, Git branches, and attention indicators. Each session contains tabs; each tab has its own horizontal/vertical split tree and independent shell panes.
-- Per-session themes: right-click a session and choose **Session theme…**, or use the command palette. Pick one of ten bundled Gogh presets from a visual gallery. Themes color the session card, title/tab/status bars, browser controls, focus markers, and terminal panes: default foreground/background, cursor, selection and all 16 ANSI colors. Ghostty applies terminal colors without changing shell processes, text or history; application truecolor and OSC overrides remain effective. **Use default** restores normal colors. A host older than 0.7.14 keeps its shells alive and shows a notice: pane colors require **Quit Oroterm and stop all sessions**, then relaunch. Closing only the window does not upgrade the host.
+- Per-session themes: right-click a session and choose **Session theme…**, or use the command palette. Pick one of ten bundled Gogh presets from a visual gallery. Themes color the session card, title/tab/status bars, browser controls, focus markers, and terminal panes: default foreground/background, cursor, selection and all 16 ANSI colors. Ghostty applies terminal colors without changing shell processes, text or history; application truecolor and OSC overrides remain effective. **Use default** restores normal colors. A host older than 0.7.14 keeps its shells alive and shows a notice: pane colors require **Quit toiqtty and stop all sessions**, then relaunch. Closing only the window does not upgrade the host.
 - Drag sessions and tabs to reorder them. Move a terminal or browser pane between tabs and splits in its owning session while keeping its running shell or WebView alive.
 - Automatic PowerShell command start/end tracking, exit codes, duration and live directory updates, preserving profiles, Starship and PSReadLine bindings. Original MIT-licensed Bash/Zsh adapters track command boundaries, exit status and cwd for recognized interactive native/WSL launches, preserving prompts and startup files.
 - Native Windows notifications for background terminals, with workspace/pane activation and a settings toggle. Notification bursts are limited; Activity retains the bounded history.
@@ -34,7 +38,7 @@ dotnet build src/Oroterm/Oroterm.csproj
 - GPU-backed terminal drawing with colors, bold/italic text, underline, strikeout, Unicode graphemes, and wide characters.
 - Bundled JetBrainsMono Nerd Font Mono, including Regular, Medium and Bold faces with italic counterparts and Starship icons. Lua selects font weight without installing fonts. Existing settings using the original Cascadia Mono default migrate once; other custom font choices are preserved.
 - Optional bottom status bar, hidden by default. Lua configures its left/right segments, separator, height, font size and colors; colors follow the active session theme unless overridden. See [Lua configuration](LUA_CONFIG.md#optional-bottom-status-bar).
-- Custom global/session palettes, extended indexed colors, selection/cursor text colors and upstream cursor defaults. Persistent Lua callbacks format tab titles and status text in a bounded worker. Optional shared wallpapers provide cycling, random selection, a native chooser and focus mode. See [the complete appearance example](src/Oroterm.Core/Configuration/appearance.example.lua).
+- Custom global/session palettes, extended indexed colors, selection/cursor text colors and upstream cursor defaults. Persistent Lua callbacks format tab titles and status text in a bounded worker. Optional shared wallpapers provide cycling, random selection, a native chooser and focus mode. See [the complete appearance example](src/Toiqtty.Core/Configuration/appearance.example.lua).
 - Filled Powerline separators use vector shapes on a grid aligned to physical pixels, preventing seams between colored prompt segments at fractional display scaling.
 - Ghostty parsing, alternate screens, reflow, scrollback, keyboard encoding, mouse reporting, focus reports, and bracketed paste.
 - Kitty graphics: PNG/RGB/RGBA, direct/file/temp transfers, chunked and zlib transmission, source cropping, scaling, three z-layers, scrollback anchors, deletion/replacement, Unicode placeholders, and animation. Parsing and image state stay in Ghostty; Windows WIC decodes PNG and native Direct3D draws the placements.
@@ -50,12 +54,12 @@ dotnet build src/Oroterm/Oroterm.csproj
 - Bounded input queues and single-instance activation per settings directory.
 - Search across terminal history with match navigation and selection highlighting.
 - Command palette, workspace renaming, configurable shell/font/directory, and font zoom with Ctrl+wheel.
-- Closing the window keeps shells, running commands, scrollback and graphics alive in `Oroterm.SessionHost.exe`. Reopening attaches to the same processes. The host exits after the last live shell ends. After a reboot or host exit, startup uses your Lua startup layout or one default shell; old sessions and panes are not replayed.
+- Closing the window keeps shells, running commands, scrollback and graphics alive in `toiqtty.SessionHost.exe`. Reopening attaches to the same processes. The host exits after the last live shell ends. After a reboot or host exit, startup uses your Lua startup layout or one default shell; old sessions and panes are not replayed.
 - WebView2 browser tabs and nested splits alongside shells, with an address/search bar, back/forward, reload, developer tools, external opening, and popup-to-tab navigation. WebViews remain alive across tab/session switches. URLs, selected browser profiles, and browser-owned cookies/storage persist across window restarts; pages reload when the window reopens.
 - A companion extension for Chromium and Firefox browser families shares selected-site cookies into isolated WebView2 profiles using the browser's cookie API. Each browser profile pairs separately. Sharing is one-way, including source updates and deletions, while both apps are open.
 - Lua configuration with logic, local modules, environment helpers, validated settings, automatic reload, and startup session/tab/split layouts. Lua runs in a bounded helper process; reload and window reconnect preserve live shells.
 
-Closing a pane ends its shell. Closing a tab ends that tab's split shells; closing a sidebar session ends all its tabs. Use **Quit Oroterm and stop all sessions** in the command palette for a full shutdown. When the last session closes, the window shows a New session action without starting another shell automatically. Tabs can be renamed through their context menu.
+Closing a pane ends its shell. Closing a tab ends that tab's split shells; closing a sidebar session ends all its tabs. Use **Quit toiqtty and stop all sessions** in the command palette for a full shutdown. When the last session closes, the window shows a New session action without starting another shell automatically. Tabs can be renamed through their context menu.
 
 Shortcuts can be remapped or disabled in Settings.
 
@@ -83,7 +87,7 @@ Shortcuts can be remapped or disabled in Settings.
 | Scroll a page | Shift+PageUp / Shift+PageDown |
 | Show/hide sidebar | Ctrl+Shift+B |
 
-The folder button beside the tab controls, **Ctrl+Shift+O**, and the command palette open the focused pane's live working directory in Windows Explorer. Session and tab context menus offer **Open in Windows Explorer** for their focused pane without switching to them. For browser panes, Oroterm uses a shell in the same tab/session, or the configured starting directory for a browser-only session. WSL directories use their Windows mapping when available; unmapped remote directories report that they are unavailable instead of opening an unrelated local folder. Remap the `openDirectory` action in Settings or Lua.
+The folder button beside the tab controls, **Ctrl+Shift+O**, and the command palette open the focused pane's live working directory in Windows Explorer. Session and tab context menus offer **Open in Windows Explorer** for their focused pane without switching to them. For browser panes, toiqtty uses a shell in the same tab/session, or the configured starting directory for a browser-only session. WSL directories use their Windows mapping when available; unmapped remote directories report that they are unavailable instead of opening an unrelated local folder. Remap the `openDirectory` action in Settings or Lua.
 
 Double-click a session to rename it; its current name is selected for replacement. Right-click a session to open its folder, rename or close it. Closing a shell pane terminates its shell. Closing the window saves the layout and leaves live shells running.
 
@@ -96,6 +100,8 @@ Hover over a pane to reveal its grab handle in the top-right corner. Drag the ha
 Version 0.9.0 uses a dedicated native Direct3D 12 pipeline with batched glyphs, backgrounds, decorations, images and Powerline shapes. DirectWrite still provides shaping, fallback and color emoji. Native GPU caches are bounded, translucent and inactive panes blend through compositor drawing surfaces, and unsupported hardware feature levels fall back to WARP. The session host and terminal protocol remain compatible with existing live shells. Native pixel/debug, composition, resize and device-transition checks accompany the migration; actual driver removal remains a separate hardware check. DX12 command lists, barriers, descriptor heaps and fence-owned upload/allocator slots draw terminal frames; 11-on-12 remains the DirectWrite rasterization and WinUI transparency bridge. Performance results depend on the workload; the migration alone is not a guarantee of lower latency.
 
 Version 0.9.2 gives renderer allocations explicit device, pane, cache-entry and GPU-submission lifetimes. Shared pipelines initialize once per device; pane presentation objects survive alpha/DPI changes; shaped glyph arrays retire with their cache entry; resource pins and upload arenas recycle only after their submission fence completes. Managed WinUI objects still follow their platform lifetime rules. See [ARCHITECTURE.md](ARCHITECTURE.md) for ownership and bounds. Run `scripts/test-native-lifetimes.ps1` for standalone arena checks and `scripts/test-native-gpu-lifetimes.ps1` for native hardware/WARP lifetime checks; both accept `-AddressSanitizer`. WinUI GPU checks run with `scripts/test-directx.ps1 -DebugLayer -Offscreen`.
+
+Version 0.9.4 adds instanced quads, asynchronous DXGI readiness, bounded retained resize capacity, native font formats, HarfBuzz ASCII shaping and cached system color glyphs. Host capture keeps UTF-8 until encoding and negotiates compact style runs, reusable read channels and unchanged-status omission. The frontend still uses Windows Unicode APIs for fallback, input and accessibility. Short paired experiments measure each change; submitted frames are distinct from displayed refreshes. Existing hosts remain compatible, while host-side improvements require a newly started host after ending its shells.
 
 Version 0.7.1 reduces resize and background bookkeeping costs. Managed viewport/transport cells reuse exact-sized, cleared buffers with a process-wide 16 MiB retention limit; native cell storage reuses capacity and releases unusually large buffers when the viewport shrinks. Updated hosts batch hidden-pane metadata every 400 ms and omit unchanged state. Showing a pane cancels its queued metadata wait immediately. Updated hosts also clear selection in the resize request itself, while older hosts retain the explicit fallback request.
 
@@ -125,7 +131,7 @@ Version 0.5.0 introduces the first cmux-inspired WinUI polish pass: a compact ta
 
 Version 0.5.1 flattens that interface around the terminal surface: no per-pane title bars or surrounding frames, flat tabs, a compact session list, and hairline split separators. Split, zoom and close-pane controls live in the native overflow menu and keyboard shortcuts. A single shell fills the content area directly. Preview captures use real PowerShell commands and include the single-terminal layout.
 
-Version 0.5.2 matches Ghostty's default scrollback budget: 50,000,000 bytes (50 MB) per terminal, with no line cap. Lua supports `scrollback_limit_bytes` and `scrollback_limit_lines`, each accepting a nonnegative integer or `'unlimited'`. Reload applies limits to live terminals in the updated session host; reopening applies current settings to reattached shells. History uses Ghostty's existing page-based retention. Upgrading an older host requires **Quit Oroterm and stop all sessions** before launching the new release; simply closing the window keeps that older host alive.
+Version 0.5.2 matches Ghostty's default scrollback budget: 50,000,000 bytes (50 MB) per terminal, with no line cap. Lua supports `scrollback_limit_bytes` and `scrollback_limit_lines`, each accepting a nonnegative integer or `'unlimited'`. Reload applies limits to live terminals in the updated session host; reopening applies current settings to reattached shells. History uses Ghostty's existing page-based retention. Upgrading an older host requires **Quit toiqtty and stop all sessions** before launching the new release; simply closing the window keeps that older host alive.
 
 Version 0.6.2 adds a native WinUI scrollbar backed by Ghostty's history dimensions and absolute row positioning. Its fixed gutter prevents output reflow when history grows. Middle-click autoscroll uses a dead zone and distance-based speed; switching panes/tabs, losing focus, suspending or closing the view cancels it. Alternate-screen applications have no fabricated history. `scripts/test-scrolling.ps1` verifies native scroll coordinates, mouse reporting, autoscroll behavior, accessible thumb positioning, independent split panes and real session-host transport. Scrollbar metadata is optional in version-2 host replies: older hosts remain compatible, but require an upgrade before they can supply a scrollbar. Stop all sessions before installing this update when ready; a window-only restart keeps the old host alive.
 
@@ -175,25 +181,25 @@ Earlier overnight native-engine and host/transport tests completed four hours, i
 
 ## Lua configuration
 
-For executable settings and startup layouts, see [Lua configuration](LUA_CONFIG.md). Open **Edit Lua configuration** in the command palette. The default path is `%LOCALAPPDATA%\Oroterm\oroterm.lua`; an example ships beside the app at `Configuration/oroterm.example.lua`.
+For executable settings and startup layouts, see [Lua configuration](LUA_CONFIG.md). Open **Edit Lua configuration** in the command palette. The default path is `%LOCALAPPDATA%\toiqtty\toiqtty.lua`; an example ships beside the app at `Configuration/toiqtty.example.lua`.
 
 ## Embedded browser and shared cookies
 
-Use **Browser → New browser tab**, **Split browser right**, or **Split browser down**. Microsoft Edge WebView2 Evergreen Runtime must be installed; the rest of Oroterm still works if it is missing. [Install WebView2 Runtime](https://developer.microsoft.com/en-us/microsoft-edge/webview2/).
+Use **Browser → New browser tab**, **Split browser right**, or **Split browser down**. Microsoft Edge WebView2 Evergreen Runtime must be installed; the rest of toiqtty still works if it is missing. [Install WebView2 Runtime](https://developer.microsoft.com/en-us/microsoft-edge/webview2/).
 
-Open **Browser → Profiles and cookie sharing** to connect a browser profile and choose the default for new browser panes. Use **Open companion extension folder** to locate the bundled `BrowserCompanion` directory beside `Oroterm.exe`:
+Open **Browser → Profiles and cookie sharing** to connect a browser profile and choose the default for new browser panes. Use **Open companion extension folder** to locate the bundled `BrowserCompanion` directory beside `toiqtty.exe`:
 
 1. Edge, Chrome, Brave, Vivaldi, and compatible Chromium browsers: enable Developer mode on the browser's Extensions page, then **Load unpacked** from `BrowserCompanion/chromium`.
 2. Firefox and compatible browsers: use **Load Temporary Add-on** at `about:debugging#/runtime/this-firefox`, selecting `BrowserCompanion/firefox/manifest.json`. The development extension must be reloaded after restarting Firefox. A permanent standard Firefox installation requires a Mozilla-signed package, which is not included.
-3. In Oroterm choose **Connect another browser profile**, copy the pairing code into the extension, and name the browser/profile. Pairing is single use and expires after ten minutes.
-4. Select the connection in Oroterm, enter origins such as `https://github.com` or `http://localhost:3000`, and **Save site selection**. Reopen the extension popup and choose **Approve sites and sync now**. Browser permissions are requested only for those sites.
+3. In toiqtty choose **Connect another browser profile**, copy the pairing code into the extension, and name the browser/profile. Pairing is single use and expires after ten minutes.
+4. Select the connection in toiqtty, enter origins such as `https://github.com` or `http://localhost:3000`, and **Save site selection**. Reopen the extension popup and choose **Approve sites and sync now**. Browser permissions are requested only for those sites.
 5. Choose that connection as the default, **Save defaults**, and create a browser pane. Existing panes keep their original profile; use a pane's **⋯ → Change browser profile** to switch and reload it. The extension syncs about once per minute and after cookie changes; its popup lets you select a Firefox container separately from the default cookie store.
 
-Cookie sharing does not transfer passwords, history, localStorage, IndexedDB, partitioned cookies, or device-bound session keys. Some sites require signing in inside Oroterm. WebView2 uses its own data directory; it never opens or modifies a regular browser's profile database. Disconnecting revokes the source token and stops future sharing. Previously imported cookies remain until cleared from the browser pane menu. Removing an origin stops future sharing for that origin; it does not sign you out automatically. The companion README documents installation and behavior in more detail.
+Cookie sharing does not transfer passwords, history, localStorage, IndexedDB, partitioned cookies, or device-bound session keys. Some sites require signing in inside toiqtty. WebView2 uses its own data directory; it never opens or modifies a regular browser's profile database. Disconnecting revokes the source token and stops future sharing. Previously imported cookies remain until cleared from the browser pane menu. Removing an origin stops future sharing for that origin; it does not sign you out automatically. The companion README documents installation and behavior in more detail.
 
 Cookies and extension site permissions apply to the host across ports. Selecting `http://localhost:3000` does not isolate cookies from other localhost ports.
 
-To display a PNG from PowerShell inside Oroterm:
+To display a PNG from PowerShell inside toiqtty:
 
 ```powershell
 ./scripts/show-image.ps1 -Path 'C:\path\image.png' -Columns 40
@@ -218,7 +224,7 @@ To display a PNG from PowerShell inside Oroterm:
 ./scripts/test-endurance.ps1 -Seconds 10800 # Three-hour sessionized stress with crash monitoring
 ./scripts/test-endurance.ps1 -Seconds 10800 -FrontendDebuggerMode None -HostDebuggerMode None # Same stress without attached debuggers
 ./scripts/test-endurance.ps1 -Seconds 60 -PauseCheck # Verify external minimization pauses active stress time
-dotnet run --project tests/Oroterm.Smoke -c Release -- --snapshot-fuzz 60 17 # Seeded incremental/full-frame differential check
+dotnet run --project tests/Toiqtty.Smoke -c Release -- --snapshot-fuzz 60 17 # Seeded incremental/full-frame differential check
 ./scripts/test-startup.ps1        # Timed fresh-host and reattach launches (published release)
 ```
 
@@ -236,55 +242,55 @@ Version 0.1.8 adds this guided validation mode and fixes retrieval of the initia
 
 Version 0.2.0 adds the independent session host and the session/tab/pane hierarchy. Run `./scripts/test.ps1 -SkipNative -Ui -Sessions` to test host lifecycle, detach/reconnect and two-process WinUI close/crash recovery. Each run uses disposable data directories, verifies the original PowerShell PID and in-memory variable, and checks detached output, graphics, tab layouts, focused panes and host shutdown. The isolated hardware and ordinary UI-smoke drivers continue using local sessions unless running the explicit persistent-session probe.
 
-Version 0.3.0 adds WebView2 browser panes and companion cookie sharing. Its session-host IPC protocol is version 2 so older hosts cannot discard browser layout fields. Before activating the staged release, use **Quit Oroterm and stop all sessions** in the installed version, then run `./scripts/activate-release.ps1`. Closing only the window leaves the old host running. Starting the new version while an older host is live shows an upgrade window without changing its sessions or saved layout.
+Version 0.3.0 adds WebView2 browser panes and companion cookie sharing. Its session-host IPC protocol is version 2 so older hosts cannot discard browser layout fields. Before activating the staged release, use **Quit toiqtty and stop all sessions** in the installed version, then run `./scripts/activate-release.ps1`. Closing only the window leaves the old host running. Starting the new version while an older host is live shows an upgrade window without changing its sessions or saved layout.
 
 ```powershell
 ./scripts/publish.ps1
 ```
 
-Produces `artifacts/Oroterm-win-x64.zip`. Extract the entire directory and run `Oroterm.exe`. Both .NET and Windows App SDK runtimes are included; there is no MSIX registration step. The build is unsigned.
+Produces `artifacts/toiqtty-win-x64.zip`. Extract the entire directory and run `toiqtty.exe`. Both .NET and Windows App SDK runtimes are included; there is no MSIX registration step. The build is unsigned.
 
-Run `./scripts/install.ps1` after publishing to install under `%LOCALAPPDATA%\Programs\Oroterm\versions\<version>`, add **Oroterm** to the current user's Start menu and open it. Windows Search can discover that shortcut. Installation verifies the release manifest and every copied file, stages a new immutable version, and updates the launch shortcut and installation state together. Existing binaries, running shells, settings and browser data are preserved. Use `-ReleaseDirectory` for a different published folder or `-NoLaunch` to install without opening a window. The installed copy runs independently of workspace artifacts.
+Run `./scripts/install.ps1` after publishing to install under `%LOCALAPPDATA%\Programs\toiqtty\versions\<version>`, add **toiqtty** to the current user's Start menu and open it. Windows Search can discover that shortcut. Installation verifies the release manifest and every copied file, stages a new immutable version, and updates the launch shortcut and installation state together. Existing binaries, running shells, settings and browser data are preserved. Use `-ReleaseDirectory` for a different published folder or `-NoLaunch` to install without opening a window. The installed copy runs independently of workspace artifacts.
 
 The ZIP includes installation tools in `tools/`. `./scripts/update.ps1 -ArchivePath <zip> -ExpectedSha256 <hash> -NoLaunch` checks the archive checksum, validates archive paths and installs the verified payload. `./scripts/rollback.ps1 -NoLaunch` verifies and restores the previous installed version. The versioned ZIP's `.json` sidecar contains its checksum; a checksum detects corruption but is not publisher authentication. Updates do not terminate existing frontends or session hosts. Close and reopen the window to use the new frontend; host-side features become available after the older host's shells end naturally. `./scripts/test-release.ps1` exercises update, rollback, tampering rejection and activation failure recovery in disposable directories.
 
 If the current release is running, publish alongside it with `./scripts/publish.ps1 -OutputDirectory artifacts/release-next`. Validate that folder with `./scripts/test.ps1 -SkipNative -Published -ReleaseDirectory artifacts/release-next`.
 
-`./scripts/activate-release.ps1` waits for the old `artifacts/release/Oroterm.exe` to close, copies the staged release into that folder, and reopens the updated app. It never terminates running terminals. Both folders must be inside this workspace's `artifacts` directory. The app displays its version in the title bar.
+`./scripts/activate-release.ps1` waits for the old `artifacts/release/toiqtty.exe` to close, copies the staged release into that folder, and reopens the updated app. It never terminates running terminals. Both folders must be inside this workspace's `artifacts` directory. The app displays its version in the title bar.
 
-Settings and layouts live in `%LOCALAPPDATA%\Oroterm\session.json`. Unhandled errors are logged to `crash.log` in that folder. To isolate development data, set `OROTERM_DATA_DIR` for the launched process.
+Settings and layouts live in `%LOCALAPPDATA%\toiqtty\session.json`. Unhandled errors are logged to `crash.log` in that folder. To isolate development data, set `TOIQTTY_DATA_DIR` for the launched process.
 
 ## Current limits
 
-PowerShell has automatic command integration, Windows/WSL/remote directory handling and native desktop notifications. PowerShell command text is bounded to fit Ghostty's OSC buffer; the complete command still executes. Version 0.4.1 adds original MIT-licensed Bash 5.1+ and Zsh adapters. They track command boundaries, duration, exit status and percent-encoded cwd; Zsh also supplies bounded command text. Login startup, custom prompts and existing hooks are preserved. Scripts and unknown launch options retain their original invocation. See [adapter documentation](src/Oroterm/Integration/posix/README.md) for startup behavior, manual loading and compatibility limits. Protocol parsing still accepts upstream-supported metadata emitted by a shell's own configuration. Oroterm does not modify local or remote profiles. Remote directory authorities are displayed without becoming local process directories. Use `scripts/test-interop.ps1 -WslDistro archlinux -Zsh` for the extracted zsh 5.9.1 test client; it requires compatible Arch Linux libraries and installs no packages globally.
+PowerShell has automatic command integration, Windows/WSL/remote directory handling and native desktop notifications. PowerShell command text is bounded to fit Ghostty's OSC buffer; the complete command still executes. Version 0.4.1 adds original MIT-licensed Bash 5.1+ and Zsh adapters. They track command boundaries, duration, exit status and percent-encoded cwd; Zsh also supplies bounded command text. Login startup, custom prompts and existing hooks are preserved. Scripts and unknown launch options retain their original invocation. See [adapter documentation](src/Toiqtty/Integration/posix/README.md) for startup behavior, manual loading and compatibility limits. Protocol parsing still accepts upstream-supported metadata emitted by a shell's own configuration. toiqtty does not modify local or remote profiles. Remote directory authorities are displayed without becoming local process directories. Use `scripts/test-interop.ps1 -WslDistro archlinux -Zsh` for the extracted zsh 5.9.1 test client; it requires compatible Arch Linux libraries and installs no packages globally.
 
-Version 0.1.6 adds Kitty file and temporary-file image transfers using Ghostty's existing Windows loader, plus Copy/Move drop-target negotiation, text/HTML/RTF MIME capture and completion callbacks. A native Move is reported only after the terminal application confirms completion. Oroterm integrates upstream protocol implementations; missing upstream features stay unavailable until upstream implements them. This includes OSC 66, Windows shared-memory images, source-side drags, remote file-content drops and Link operations.
+Version 0.1.6 adds Kitty file and temporary-file image transfers using Ghostty's existing Windows loader, plus Copy/Move drop-target negotiation, text/HTML/RTF MIME capture and completion callbacks. A native Move is reported only after the terminal application confirms completion. toiqtty integrates upstream protocol implementations; missing upstream features stay unavailable until upstream implements them. This includes OSC 66, Windows shared-memory images, source-side drags, remote file-content drops and Link operations.
 
-Oroterm is Windows x64 only. A custom native Direct3D 12 renderer consumes Ghostty's terminal state and DirectWrite-shaped glyphs; Ghostty's internal macOS embedding API is not used. Ghostty protocol compatibility is a core milestone: see [PROTOCOLS.md](PROTOCOLS.md) for implemented coverage and remaining work. Scaled text (OSC 66) remains unsupported: the pinned Ghostty engine parses and ignores it, so implementing it requires engine screen-state work. Touch selection and Ghostty configuration-file compatibility remain pending. Version 0.1.5 passes a ten-minute four-shell/image soak and a two-minute real WinUI renderer soak. OS layout translation, composition handlers, external UIA, device replacement, rendering DPI changes and power-notification recovery are automated. Physical IME input, Narrator speech/navigation, actual driver loss and real system sleep/wake still need hardware validation. Mixed-monitor transitions have been verified with two monitors at 100% and 175% scaling. Kitty/tmux/WSL interop is opt-in; WSL pixel-size autodetection requires Kitty's explicit window-size option on the tested console path.
+toiqtty is Windows x64 only. A custom native Direct3D 12 renderer consumes Ghostty's terminal state and DirectWrite-shaped glyphs; Ghostty's internal macOS embedding API is not used. Ghostty protocol compatibility is a core milestone: see [PROTOCOLS.md](PROTOCOLS.md) for implemented coverage and remaining work. Scaled text (OSC 66) remains unsupported: the pinned Ghostty engine parses and ignores it, so implementing it requires engine screen-state work. Touch selection and Ghostty configuration-file compatibility remain pending. Version 0.1.5 passes a ten-minute four-shell/image soak and a two-minute real WinUI renderer soak. OS layout translation, composition handlers, external UIA, device replacement, rendering DPI changes and power-notification recovery are automated. Physical IME input, Narrator speech/navigation, actual driver loss and real system sleep/wake still need hardware validation. Mixed-monitor transitions have been verified with two monitors at 100% and 175% scaling. Kitty/tmux/WSL interop is opt-in; WSL pixel-size autodetection requires Kitty's explicit window-size option on the tested console path.
 
 The app ships Microsoft's pinned ConPTY console host so graphics escapes reach Ghostty on systems whose built-in console host strips them. The Ghostty pin includes a small, reproducible patch exposing upstream animation and Unicode-placeholder layout to our host. Basic image and animation output is checked through a real PowerShell/ConPTY session and against rendered PNG pixels; this does not establish complete interoperability with every graphics application.
 
-Embedded WebView2 browser panes, companion-extension cookie sharing for selected sites, Lua settings/startup layouts and local persistent shells are implemented. The public `oro` CLI, richer Lua actions, modal key tables, fuzzy session switching and visual/window controls are implemented in 0.7.19. Remote-machine session transport and multi-window attachment remain future work. The private session IPC supports one foreground Oroterm window per data directory. Host failure or reboot ends live local shells; subsequent startup uses configured Lua actions or one default shell. Activity is retained while detached; Windows toast delivery runs in an attached window. See [ARCHITECTURE.md](ARCHITECTURE.md) for the implementation boundaries and next work.
+Embedded WebView2 browser panes, companion-extension cookie sharing for selected sites, Lua settings/startup layouts and local persistent shells are implemented. The public `oro` CLI, richer Lua actions, modal key tables, fuzzy session switching and visual/window controls are implemented in 0.7.19. Remote-machine session transport and multi-window attachment remain future work. The private session IPC supports one foreground toiqtty window per data directory. Host failure or reboot ends live local shells; subsequent startup uses configured Lua actions or one default shell. Activity is retained while detached; Windows toast delivery runs in an attached window. See [ARCHITECTURE.md](ARCHITECTURE.md) for the implementation boundaries and next work.
 
 ## Command line (0.7.19)
 
-`oro.exe` ships beside `Oroterm.exe`. The normal per-user installer adds its version directory to the user PATH; existing shells retain their inherited PATH. New processes launched from the refreshed desktop environment can use `oro`. In an existing shell, invoke the installed executable by its full path. `oro --help` lists options, and `oro --version` prints the version.
+`toiq.exe` ships beside `toiqtty.exe`. The normal per-user installer adds its version directory to the user PATH; existing shells retain their inherited PATH. New processes launched from the refreshed desktop environment can use `oro`. In an existing shell, invoke the installed executable by its full path. `oro --help` lists options, and `oro --version` prints the version.
 
 ```powershell
-oro sessions --json
-oro new-session --name Development --cwd D:\repo
-oro focus Development
-oro new-tab --session Development --name Logs
-oro split right --session Development
-oro rename-session Development 'Daily work'
-oro action nextWallpaper
-oro action lua:scratch
-oro reload
+toiq sessions --json
+toiq new-session --name Development --cwd D:\repo
+toiq focus Development
+toiq new-tab --session Development --name Logs
+toiq split right --session Development
+toiq rename-session Development 'Daily work'
+toiq action nextWallpaper
+toiq action lua:scratch
+toiq reload
 ```
 
-Use session IDs or exact unique names; ambiguous names fail. `--data-dir DIRECTORY` targets an isolated Oroterm instance. `sessions` lists sessions/tabs/panes and can read a detached host's layout without starting anything. `launch` explicitly opens the window. Other commands require an open window and reject workspace mutations while a dialog or drag is active.
+Use session IDs or exact unique names; ambiguous names fail. `--data-dir DIRECTORY` targets an isolated toiqtty instance. `sessions` lists sessions/tabs/panes and can read a detached host's layout without starting anything. `launch` explicitly opens the window. Other commands require an open window and reject workspace mutations while a dialog or drag is active.
 
-`oro send-text --pane ID --text TEXT` sends literal UTF-8, including control characters, without adding Enter. `oro paste --pane ID --text TEXT` uses Ghostty's paste handling. Omit `--pane` to target the selected pane, or use `--session` to target a session's selected pane. Both report input admission, not command completion. Literal input requires a 0.7.19+ host. The CLI does not automatically stop or upgrade an existing host.
+`toiq send-text --pane ID --text TEXT` sends literal UTF-8, including control characters, without adding Enter. `toiq paste --pane ID --text TEXT` uses Ghostty's paste handling. Omit `--pane` to target the selected pane, or use `--session` to target a session's selected pane. Both report input admission, not command completion. Literal input requires a 0.7.19+ host. The CLI does not automatically stop or upgrade an existing host.
 
 The local control pipe is restricted to the current Windows user, versioned and size/deadline bounded. UI mutations use the same action/layout methods as keyboard controls. JSON output goes to stdout; errors go to stderr with exit code 1. Requests are never retried after an ambiguous failure. Dialog-opening actions require the window's normal controls. Remote transport and multiple attached windows remain separate work.
 

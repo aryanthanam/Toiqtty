@@ -31,14 +31,14 @@ cd tmux-3.8
 ./configure --disable-utf8proc >configure.log 2>&1
 make -j4 >build.log 2>&1
 '@
-    & wsl.exe -d $WslDistro --exec bash -c $build oroterm $linuxRoot
+    & wsl.exe -d $WslDistro --exec bash -c $build toiqtty $linuxRoot
     if ($LASTEXITCODE -ne 0) { throw 'tmux build failed. The distro needs a C compiler, make, libevent and ncurses development files. See .tools/tmux-3.8 logs.' }
 }
-$previous = $env:OROTERM_WSL_DISTRO
-$previousZsh = $env:OROTERM_ZSH_ROOT
+$previous = $env:TOIQTTY_WSL_DISTRO
+$previousZsh = $env:TOIQTTY_ZSH_ROOT
 try {
-    $env:OROTERM_WSL_DISTRO = $WslDistro
-    if ($Zsh) { $env:OROTERM_ZSH_ROOT = "$repoRoot/.tools/zsh-package" }
+    $env:TOIQTTY_WSL_DISTRO = $WslDistro
+    if ($Zsh) { $env:TOIQTTY_ZSH_ROOT = "$repoRoot/.tools/zsh-package" }
     & "$PSScriptRoot/test.ps1" -SkipNative -Ui:$Ui
 }
-finally { $env:OROTERM_WSL_DISTRO = $previous; $env:OROTERM_ZSH_ROOT = $previousZsh }
+finally { $env:TOIQTTY_WSL_DISTRO = $previous; $env:TOIQTTY_ZSH_ROOT = $previousZsh }

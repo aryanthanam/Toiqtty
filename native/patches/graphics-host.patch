@@ -6,9 +6,9 @@ index 517ccce..c2fb3af 100644
          _ = @import("quirks_memset.zig");
  
          const c = terminal.c_api;
-+        // Oroterm host hooks. Keep protocol parsing and image layout upstream.
-+        @export(&c.kitty_graphics.oroterm_tick, .{ .name = "ghostty_oroterm_graphics_tick" });
-+        @export(&c.kitty_graphics.oroterm_virtual, .{ .name = "ghostty_oroterm_graphics_virtual" });
++        // Toiqtty host hooks. Keep protocol parsing and image layout upstream.
++        @export(&c.kitty_graphics.toiqtty_tick, .{ .name = "ghostty_toiqtty_graphics_tick" });
++        @export(&c.kitty_graphics.toiqtty_virtual, .{ .name = "ghostty_toiqtty_graphics_virtual" });
          const features = terminal.options;
          if (features.input_encode) {
              @export(&c.key_event_new, .{ .name = "ghostty_key_event_new" });
@@ -22,14 +22,14 @@ index 2bd5e86..7c06e3a 100644
  
 +// Host hooks pending equivalent public C API entry points. These delegate to
 +// Ghostty's own animation clock and Unicode-placeholder geometry implementation.
-+pub fn oroterm_tick(terminal_: terminal_c.Terminal, now_ms: u64) callconv(lib.calling_conv) u32 {
++pub fn toiqtty_tick(terminal_: terminal_c.Terminal, now_ms: u64) callconv(lib.calling_conv) u32 {
 +    if (comptime !build_options.kitty_graphics) return std.math.maxInt(u32);
 +    const wrapper = terminal_ orelse return std.math.maxInt(u32);
 +    const delay = wrapper.terminal.screens.active.kitty_images.animationTick(wrapper.io.io(), now_ms) orelse return std.math.maxInt(u32);
 +    return @intCast(@min(delay, std.math.maxInt(u32) - 1));
 +}
 +pub const VirtualCallback = *const fn (?*anyopaque, u32, u32, i32, i32, u32, u32, u32, u32, u32, u32, u32, u32) callconv(lib.calling_conv) void;
-+pub fn oroterm_virtual(terminal_: terminal_c.Terminal, cell_width: u32, cell_height: u32, context: ?*anyopaque, callback: VirtualCallback) callconv(lib.calling_conv) void {
++pub fn toiqtty_virtual(terminal_: terminal_c.Terminal, cell_width: u32, cell_height: u32, context: ?*anyopaque, callback: VirtualCallback) callconv(lib.calling_conv) void {
 +    if (comptime !build_options.kitty_graphics) return;
 +    const wrapper = terminal_ orelse return;
 +    const t = wrapper.terminal;

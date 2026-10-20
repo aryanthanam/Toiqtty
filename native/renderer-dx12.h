@@ -48,7 +48,7 @@ struct Dx12Descriptor {
 // Terminal triangles execute directly on this D3D12 queue. The 11-on-12
 // device is exclusively the DirectWrite/Direct2D and WinUI surface bridge.
 struct Dx12Device {
-    bool profiling=GetEnvironmentVariableW(L"OROTERM_RENDER_PROFILE",nullptr,0)!=0;
+    bool profiling=GetEnvironmentVariableW(L"TOIQTTY_RENDER_PROFILE",nullptr,0)!=0;
     OtrProfile profile{};
     std::vector<std::shared_ptr<Dx12DescriptorPage>> srvPages,rtvPages;
     Dx12Descriptor descriptor(D3D12_DESCRIPTOR_HEAP_TYPE type) {
@@ -73,12 +73,14 @@ struct Dx12Device {
     ComPtr<ID3D11On12Device2> on12;
     ComPtr<ID2D1Device2> d2d;
     ComPtr<ID2D1Multithread> lock;
-    struct Pipelines {ComPtr<ID3D12RootSignature> roots[2];ComPtr<ID3D12PipelineState> states[2][2];} pipelines;
+    struct Pipelines {ComPtr<ID3D12RootSignature> roots[2];ComPtr<ID3D12PipelineState> states[2][2][2];} pipelines;
     uint64_t pipelineBuilds=0;
     void initializePipelines();
 
     UINT64 nextFence=0;
+    UINT64 adapterKey=0;
     UINT64 executedLists=0;
+    std::string adapterName;
     UINT64 errors=0,warnings=0,interopWarnings=0;
     std::string diagnostics;
     bool diagnosticsTruncated=false;
@@ -128,7 +130,17 @@ struct Dx12Device {
     // Explicitly drained on the application UI thread before COM teardown.
     // No D3D fence wait or device release is performed in DLL detach.
     static void shutdown(){std::lock_guard guard(cacheGate());cache().clear();}
-    static std::shared_ptr<Dx12Device> get(ID3D11Device* providerDevice) {
+    static void install(const std::shared_ptr<Dx12Device>& device) {
+        check(device->device->GetDeviceRemovedReason());
+        std::lock_guard guard(cacheGate());auto& devices=cache();
+        if(auto found=devices.find(device->adapterKey);found!=devices.end()) {
+            if(SUCCEEDED(found->second->device->GetDeviceRemovedReason()))return;
+            devices.erase(found);
+        }
+        if(devices.size()>=8)throw Failure{DXGI_ERROR_UNSUPPORTED};
+        devices[device->adapterKey]=device;
+    }
+    static std::shared_ptr<Dx12Device> get(ID3D11Device* providerDevice,bool retain=true) {
         ComPtr<IDXGIDevice> dxgi;check(providerDevice->QueryInterface(IID_PPV_ARGS(&dxgi)));
         ComPtr<IDXGIAdapter> adapter;check(dxgi->GetAdapter(&adapter));DXGI_ADAPTER_DESC description{};check(adapter->GetDesc(&description));
         UINT64 key=static_cast<UINT64>(static_cast<UINT32>(description.AdapterLuid.HighPart))<<32|description.AdapterLuid.LowPart;
@@ -140,8 +152,11 @@ struct Dx12Device {
         if(devices.size()>=8){for(auto it=devices.begin();it!=devices.end();)if(it->second.use_count()==1)it=devices.erase(it);else ++it;}
         if(devices.size()>=8)throw Failure{DXGI_ERROR_UNSUPPORTED};
         auto result=std::make_shared<Dx12Device>();
+        result->adapterKey=key;
+        char name[512];int nameLength=WideCharToMultiByte(CP_UTF8,0,description.Description,-1,name,sizeof(name),nullptr,nullptr);
+        if(nameLength>0)result->adapterName.assign(name,static_cast<size_t>(nameLength-1));
         if(result->profiling){LARGE_INTEGER frequency;QueryPerformanceFrequency(&frequency);result->profile.frequency=frequency.QuadPart;result->profile.device_private_before=profilePrivate();}
-        bool diagnostics=GetEnvironmentVariableW(L"OROTERM_DIRECTX_DEBUG",nullptr,0)!=0;
+        bool diagnostics=GetEnvironmentVariableW(L"TOIQTTY_DIRECTX_DEBUG",nullptr,0)!=0;
         if(diagnostics) {ComPtr<ID3D12Debug> debug;check(D3D12GetDebugInterface(IID_PPV_ARGS(&debug)));debug->EnableDebugLayer();}
         HRESULT hr=D3D12CreateDevice(adapter.Get(),D3D_FEATURE_LEVEL_11_0,IID_PPV_ARGS(&result->device));
         if(FAILED(hr))throw Failure{hr==E_INVALIDARG?DXGI_ERROR_UNSUPPORTED:hr};
@@ -162,7 +177,8 @@ struct Dx12Device {
         check(factory.As(&result->lock));
         check(result->bridge.As(&dxgi));check(factory->CreateDevice(dxgi.Get(),&result->d2d));
         if(result->profiling)result->profile.device_private_d2d=profilePrivate();
-        devices[key]=result;return result;
+        if(retain)devices[key]=result;
+        return result;
     }
 };
 

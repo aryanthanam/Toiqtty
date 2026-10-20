@@ -2,7 +2,7 @@ param([Parameter(Mandatory)][string]$Directory,[string]$OutputPath,[switch]$Sign
 $ErrorActionPreference='Stop'
 $root=[IO.Path]::GetFullPath($Directory)
 if(!$OutputPath) { $OutputPath=Join-Path $root 'release-manifest.json' }
-$version=([Diagnostics.FileVersionInfo]::GetVersionInfo((Join-Path $root 'Oroterm.exe')).ProductVersion -split '\+')[0]
+$version=([Diagnostics.FileVersionInfo]::GetVersionInfo((Join-Path $root 'toiqtty.exe')).ProductVersion -split '\+')[0]
 if($version -notmatch '^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$') { throw 'Release executable has no valid version.' }
 $files=@(foreach($file in Get-ChildItem -LiteralPath $root -File -Recurse -Force | Sort-Object FullName) {
     $relative=[IO.Path]::GetRelativePath($root,$file.FullName).Replace('\','/')

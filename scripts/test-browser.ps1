@@ -4,22 +4,22 @@ $repoRoot = Split-Path $PSScriptRoot -Parent
 $appFolder = if ([IO.Path]::IsPathRooted($AppDirectory)) { $AppDirectory } else { Join-Path $repoRoot $AppDirectory }
 $testFolder = if ([IO.Path]::IsPathRooted($TestDirectory)) { $TestDirectory } else { Join-Path $repoRoot $TestDirectory }
 if (!$SkipBuild) {
-    dotnet build "$repoRoot/src/Oroterm/Oroterm.csproj" -c Debug -o $appFolder
+    dotnet build "$repoRoot/src/Toiqtty/Toiqtty.csproj" -c Debug -o $appFolder
     if ($LASTEXITCODE -ne 0) { throw 'Browser WinUI build failed.' }
-    dotnet build "$repoRoot/tests/Oroterm.Smoke" -c Release -o $testFolder
+    dotnet build "$repoRoot/tests/Toiqtty.Smoke" -c Release -o $testFolder
     if ($LASTEXITCODE -ne 0) { throw 'Browser integration build failed.' }
 }
-& "$testFolder/Oroterm.Smoke.exe" --browser-only
+& "$testFolder/Toiqtty.Smoke.exe" --browser-only
 if ($LASTEXITCODE -ne 0) { throw 'Browser model and bridge checks failed.' }
 node --test "$repoRoot/tests/browser-companion.test.cjs"
 if ($LASTEXITCODE -ne 0) { throw 'Browser companion checks failed.' }
 $data = "$repoRoot/artifacts/browser-smoke-$([Guid]::NewGuid().ToString('N'))"
-$start = [Diagnostics.ProcessStartInfo]::new("$appFolder/Oroterm.exe")
+$start = [Diagnostics.ProcessStartInfo]::new("$appFolder/toiqtty.exe")
 $start.UseShellExecute = $false
 $start.WindowStyle = [Diagnostics.ProcessWindowStyle]::Hidden
 $start.WorkingDirectory = $repoRoot
 $start.ArgumentList.Add('--browser-smoke')
-$start.Environment['OROTERM_DATA_DIR'] = $data
+$start.Environment['TOIQTTY_DATA_DIR'] = $data
 $process = [Diagnostics.Process]::Start($start)
 $deadline = [DateTime]::UtcNow.AddSeconds(100)
 while (!$process.WaitForExit(1000) -and [DateTime]::UtcNow -lt $deadline) { }
@@ -31,8 +31,8 @@ $report.checks | ForEach-Object { Write-Host "PASS: $_" }
 Write-Host "Browser UI report: $data/browser-smoke.json"
 $persistentData = "$repoRoot/artifacts/browser-persistence-$([Guid]::NewGuid().ToString('N'))"
 foreach ($phase in @('prepare', 'reconnect')) {
-    $start.Environment['OROTERM_DATA_DIR'] = $persistentData
-    $start.Environment['OROTERM_BROWSER_UI_PROBE'] = $phase
+    $start.Environment['TOIQTTY_DATA_DIR'] = $persistentData
+    $start.Environment['TOIQTTY_BROWSER_UI_PROBE'] = $phase
     $process = [Diagnostics.Process]::Start($start)
     $deadline = [DateTime]::UtcNow.AddSeconds(60)
     while (!$process.WaitForExit(1000) -and [DateTime]::UtcNow -lt $deadline) { }
@@ -44,5 +44,5 @@ foreach ($phase in @('prepare', 'reconnect')) {
     $report.checks | ForEach-Object { Write-Host "PASS: $_" }
 }
 Write-Host "Browser persistence reports: $persistentData"
-& "$testFolder/Oroterm.Smoke.exe" --session-upgrade-window "$appFolder/Oroterm.exe"
+& "$testFolder/Toiqtty.Smoke.exe" --session-upgrade-window "$appFolder/toiqtty.exe"
 if ($LASTEXITCODE -ne 0) { throw 'Browser release compatibility guard checks failed.' }

@@ -7,14 +7,14 @@ Push-Location $repoRoot
 try {
     if (!$SkipBuild) {
         & "$PSScriptRoot/build-native.ps1"
-        dotnet build "$repoRoot/tests/Oroterm.Smoke/Oroterm.Smoke.csproj" -c Release -o $testFolder
+        dotnet build "$repoRoot/tests/Toiqtty.Smoke/Toiqtty.Smoke.csproj" -c Release -o $testFolder
         if ($LASTEXITCODE -ne 0) { throw 'Scrolling harness build failed.' }
-        dotnet build "$repoRoot/src/Oroterm/Oroterm.csproj" -c Release -o $appFolder
+        dotnet build "$repoRoot/src/Toiqtty/Toiqtty.csproj" -c Release -o $appFolder
         if ($LASTEXITCODE -ne 0) { throw 'Scrolling app build failed.' }
     }
-    & "$testFolder/Oroterm.Smoke.exe" --scrolling
+    & "$testFolder/Toiqtty.Smoke.exe" --scrolling
     if ($LASTEXITCODE -ne 0) { throw 'Native scrolling checks failed.' }
-    & "$testFolder/Oroterm.Smoke.exe" --scrolling-ui "$appFolder/Oroterm.exe"
+    & "$testFolder/Toiqtty.Smoke.exe" --scrolling-ui "$appFolder/toiqtty.exe"
     if ($LASTEXITCODE -ne 0) { throw 'Scrolling WinUI checks failed.' }
 }
 finally { Pop-Location }

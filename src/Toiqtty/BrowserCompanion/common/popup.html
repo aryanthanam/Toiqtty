@@ -1,0 +1,14 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>toiqtty Browser Companion</title><link rel="stylesheet" href="popup.css"></head>
+<body><h1>toiqtty <span>Browser Companion</span></h1>
+<p>Share cookies from this browser profile for sites you select in toiqtty. Sharing goes into toiqtty only.</p>
+<label>Browser and profile name<input id="name" maxlength="100" placeholder="Chrome · Personal / Firefox · Work"></label>
+<label>Pairing code from toiqtty<textarea id="code" rows="3" spellcheck="false"></textarea></label>
+<button id="connect">Connect profile</button>
+<label>Cookie store<select id="store"></select></label>
+<p id="sites">Connect to see the selected sites.</p>
+<button id="sync" disabled>Approve sites and sync now</button>
+<button id="disconnect">Forget connection</button>
+<p id="status" role="status" aria-live="polite"></p>
+<p class="note">toiqtty must be open. Automatic sync runs about once a minute and after cookie changes. Passwords, history, local storage, and partitioned cookies are excluded.</p>
+<script src="bridge.js"></script><script src="popup.js"></script></body></html>

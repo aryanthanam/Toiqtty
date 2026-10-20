@@ -6,8 +6,8 @@ index c2fb3af..6f6aa9f 100644
          }
          @export(&c.terminal_new, .{ .name = "ghostty_terminal_new" });
          @export(&c.terminal_free, .{ .name = "ghostty_terminal_free" });
-+        @export(&c.kitty_graphics.oroterm_dnd, .{ .name = "ghostty_oroterm_dnd" });
-+        @export(&c.kitty_graphics.oroterm_dnd_subscribe, .{ .name = "ghostty_oroterm_dnd_subscribe" });
++        @export(&c.kitty_graphics.toiqtty_dnd, .{ .name = "ghostty_toiqtty_dnd" });
++        @export(&c.kitty_graphics.toiqtty_dnd_subscribe, .{ .name = "ghostty_toiqtty_dnd_subscribe" });
          @export(&c.terminal_reset, .{ .name = "ghostty_terminal_reset" });
          @export(&c.terminal_resize, .{ .name = "ghostty_terminal_resize" });
          @export(&c.terminal_set, .{ .name = "ghostty_terminal_set" });
@@ -22,13 +22,13 @@ index 7c06e3a..96521c4 100644
 +
 +// Drop target adapter: all OSC 72 parsing, negotiation and retained data stay upstream.
 +pub const DndItem = extern struct { mime: lib.String, data: lib.String };
-+pub fn oroterm_dnd_subscribe(terminal_: terminal_c.Terminal,
++pub fn toiqtty_dnd_subscribe(terminal_: terminal_c.Terminal,
 +    callback: ?*const fn (terminal_c.Terminal, ?*anyopaque, u32) callconv(lib.calling_conv) void) callconv(lib.calling_conv) void {
 +    const wrapper = terminal_ orelse return;
-+    wrapper.oroterm_dnd_callback = callback;
-+    wrapper.stream.handler.effects.drag_and_drop = &terminal_c.orotermDndTrampoline;
++    wrapper.toiqtty_dnd_callback = callback;
++    wrapper.stream.handler.effects.drag_and_drop = &terminal_c.toiqttyDndTrampoline;
 +}
-+pub fn oroterm_dnd(terminal_: terminal_c.Terminal, action: u32, x: i32, y: i32,
++pub fn toiqtty_dnd(terminal_: terminal_c.Terminal, action: u32, x: i32, y: i32,
 +    cell_width: u32, cell_height: u32, operations: u32, items: ?[*]const DndItem, count: usize) callconv(lib.calling_conv) i32 {
 +    const wrapper = terminal_ orelse return -1;
 +    const t = wrapper.terminal;
@@ -85,7 +85,7 @@ index 06cab9b..c6d4112 100644
      terminfo_name_buf: [Handler.max_terminfo_name_bytes]u8,
      stream: Stream,
      effects: Effects = .{},
-+    oroterm_dnd_callback: ?*const fn (Terminal, ?*anyopaque, u32) callconv(lib.calling_conv) void = null,
++    toiqtty_dnd_callback: ?*const fn (Terminal, ?*anyopaque, u32) callconv(lib.calling_conv) void = null,
      tracked_grid_refs: std.AutoArrayHashMapUnmanaged(*grid_ref_tracked_c.TrackedGridRef, void) = .{},
      searches: std.AutoArrayHashMapUnmanaged(*search_c.SearchWrapper, void) = .{},
  
@@ -94,9 +94,9 @@ index 06cab9b..c6d4112 100644
  };
  
 +/// Narrow host adapter for the existing upstream drop-target effect.
-+pub fn orotermDndTrampoline(handler: *Handler, event: @import("../kitty/dnd.zig").Event) void {
++pub fn toiqttyDndTrampoline(handler: *Handler, event: @import("../kitty/dnd.zig").Event) void {
 +    const wrapper = TerminalWrapper.fromHandler(handler);
-+    const callback = wrapper.oroterm_dnd_callback orelse return;
++    const callback = wrapper.toiqtty_dnd_callback orelse return;
 +    callback(wrapper, wrapper.effects.userdata, @intFromEnum(event));
 +}
 +

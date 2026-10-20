@@ -1,5 +1,7 @@
 <Project>
   <PropertyGroup>
-    <Version>0.9.3</Version>
+    <Version>0.10.3</Version>
+    <Product>toiqtty</Product>
+    <Title>toiqtty</Title>
   </PropertyGroup>
 </Project>

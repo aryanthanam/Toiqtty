@@ -3,7 +3,7 @@ $ErrorActionPreference = 'Stop'
 $repoRoot = Split-Path $PSScriptRoot -Parent
 $publishFolder = if ([IO.Path]::IsPathRooted($OutputDirectory)) { $OutputDirectory } else { Join-Path $repoRoot $OutputDirectory }
 & "$PSScriptRoot/build-native.ps1"
-dotnet publish "$repoRoot/src/Oroterm/Oroterm.csproj" -c Release -o $publishFolder
+dotnet publish "$repoRoot/src/Toiqtty/Toiqtty.csproj" -c Release -o $publishFolder
 if ($LASTEXITCODE -ne 0) { throw 'Publish failed.' }
 & "$PSScriptRoot/remove-obsolete-assets.ps1" -Directory $publishFolder
 # Interrupted ReadyToRun publishes can leave cached, zero-filled binaries.
@@ -17,11 +17,11 @@ foreach ($binary in Get-ChildItem -LiteralPath $publishFolder -Recurse -File | W
     }
     finally { $stream.Dispose() }
 }
-foreach ($resource in @('Oroterm.pri', 'App.xbf', 'MainWindow.xbf', 'conpty.dll', 'OpenConsole.exe', 'ghostty-vt.dll', 'oroterm-native.dll', 'oroterm-renderer.dll',
-    'Oroterm.SessionHost.exe', 'Oroterm.SessionHost.dll', 'Oroterm.SessionHost.runtimeconfig.json', 'Oroterm.SessionHost.deps.json',
-    'Oroterm.Core.dll', 'Oroterm.Client.dll', 'oro.exe', 'oro.dll', 'oro.deps.json', 'oro.runtimeconfig.json',
+foreach ($resource in @('toiqtty.exe', 'toiqtty.pri', 'App.xbf', 'MainWindow.xbf', 'conpty.dll', 'OpenConsole.exe', 'ghostty-vt.dll', 'toiqtty-native.dll', 'toiqtty-renderer.dll',
+    'Toiqtty.SessionHost.exe', 'Toiqtty.SessionHost.dll', 'Toiqtty.SessionHost.runtimeconfig.json', 'Toiqtty.SessionHost.deps.json',
+    'Toiqtty.Core.dll', 'Toiqtty.Client.dll', 'toiq.exe', 'toiq.dll', 'toiq.deps.json', 'toiq.runtimeconfig.json',
     'Microsoft.WindowsAppRuntime.Insights.Resource.dll',
-    'Lua.dll', 'Lua.Annotations.dll', 'LUA_CONFIG.md', 'Configuration/oroterm.example.lua',
+    'Lua.dll', 'Lua.Annotations.dll', 'LUA_CONFIG.md', 'Configuration/toiqtty.example.lua',
     'Configuration/appearance.example.lua',
     'Configuration/interactions.example.lua',
     'Microsoft.Web.WebView2.Core.dll', 'BrowserCompanion/chromium/manifest.json', 'BrowserCompanion/chromium/popup.html',
@@ -40,12 +40,15 @@ Copy-Item "$repoRoot/THIRD_PARTY_NOTICES.md" $publishFolder -Force
 $licenses = "$publishFolder/licenses"
 New-Item -ItemType Directory -Force $licenses | Out-Null
 Copy-Item "$repoRoot/third_party/*" $licenses -Force
+foreach($license in @('HarfBuzz.LICENSE','HarfBuzz-MS-USE.LICENSE')) {
+    Copy-Item -LiteralPath (Join-Path $repoRoot "artifacts/native/$license") -Destination $licenses -Force
+}
 $nugetRoot = if ($env:NUGET_PACKAGES) { $env:NUGET_PACKAGES } else { Join-Path $env:USERPROFILE '.nuget/packages' }
 Copy-Item "$nugetRoot/microsoft.windowsappsdk/2.5.1/license.txt" "$licenses/WINDOWS-APP-SDK-LICENSE" -Force
-$webViewPackage = (Get-Content "$repoRoot/src/Oroterm/obj/project.assets.json" -Raw | ConvertFrom-Json).libraries.PSObject.Properties |
+$webViewPackage = (Get-Content "$repoRoot/src/Toiqtty/obj/project.assets.json" -Raw | ConvertFrom-Json).libraries.PSObject.Properties |
     Where-Object Name -Like 'Microsoft.Web.WebView2/*' | Select-Object -First 1
 if ($webViewPackage) { Copy-Item "$nugetRoot/$($webViewPackage.Value.path)/LICENSE.txt" "$licenses/WEBVIEW2-LICENSE" -Force }
-$runtime = Get-Content "$publishFolder/Oroterm.runtimeconfig.json" -Raw | ConvertFrom-Json
+$runtime = Get-Content "$publishFolder/toiqtty.runtimeconfig.json" -Raw | ConvertFrom-Json
 $runtimeVersion = ($runtime.runtimeOptions.includedFrameworks | Where-Object name -eq 'Microsoft.NETCore.App').version
 if (!$runtimeVersion) { throw 'Published runtime configuration is invalid or incomplete.' }
 Copy-Item "$nugetRoot/microsoft.netcore.app.runtime.win-x64/$runtimeVersion/LICENSE.TXT" "$licenses/DOTNET-LICENSE" -Force
@@ -62,10 +65,10 @@ if($SigningCertificateThumbprint) {
     & "$PSScriptRoot/new-release-manifest.ps1" -Directory $publishFolder | Out-Null
 }
 . "$PSScriptRoot/release-tools.ps1"
-$manifest=Test-OrotermRelease $publishFolder -RequireSigned:([bool]$SigningCertificateThumbprint)
-Compress-Archive -Path "$publishFolder/*" -DestinationPath "$repoRoot/artifacts/Oroterm-win-x64.zip" -Force
-$versionedArchive=Join-Path $repoRoot "artifacts/Oroterm-win-x64-$($manifest.version).zip"
-Copy-Item -LiteralPath "$repoRoot/artifacts/Oroterm-win-x64.zip" -Destination $versionedArchive -Force
+$manifest=Test-ToiqttyRelease $publishFolder -RequireSigned:([bool]$SigningCertificateThumbprint)
+Compress-Archive -Path "$publishFolder/*" -DestinationPath "$repoRoot/artifacts/toiqtty-win-x64.zip" -Force
+$versionedArchive=Join-Path $repoRoot "artifacts/toiqtty-win-x64-$($manifest.version).zip"
+Copy-Item -LiteralPath "$repoRoot/artifacts/toiqtty-win-x64.zip" -Destination $versionedArchive -Force
 [ordered]@{version=$manifest.version;signed=$manifest.signed;archive=[IO.Path]::GetFileName($versionedArchive);sha256=(Get-FileHash -LiteralPath $versionedArchive -Algorithm SHA256).Hash} |
     ConvertTo-Json | Set-Content -LiteralPath ($versionedArchive+'.json') -Encoding utf8
-Write-Host "Portable build: $repoRoot/artifacts/Oroterm-win-x64.zip"
+Write-Host "Portable build: $repoRoot/artifacts/toiqtty-win-x64.zip"

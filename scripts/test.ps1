@@ -8,12 +8,12 @@ if ($Notifications) { $Ui = $true }
 if ($Sessions -or $Browser -or $Lua) { $Ui = $true }
 if (!$SkipNative) { & "$PSScriptRoot/build-native.ps1" }
 $smokeFolder = "$repoRoot/artifacts/smoke-test-$([Guid]::NewGuid().ToString('N'))"
-dotnet build "$repoRoot/tests/Oroterm.Smoke" -c Release -o $smokeFolder
+dotnet build "$repoRoot/tests/Toiqtty.Smoke" -c Release -o $smokeFolder
 if ($LASTEXITCODE -ne 0) { throw 'Terminal integration build failed.' }
 if($Published) {
     $publishedRoot=if([IO.Path]::IsPathRooted($ReleaseDirectory)){$ReleaseDirectory}else{Join-Path $repoRoot $ReleaseDirectory}
-    if(Test-Path -LiteralPath (Join-Path $publishedRoot 'Oroterm.Core.dll')) {
-        $sharedHashes=foreach($name in @('Oroterm.Core.dll','Oroterm.Client.dll','ghostty-vt.dll','oroterm-native.dll')) {
+    if(Test-Path -LiteralPath (Join-Path $publishedRoot 'Toiqtty.Core.dll')) {
+        $sharedHashes=foreach($name in @('Toiqtty.Core.dll','Toiqtty.Client.dll','ghostty-vt.dll','toiqtty-native.dll')) {
             $source=Join-Path $publishedRoot $name
             Copy-Item -LiteralPath $source -Destination (Join-Path $smokeFolder $name) -Force
             [ordered]@{file=$name;sha256=(Get-FileHash -LiteralPath (Join-Path $smokeFolder $name)).Hash}
@@ -22,26 +22,26 @@ if($Published) {
         Write-Host 'Core checks are loading the exact published Core, Client and native DLLs.'
     }
 }
-& "$smokeFolder/Oroterm.Smoke.exe"
+& "$smokeFolder/Toiqtty.Smoke.exe"
 if ($LASTEXITCODE -ne 0) { throw 'Terminal integration checks failed.' }
 if ($Ui -or $Published) {
     $appFolder = if ([IO.Path]::IsPathRooted($ReleaseDirectory)) { $ReleaseDirectory } else { Join-Path $repoRoot $ReleaseDirectory }
     if (!$Published) {
         $appFolder = "$repoRoot/artifacts/ui-test"
-        dotnet build "$repoRoot/src/Oroterm/Oroterm.csproj" -c Debug -o $appFolder
+        dotnet build "$repoRoot/src/Toiqtty/Toiqtty.csproj" -c Debug -o $appFolder
         if ($LASTEXITCODE -ne 0) { throw 'WinUI build failed.' }
     }
     $data = "$repoRoot/artifacts/ui-smoke-$([Guid]::NewGuid().ToString('N'))"
-    $start = [Diagnostics.ProcessStartInfo]::new("$appFolder/Oroterm.exe")
+    $start = [Diagnostics.ProcessStartInfo]::new("$appFolder/toiqtty.exe")
     $start.UseShellExecute = $false
     $start.WorkingDirectory = $repoRoot
     $start.ArgumentList.Add('--ui-smoke')
-    $start.Environment['OROTERM_DATA_DIR'] = $data
-    $start.Environment['OROTERM_SMOKE_EXE'] = "$smokeFolder/Oroterm.Smoke.exe"
-    $start.Environment['OROTERM_UI_SOAK_SECONDS'] = $UiSoakSeconds.ToString()
-    $start.Environment['OROTERM_NOTIFICATION_SMOKE'] = $(if ($Notifications) { '1' } else { '0' })
+    $start.Environment['TOIQTTY_DATA_DIR'] = $data
+    $start.Environment['TOIQTTY_SMOKE_EXE'] = "$smokeFolder/Toiqtty.Smoke.exe"
+    $start.Environment['TOIQTTY_UI_SOAK_SECONDS'] = $UiSoakSeconds.ToString()
+    $start.Environment['TOIQTTY_NOTIFICATION_SMOKE'] = $(if ($Notifications) { '1' } else { '0' })
     # The prompt color check must start PowerShell without the runner's NO_COLOR.
-    # Oroterm itself preserves an explicit user NO_COLOR preference.
+    # Toiqtty itself preserves an explicit user NO_COLOR preference.
     $start.Environment.Remove('NO_COLOR') | Out-Null
     $process = [Diagnostics.Process]::Start($start)
     $deadline = [DateTime]::UtcNow.AddSeconds(60 + $UiSoakSeconds)
@@ -52,23 +52,23 @@ if ($Ui -or $Published) {
     if (!$report.passed) { throw $report.error }
     $report.checks | ForEach-Object { Write-Host "PASS: $_" }
     if ($Notifications) {
-        & "$smokeFolder/Oroterm.Smoke.exe" --notification-activation "$appFolder/Oroterm.exe"
+        & "$smokeFolder/Toiqtty.Smoke.exe" --notification-activation "$appFolder/toiqtty.exe"
         if ($LASTEXITCODE -ne 0) { throw 'Native notification activation checks failed.' }
     }
     if ($Sessions) {
-        & "$smokeFolder/Oroterm.Smoke.exe" --session-host "$appFolder/Oroterm.SessionHost.exe"
+        & "$smokeFolder/Toiqtty.Smoke.exe" --session-host "$appFolder/Toiqtty.SessionHost.exe"
         if ($LASTEXITCODE -ne 0) { throw 'Persistent session host checks failed.' }
-        & "$smokeFolder/Oroterm.Smoke.exe" --session-ui "$appFolder/Oroterm.exe"
+        & "$smokeFolder/Toiqtty.Smoke.exe" --session-ui "$appFolder/toiqtty.exe"
         if ($LASTEXITCODE -ne 0) { throw 'Persistent WinUI reconnect checks failed.' }
-        & "$smokeFolder/Oroterm.Smoke.exe" --session-ui-crash "$appFolder/Oroterm.exe"
+        & "$smokeFolder/Toiqtty.Smoke.exe" --session-ui-crash "$appFolder/toiqtty.exe"
         if ($LASTEXITCODE -ne 0) { throw 'Persistent WinUI crash recovery checks failed.' }
-        & "$smokeFolder/Oroterm.Smoke.exe" --navigation-ui "$appFolder/Oroterm.exe"
+        & "$smokeFolder/Toiqtty.Smoke.exe" --navigation-ui "$appFolder/toiqtty.exe"
         if ($LASTEXITCODE -ne 0) { throw 'Persistent pane move and reorder checks failed.' }
-        & "$smokeFolder/Oroterm.Smoke.exe" --scrolling-ui "$appFolder/Oroterm.exe"
+        & "$smokeFolder/Toiqtty.Smoke.exe" --scrolling-ui "$appFolder/toiqtty.exe"
         if ($LASTEXITCODE -ne 0) { throw 'Persistent scrollbar and middle-click scrolling checks failed.' }
-        & "$smokeFolder/Oroterm.Smoke.exe" --resize-ui "$appFolder/Oroterm.exe"
+        & "$smokeFolder/Toiqtty.Smoke.exe" --resize-ui "$appFolder/toiqtty.exe"
         if ($LASTEXITCODE -ne 0) { throw 'Persistent pane resize checks failed.' }
-        & "$smokeFolder/Oroterm.Smoke.exe" --input-ui "$appFolder/Oroterm.exe"
+        & "$smokeFolder/Toiqtty.Smoke.exe" --input-ui "$appFolder/toiqtty.exe"
         if ($LASTEXITCODE -ne 0) { throw 'Persistent input and frame notification checks failed.' }
     }
     if ($Browser) {

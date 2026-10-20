@@ -1,15 +1,17 @@
 # Lua configuration
 
-Oroterm loads `%LOCALAPPDATA%\Oroterm\oroterm.lua`. With an isolated `OROTERM_DATA_DIR`, it loads `oroterm.lua` in that directory. `OROTERM_CONFIG` can specify another file explicitly. Project directories are not searched for executable configuration.
+toiqtty loads `%LOCALAPPDATA%\toiqtty\toiqtty.lua`. With an isolated `TOIQTTY_DATA_DIR`, it loads `toiqtty.lua` in that directory. `TOIQTTY_CONFIG` can specify another file explicitly. Project directories are not searched for executable configuration.
 
-Use **Edit Lua configuration** in the command palette or Settings to create/open the file. **Reload Lua configuration** reloads manually; main-file and local-module changes reload automatically after a short debounce. **Lua configuration status** shows the path, controlled settings, and errors. The bundled `Configuration/oroterm.example.lua` demonstrates settings and nested startup layouts.
+The Lua module and global are both named `toiqtty`. There are no legacy product-name aliases or directory fallbacks. A missing config uses defaults; use **Edit Lua configuration** to create `toiqtty.lua`.
+
+Use **Edit Lua configuration** in the command palette or Settings to create/open the file. **Reload Lua configuration** reloads manually; main-file and local-module changes reload automatically after a short debounce. **Lua configuration status** shows the path, controlled settings, and errors. The bundled `Configuration/toiqtty.example.lua` demonstrates settings and nested startup layouts.
 
 ```lua
-local oro = require('oroterm')
+local oro = require('toiqtty')
 local config = oro.config_builder()
 
 local function font_size()
-  return oro.getenv('OROTERM_LARGE_TEXT') == '1' and 18 or 14
+  return oro.getenv('TOIQTTY_LARGE_TEXT') == '1' and 18 or 14
 end
 
 config.font_size = font_size()
@@ -36,6 +38,7 @@ Return exactly one table. Conditions, functions, loops, math, strings, tables, b
 | `events` | table | Persistent `format_tab_title` and `format_status` callbacks |
 | `scrollback_limit_bytes` | integer or `'unlimited'` | Per terminal: defaults to 50,000,000 bytes (50 MB), matching Ghostty; `0` disables and clears history |
 | `scrollback_limit_lines` | integer or `'unlimited'` | Maximum physical history rows, excluding the active screen; defaults to `'unlimited'` |
+| `scrolling` | table | Wheel speed for history and mouse-reporting apps, and optional reverse direction |
 | `restore_sessions` | boolean | Legacy compatibility option; does not replay closed sessions |
 | `ligatures` | boolean | Terminal font ligatures |
 | `desktop_notifications` | boolean | Background terminal notifications |
@@ -50,9 +53,21 @@ Unknown fields, wrong types, duplicate shortcuts, missing launch directories, un
 
 `keybindings.openDirectory` opens the focused pane's current directory in Windows Explorer (default `Ctrl+Shift+O`). For example, `config.keybindings = { openDirectory = 'Ctrl+Alt+O' }` remaps it; an empty string disables the shortcut.
 
-Normal UI settings are stored in `preferences.json`, separately from session layout snapshots. Effective settings are preferences overlaid with the Lua table. Lua-controlled settings are read-only in Settings; removing a field or the Lua file restores its underlying preference. Font zoom on a Lua-controlled size is temporary until reload/restart. Config errors retain the current effective settings during live reload and appear in a native error banner; on a cold start, invalid config uses normal preferences. Oroterm never rewrites the Lua file from the settings dialog.
+Normal UI settings are stored in `preferences.json`, separately from session layout snapshots. Effective settings are preferences overlaid with the Lua table. Lua-controlled settings are read-only in Settings; removing a field or the Lua file restores its underlying preference. Font zoom on a Lua-controlled size is temporary until reload/restart. Config errors retain the current effective settings during live reload and appear in a native error banner; on a cold start, invalid config uses normal preferences. toiqtty never rewrites the Lua file from the settings dialog.
 
 Scrollback limits apply to existing shells on reload as well as newly created shells. If both limits are set, the first reached takes effect. Ghostty prunes whole memory pages, so retention is approximate. Soft-wrapped rows count separately. Lowering a limit can immediately discard older history; raising it cannot restore discarded output. Memory is allocated as output arrives, rather than reserving 50 MB upfront.
+
+Wheel settings reload into existing panes:
+
+```lua
+config.scrolling = {
+  lines_per_notch = 3,      -- Scrollback rows per physical wheel notch (1–100).
+  app_events_per_notch = 1, -- Wheel reports to Codex, editors, etc. (1–100).
+  reverse = false,         -- Reverse both directions; Ctrl+wheel zoom stays unchanged.
+}
+```
+
+These are the defaults. Increase `lines_per_notch` for faster shell history scrolling. Apps decide how far each report moves their own content, so use `app_events_per_notch` to speed up their scrolling separately. Shift+wheel forces local scrollback; the scrollbar gutter always scrolls local history. Partial wheel deltas accumulate until a full notch arrives, including multi-notch events. Wheel scrolling is row-based. These options do not alter middle-click autoscroll or embedded browser scrolling.
 
 ```lua
 config.scrollback_limit_bytes = 50000000 -- Ghostty's default, per shell
@@ -91,7 +106,7 @@ config.status_bar = {
 | `{panes}` / `{tabs}` / `{sessions}` | Pane count in the current tab, tab count in the current session, total session count |
 | `{font_size}` / `{viewport}` | Terminal font size and focused terminal viewport dimensions |
 | `{url}` | Focused browser pane's URL; omitted for a terminal pane |
-| `{version}` | Oroterm version |
+| `{version}` | toiqtty version |
 
 Defaults when enabled are `left = { '{status}', '{directory}', '{branch}' }`, `right = { '{shells} shells', '{viewport}' }`, `separator = '  ·  '`, `height = 20`, and `font_size = 10`. Height is 18–64 logical pixels, font size is 9–24, and height must be at least font size + 6. Colors use `#RRGGBB`. Unknown placeholders, malformed braces and invalid values reject the new config while retaining the last working settings.
 
@@ -227,16 +242,16 @@ Both settings objects support preference ownership and live reload. Window actio
 
 ## Helpers and modules
 
-`require('oroterm')` exposes:
+`require('toiqtty')` exposes:
 
 | Helper | Result |
 | --- | --- |
 | `config_builder()` | Empty configuration table |
 | `home_dir` | Current user's home directory |
 | `config_dir` | Directory containing the config file |
-| `data_dir` | Oroterm's state directory |
+| `data_dir` | toiqtty's state directory |
 | `default_shell` | Detected PowerShell 7 command, with the existing fallback |
-| `version` | Oroterm version string |
+| `version` | toiqtty version string |
 | `getenv(name)` / `os.getenv(name)` | Environment variable or nil |
 | `file_exists(path)` | Whether a file exists |
 | `directory_exists(path)` | Whether a directory exists |
@@ -245,12 +260,12 @@ Both settings objects support preference ownership and live reload. Window actio
 
 `require('shared')` loads `shared.lua` beside the config. `require('themes.dark')` loads `themes/dark.lua`. Modules return normal Lua tables/functions. Module names cannot escape the config directory; symlink/junction modules are rejected. Standard `io`, process execution, `os.exit`, `dofile`, `loadfile`, and CLR access are not exposed.
 
-Evaluation runs in an isolated `Oroterm.SessionHost.exe` process, separate from the host owning persistent shells. One-shot checks use `--evaluate-config`; windows use `--runtime-config` and retain that worker only when callbacks are configured. A Windows job limits each worker to 256 MiB and ends it when its owner closes. Initial evaluation has a four-second deadline; runtime batches have a 500 ms deadline. Main source plus modules are limited to 256 KiB and 32 files. Config results and helper output are bounded. Infinite loops and excessive allocations cannot keep the window blocked or terminate the persistent shell host.
+Evaluation runs in an isolated `toiqtty.SessionHost.exe` process, separate from the host owning persistent shells. One-shot checks use `--evaluate-config`; windows use `--runtime-config` and retain that worker only when callbacks are configured. A Windows job limits each worker to 256 MiB and ends it when its owner closes. Initial evaluation has a four-second deadline; runtime batches have a 500 ms deadline. Main source plus modules are limited to 256 KiB and 32 files. Config results and helper output are bounded. Infinite loops and excessive allocations cannot keep the window blocked or terminate the persistent shell host.
 
 ## Startup sessions, tabs, and panes
 
 ```lua
-local oro = require('oroterm')
+local oro = require('toiqtty')
 return {
   startup = {
     mode = 'when_empty',
@@ -277,11 +292,11 @@ return {
 
 `startup.sessions` is a contiguous array. Every session has a name and at least one tab. A tab can specify inline leaf fields (`shell`, `cwd`, or `kind='browser'`, `url`, `profile`) or a `root` split tree. Split nodes use `split='right'` or `split='down'`, `first`, `second`, and an optional ratio from 0.1–0.9. Both children can themselves be splits. Leaves inherit the effective default shell, directory, and browser settings.
 
-Each session may specify `theme = 'preset name'`. Bundled choices are **Adventure Time**, **Alien Blood**, **Cobalt2**, **Dracula**, **Fun Forrest**, **Hot Dog Stand**, **Hot Dog Stand (Mustard)**, **Solarized Light**, **Catppuccin Latte**, and **Sakura**. Names are case-insensitive; `theme = 'default'` uses Oroterm's normal appearance. Unknown names reject the new config. These Gogh palettes color both the session interface and its terminal panes, including default foreground/background, cursor, selection and all 16 ANSI colors. Application truecolor, extended indexed colors and OSC overrides remain effective. New tabs/splits inherit the owning session's theme; font/settings reloads preserve it.
+Each session may specify `theme = 'preset name'`. Bundled choices are **Adventure Time**, **Alien Blood**, **Cobalt2**, **Dracula**, **Fun Forrest**, **Hot Dog Stand**, **Hot Dog Stand (Mustard)**, **Solarized Light**, **Catppuccin Latte**, and **Sakura**. Names are case-insensitive; `theme = 'default'` uses toiqtty's normal appearance. Unknown names reject the new config. These Gogh palettes color both the session interface and its terminal panes, including default foreground/background, cursor, selection and all 16 ANSI colors. Application truecolor, extended indexed colors and OSC overrides remain effective. New tabs/splits inherit the owning session's theme; font/settings reloads preserve it.
 
 Theme declarations belong to startup sessions: live config reload does not rerun startup creation or replace existing sessions' choices. Change a live session using **Session theme…** in its context menu or the command palette. The gallery has preset tiles and a **Use default** action. There is no color editor. Choices are stored per session ID in `session-themes.json`, separately from host layouts, so older hosts cannot drop them. Old IDs are pruned on save and never recreate sessions after a reboot.
 
-Pane colors require a host from 0.7.14 or newer. An older host remains connected and shows an upgrade notice. To activate pane colors, use **Quit Oroterm and stop all sessions**, then relaunch; closing only the window deliberately keeps the previous host alive.
+Pane colors require a host from 0.7.14 or newer. An older host remains connected and shows an upgrade notice. To activate pane colors, use **Quit toiqtty and stop all sessions**, then relaunch; closing only the window deliberately keeps the previous host alive.
 
 Cold startup runs `startup.sessions` when configured; otherwise it opens one default shell. Previous sessions, tabs and panes on disk are never replayed after a reboot or host exit. `when_empty` and the legacy `replace_saved` spelling both create the configured layout on cold startup and preserve live sessions on reconnect. Reloading config never reruns startup creation. **Create configured startup sessions** in the command palette explicitly adds fresh instances alongside current sessions. Config files can compute these arrays with normal Lua logic; runtime hooks format presentation and do not create sessions.
 
