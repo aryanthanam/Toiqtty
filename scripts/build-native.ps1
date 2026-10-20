@@ -21,6 +21,10 @@ if (!(Test-Path $zig)) {
 if (!(Test-Path "$deps/.git")) {
     if ($SkipDownload) { throw 'Ghostty source is missing.' }
     Invoke-Checked { git clone --no-checkout --depth 1 $lock.repository $deps }
+    # --no-checkout leaves every tracked path absent. Materialize the pinned
+    # tree before applying the dirty-source guard used for existing checkouts.
+    Invoke-Checked { git -C $deps fetch origin $lock.commit --depth 1 }
+    Invoke-Checked { git -C $deps checkout --detach $lock.commit }
 }
 $current = git -C $deps rev-parse HEAD
 if ($current -ne $lock.commit) {

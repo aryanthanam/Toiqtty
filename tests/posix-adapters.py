@@ -212,7 +212,9 @@ trap ':' DEBUG
         home.mkdir()
         user = home / 'changed-zdotdir'
         user.mkdir()
-        env_file = "printf 'ENV_READ\\n'\n"
+        # Exercise our user startup fixtures without host-global rc files such
+        # as Ubuntu's interactive compinit. User rc/login processing stays on.
+        env_file = "unsetopt globalrcs\nprintf 'ENV_READ\\n'\n"
         if args.zsh_root:
             package = pathlib.Path(args.zsh_root)
             env_file += f"fpath=('{package}/usr/share/zsh/functions/Misc' $fpath)\nmodule_path=('{package}/usr/lib/zsh/5.9.1' $module_path)\n"
