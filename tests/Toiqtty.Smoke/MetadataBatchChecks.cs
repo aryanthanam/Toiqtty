@@ -108,8 +108,33 @@ internal static class MetadataBatchChecks
             client.AddOutputListener(subscriber,listener,()=>true); client.RemoveOutputListener(subscriber,listener);
             Pass(!client.OutputInterestsForCheck().Contains(subscriber),"Removing a duplicate subscription removes its last registration and preserves earlier demand");
             client.RemoveOutputListener(subscriber,listener);
-            var versions=ids.Select((id,i)=>(id,i)).ToDictionary(pair=>pair.id,pair=>sessions[pair.i].StateVersionForCheck);
-            var unchanged=await client.CallAsync(new() { Operation="states",StateVersions=versions });
+            // Frontend caches and ConPTY resize output can still advance after
+            // the RPC completes. Establish the host's own version baseline.
+            var versions=ids.ToDictionary(id=>id,_=>-1);
+            var baseline=await client.CallAsync(new() { Operation="states",StateVersions=versions });
+            Pass(baseline.States is { Count:16 } && baseline.Panes.Length==0,"The initial metadata batch reports every requested pane");
+            foreach(var pair in baseline.States!) versions[pair.Key]=pair.Value.Version;
+            // Force a real version change so draining changed replies is
+            // exercised even when startup output has already settled locally.
+            await client.CallAsync(new() { Operation="select",Pane=ids[1],Numbers=[-1,-1] });
+            bool observedChange=false; var settling=Stopwatch.StartNew(); HostReply unchanged;
+            while(true)
+            {
+                unchanged=await client.CallAsync(new() { Operation="states",StateVersions=versions });
+                if(unchanged.States is null || unchanged.Panes.Length!=0) throw new IOException("The metadata baseline lost a pane.");
+                foreach(var pair in unchanged.States)
+                {
+                    // Retrying must never excuse the regression being tested:
+                    // every emitted state must be newer than the known one.
+                    if(pair.Value.Version<=versions[pair.Key]) throw new IOException("Metadata repeated an unchanged shell-state payload.");
+                    versions[pair.Key]=pair.Value.Version;
+                }
+                observedChange|=unchanged.States.ContainsKey(ids[1]);
+                if(unchanged.States.Count==0) break;
+                if(settling.Elapsed.TotalSeconds>10) throw new TimeoutException("Metadata fixture output did not settle.");
+                await Task.Delay(10);
+            }
+            Pass(observedChange,"A changed pane advances its version in batched metadata");
             Pass(unchanged.States is { Count:0 } && unchanged.Panes.Length==0,"An unchanged metadata batch sends no repeated shell-state payloads");
             string missing=Guid.NewGuid().ToString("N"); versions.Add(missing,-1);
             var absent=await client.CallAsync(new() { Operation="states",StateVersions=versions }); versions.Remove(missing);
