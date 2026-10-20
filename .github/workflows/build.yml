@@ -2,6 +2,8 @@ name: Windows build
 on: [push, pull_request, workflow_dispatch]
 jobs:
   posix-adapters:
+    name: Bash/Zsh scripts (WSL support)
+    # Script-only PTY checks. The terminal application is built on Windows below.
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
