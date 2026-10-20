@@ -207,7 +207,7 @@ To display a PNG from PowerShell inside toiqtty:
 
 ## Verify
 
-CI builds, tests, and packages toiqtty on Windows x64. A separate Ubuntu job checks the Bash/Zsh scripts used by WSL in real PTYs; it does not build a Linux terminal. Full WSL-through-ConPTY interoperability is covered by the optional Windows interop checks below.
+CI builds, tests, and validates packaging for toiqtty on Windows x64. Generated packages stay on the temporary runner; CI does not upload build artifacts. A separate Ubuntu job checks the Bash/Zsh scripts used by WSL in real PTYs; it does not build a Linux terminal. Full WSL-through-ConPTY interoperability is covered by the optional Windows interop checks below.
 
 ```powershell
 ./scripts/test.ps1                 # Native engine + real ConPTY integration checks
