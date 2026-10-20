@@ -63,15 +63,15 @@
     <Exec Command="dotnet publish &quot;$(MSBuildProjectDirectory)/../Toiqtty.Cli/Toiqtty.Cli.csproj&quot; -c $(Configuration) -o &quot;$(PublishDir).&quot; --no-restore" />
   </Target>
   <Target Name="RequireGhostty" BeforeTargets="PrepareForBuild" Condition="!Exists('..\..\artifacts\native\toiqtty-native.dll')">
-    <Error Text="Build libghostty first: powershell -ExecutionPolicy Bypass -File scripts/build-native.ps1" />
+    <Error Text="Build libghostty first: pwsh -ExecutionPolicy Bypass -File scripts/build-native.ps1" />
   </Target>
   <Target Name="BuildDirectXRenderer" BeforeTargets="PrepareForBuild"
           Inputs="..\..\native\renderer.cpp;..\..\native\renderer-ascii.h;..\..\native\renderer-dx12.h;..\..\native\renderer-lifetime.h;..\..\native\renderer.h;..\..\native\renderer.hlsl;..\..\native\harfbuzz.lock.json;..\..\scripts\get-harfbuzz.ps1;..\..\scripts\build-renderer.ps1"
           Outputs="..\..\artifacts\native\toiqtty-renderer.dll">
-    <Exec Command="powershell -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)\..\..\scripts\build-renderer.ps1&quot;" />
+    <Exec Command="pwsh -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)\..\..\scripts\build-renderer.ps1&quot;" />
   </Target>
   <Target Name="CopySdkInsightsResource" AfterTargets="Build">
-    <Exec Command="powershell -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)\..\..\scripts\copy-sdk-resources.ps1&quot; -RuntimeArchive &quot;$(NuGetPackageRoot)microsoft.windowsappsdk.runtime\2.5.1\tools\MSIX\win10-x64\Microsoft.WindowsAppRuntime.2.msix&quot; -Destination &quot;$(OutDir).&quot;" />
+    <Exec Command="pwsh -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)\..\..\scripts\copy-sdk-resources.ps1&quot; -RuntimeArchive &quot;$(NuGetPackageRoot)microsoft.windowsappsdk.runtime\2.5.1\tools\MSIX\win10-x64\Microsoft.WindowsAppRuntime.2.msix&quot; -Destination &quot;$(OutDir).&quot;" />
   </Target>
   <!-- WinUI's unpackaged build generates these after standard Content discovery.
        Explicitly carry them into dotnet publish as well as the build output. -->

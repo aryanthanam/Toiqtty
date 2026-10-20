@@ -10,10 +10,10 @@ This is a working first version, not a production-complete terminal. It starts r
 
 ## Run
 
-Requires Windows 11 x64 or Windows 10 build 19041+, .NET 10 SDK, Visual Studio 2022 C++ build tools, a Windows SDK including FXC, Git, and internet access for the first build. The scripts download a checksum-verified Zig 0.16.0 compiler inside `.tools/`, fetch a pinned Ghostty commit, and fetch checksum-pinned HarfBuzz source into `.deps/`. The WinUI build builds the native Direct3D renderer and HarfBuzz core and precompiles its shaders with the installed Windows SDK. HarfBuzz uses its DirectWrite adapter without external FreeType, GLib or Graphite libraries.
+Requires Windows 11 x64 or Windows 10 build 19041+, PowerShell 7, .NET 10 SDK, Visual Studio 2022 C++ build tools, a Windows SDK including FXC, Git, and internet access for the first build. MSBuild invokes its helpers with `pwsh`, matching the CI shell. The scripts download a checksum-verified Zig 0.16.0 compiler inside `.tools/`, fetch a pinned Ghostty commit, and fetch checksum-pinned HarfBuzz source into `.deps/`. The WinUI build builds the native Direct3D renderer and HarfBuzz core and precompiles its shaders with the installed Windows SDK. HarfBuzz uses its DirectWrite adapter without external FreeType, GLib or Graphite libraries.
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts/run.ps1
+pwsh -ExecutionPolicy Bypass -File scripts/run.ps1
 ```
 
 The first native build takes longer; subsequent builds reuse Zig’s cache. You can also open `Toiqtty.slnx` in Visual Studio with WinUI development support. Run `scripts/build-native.ps1` first.
