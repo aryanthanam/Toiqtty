@@ -1,4 +1,4 @@
-param([string]$AppDirectory='artifacts/release-0.10.2-startup')
+param([string]$AppDirectory='artifacts/release')
 $ErrorActionPreference='Stop'
 if(-not ('ToiqttyStartupWindow' -as [type])) {
     Add-Type -TypeDefinition @'
@@ -34,7 +34,6 @@ $config=Join-Path $data 'toiqtty.lua'
 Set-Content -LiteralPath $config -Value 'while true do end'
 $start=[Diagnostics.ProcessStartInfo]::new((Join-Path $app 'toiqtty.exe'))
 $start.UseShellExecute=$false
-$start.ArgumentList.Add('--startup-probe')
 $start.Environment['TOIQTTY_DATA_DIR']=$data
 $start.Environment['TOIQTTY_CONFIG']=$config
 $process=$null; $children=@()

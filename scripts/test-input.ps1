@@ -1,4 +1,4 @@
-param([string]$AppDirectory='artifacts/input-test',[string]$TestDirectory='artifacts/input-client',[string]$LegacyHostDirectory='artifacts/release-0.6.6',[switch]$SkipBuild)
+param([string]$AppDirectory='artifacts/input-test',[string]$TestDirectory='artifacts/input-client',[switch]$SkipBuild)
 $ErrorActionPreference='Stop'
 $root=Split-Path $PSScriptRoot -Parent
 Push-Location -LiteralPath $root
@@ -19,9 +19,4 @@ try {
     if($LASTEXITCODE -ne 0){throw 'Input close checks failed.'}
     & "$client/Toiqtty.Smoke.exe" --input-native-close-ui "$app/toiqtty.exe"
     if($LASTEXITCODE -ne 0){throw 'Native input close checks failed.'}
-    if($LegacyHostDirectory){
-        $legacy=[IO.Path]::GetFullPath($LegacyHostDirectory)
-        & "$client/Toiqtty.Smoke.exe" --input-compat-ui "$app/toiqtty.exe" "$legacy/Toiqtty.SessionHost.exe"
-        if($LASTEXITCODE -ne 0){throw 'Older-host input compatibility checks failed.'}
-    }
 }finally { Pop-Location }

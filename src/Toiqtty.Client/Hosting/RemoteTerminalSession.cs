@@ -75,7 +75,6 @@ public sealed class RemoteTerminalSession : ITerminalSession
     internal Task CompleteInput() => _input.Complete();
     internal string CaptureFailure { get; private set; } = "";
     private static readonly object CaptureTraceGate = new();
-    internal bool LegacyRefreshForCheck { get; set; }
     private TerminalSnapshot? _snapshot;
     private TerminalCell[] _cells = [];
     private TerminalCell[] _decodeCells = [];
@@ -144,7 +143,7 @@ public sealed class RemoteTerminalSession : ITerminalSession
     public void DetachView() { if (Interlocked.Decrement(ref _viewers) == 0) WakeCapture(); }
     internal int ViewersForCheck => Volatile.Read(ref _viewers);
     internal int FrameListenersForCheck => FrameAvailable?.GetInvocationList().Length ?? 0;
-    private void WakeCapture() { if (LegacyRefreshForCheck) return; _client.OutputDemandChanged(); try { _pollWake.Release(); } catch (SemaphoreFullException) { } }
+    private void WakeCapture() { _client.OutputDemandChanged(); try { _pollWake.Release(); } catch (SemaphoreFullException) { } }
     internal void WakeCaptureForCheck() => WakeCapture();
     private void HostOutputChanged(string pane) { if (Volatile.Read(ref _viewers) > 0 && Volatile.Read(ref _frameAwaitingRead) == 0 && (pane == _pane || pane.Length == 0)) WakeCapture(); }
     private HostRequest Request(string operation, long[]? numbers = null, string text = "")
@@ -283,7 +282,7 @@ public sealed class RemoteTerminalSession : ITerminalSession
             _decodeCells = previous;
             if (!ReferenceEquals(spare, _cells) && !ReferenceEquals(spare, previous)) TerminalCellPool.Shared.Return(spare);
             _captured = reply.CapturedVersion; _frameRevision = reply.FrameRevision; Interlocked.Increment(ref _version);
-            Volatile.Write(ref _frameAwaitingRead, Volatile.Read(ref _viewers) > 0 && !LegacyRefreshForCheck
+            Volatile.Write(ref _frameAwaitingRead, Volatile.Read(ref _viewers) > 0
                 && MatchesViewport(_snapshot.Frame) ? 1 : 0);
         }
         TraceLatency("frame-cached"); FrameAvailable?.Invoke();
@@ -299,7 +298,7 @@ public sealed class RemoteTerminalSession : ITerminalSession
                 // Keep one unread frame rather than sleeping between captures.
                 // The view wakes us after copying it; output keeps accumulating
                 // in Ghostty while a slow/occluded view catches up.
-                if (visible && !LegacyRefreshForCheck && Volatile.Read(ref _frameAwaitingRead) != 0)
+                if (visible && Volatile.Read(ref _frameAwaitingRead) != 0)
                 { await _pollWake.WaitAsync(1000, _stop.Token).ConfigureAwait(false); continue; }
                 var request = Request(visible ? "capture" : "state", [_captured, Interlocked.Read(ref _frameRevision)]);
                 request.AllowFrameDelta = visible && _client.SupportsFrameDeltas && _captured >= 0;
@@ -355,7 +354,7 @@ public sealed class RemoteTerminalSession : ITerminalSession
                 }
                 finally { Volatile.Write(ref _capturing, 0); if (visible) _client.OutputDemandChanged(); }
                 if (!visible && _client.SupportsMetadataBatch) continue;
-                int delay = visible ? (LegacyRefreshForCheck ? 33 : _client.SupportsOutputWatch ? 1000 : Environment.TickCount64 < Interlocked.Read(ref _interactiveUntil) ? 8 : 16) : 400;
+                int delay = visible ? (_client.SupportsOutputWatch ? 1000 : Environment.TickCount64 < Interlocked.Read(ref _interactiveUntil) ? 8 : 16) : 400;
                 if (visible && _snapshot is { } frame)
                     delay = (int)Math.Min(delay, frame.Frame.RenderHeld != 0 ? 16 : frame.Frame.AnimationDelay == uint.MaxValue ? delay : Math.Max(1, frame.Frame.AnimationDelay));
                 await _pollWake.WaitAsync(delay, _stop.Token).ConfigureAwait(false);

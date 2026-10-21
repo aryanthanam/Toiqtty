@@ -7,16 +7,16 @@ The Lua module and global are both named `toiqtty`. There are no legacy product-
 Use **Edit Lua configuration** in the command palette or Settings to create/open the file. **Reload Lua configuration** reloads manually; main-file and local-module changes reload automatically after a short debounce. **Lua configuration status** shows the path, controlled settings, and errors. The bundled `Configuration/toiqtty.example.lua` demonstrates settings and nested startup layouts.
 
 ```lua
-local oro = require('toiqtty')
-local config = oro.config_builder()
+local toiqtty = require('toiqtty')
+local config = toiqtty.config_builder()
 
 local function font_size()
-  return oro.getenv('TOIQTTY_LARGE_TEXT') == '1' and 18 or 14
+  return toiqtty.getenv('TOIQTTY_LARGE_TEXT') == '1' and 18 or 14
 end
 
 config.font_size = font_size()
-config.shell = oro.default_shell
-config.start_directory = oro.home_dir
+config.shell = toiqtty.default_shell
+config.start_directory = toiqtty.home_dir
 config.browser = { home_page = 'http://localhost:3000' }
 return config
 ```
@@ -148,7 +148,7 @@ config.events = {
   format_status = function(ctx)
     local battery = ctx.battery_percent and ('  ' .. ctx.battery_percent .. '%') or ''
     return { left = ctx.session .. ' · ' .. ctx.tab,
-             right = oro.strftime('%a %H:%M:%S') .. battery }
+             right = toiqtty.strftime('%a %H:%M:%S') .. battery }
   end,
 }
 ```
@@ -165,7 +165,7 @@ Callbacks retain their Lua local state until a successful reload or window close
 
 ```lua
 config.wallpaper = {
-  directory = oro.path_join(oro.home_dir, '.config/wezterm/backdrops'),
+  directory = toiqtty.path_join(toiqtty.home_dir, '.config/wezterm/backdrops'),
   -- Or images = { 'backdrops/one.jpg', 'backdrops/two.png' }, relative to this config.
   opacity = 0.04, -- The visible image contribution, like a 96% opaque color overlay.
   fit = 'cover',  -- cover, contain, or stretch
@@ -265,7 +265,7 @@ Evaluation runs in an isolated `toiqtty.SessionHost.exe` process, separate from 
 ## Startup sessions, tabs, and panes
 
 ```lua
-local oro = require('toiqtty')
+local toiqtty = require('toiqtty')
 return {
   startup = {
     mode = 'when_empty',
@@ -278,11 +278,11 @@ return {
             name = 'Shell and browser',
             root = {
               split = 'right', ratio = 0.6,
-              first = { shell = oro.default_shell, cwd = oro.home_dir },
+              first = { shell = toiqtty.default_shell, cwd = toiqtty.home_dir },
               second = { kind = 'browser', url = 'http://localhost:3000' },
             },
           },
-          { name = 'Logs', shell = oro.default_shell },
+          { name = 'Logs', shell = toiqtty.default_shell },
         },
       },
     },

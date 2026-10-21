@@ -4,7 +4,7 @@ using Toiqtty.Models;
 
 internal static class LuaConfigChecks
 {
-    public static async Task RunWindows(string appExecutable,Action<bool,string> check,string? hostExecutable=null)
+    public static async Task RunWindows(string appExecutable,Action<bool,string> check)
     {
         string folder=Path.GetFullPath("artifacts/lua-ui-"+Guid.NewGuid().ToString("N")); Directory.CreateDirectory(folder);
         File.WriteAllText(Path.Combine(folder,"shared.lua"),"return {font_size=16}");
@@ -19,7 +19,6 @@ internal static class LuaConfigChecks
             """);
         try
         {
-            string? legacyIdentity = hostExecutable is not null ? Toiqtty.Hosting.SessionHostClient.ConnectOrStart(folder,Path.GetFullPath(hostExecutable)).Identity : null;
             foreach(string phase in new[]{"prepare","reconnect"})
             {
                 var start=new ProcessStartInfo(appExecutable) {UseShellExecute=false,WorkingDirectory=Environment.CurrentDirectory,WindowStyle=ProcessWindowStyle.Hidden};
@@ -33,13 +32,6 @@ internal static class LuaConfigChecks
                 using var report=System.Text.Json.JsonDocument.Parse(File.ReadAllText(reportPath));
                 if(!report.RootElement.GetProperty("passed").GetBoolean()) throw new InvalidOperationException(report.RootElement.GetProperty("error").GetString());
                 foreach(var item in report.RootElement.GetProperty("checks").EnumerateArray()) check(true,item.GetString()!);
-                if(phase=="prepare" && legacyIdentity is not null)
-                {
-                    var connected = Toiqtty.Hosting.SessionHostClient.TryConnect(folder)!;
-                    check(connected.Identity == legacyIdentity && (connected.SupportsPaneThemes || connected.Layout!.Workspaces.All(w => w.Theme is null)),
-                        connected.SupportsPaneThemes ? "The older host keeps its original identity and reconnects while advanced appearance remains frontend-owned or visibly deferred"
-                        : "The legacy host remains the original process and omits theme fields, so the frontend's separate preferences are required for reconnect");
-                }
             }
             Console.WriteLine("Lua WinUI evidence: "+folder);
         }

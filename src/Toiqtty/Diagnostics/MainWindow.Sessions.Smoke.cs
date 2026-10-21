@@ -31,13 +31,12 @@ public sealed partial class MainWindow
             if (phase == "performance") await RunPerformanceProbe(Check, Wait);
             else if (phase == "pane-reuse") await RunPaneReuseProbe(Check, Wait);
             else if (phase == "scale") await RunScaleProbe(Check,Wait);
-            else if (phase is "frame-delta" or "frame-delta-compat") await RunFrameDeltaProbe(Check,Wait,phase=="frame-delta-compat");
+            else if (phase == "frame-delta") await RunFrameDeltaProbe(Check,Wait);
             else if (phase == "background") await RunBackgroundProbe(Check,Wait);
             else if (phase == "endurance") await RunEnduranceProbe(Check,Wait);
             else if (phase == "scrolling") await RunScrollingProbe(Check, Wait);
             else if (phase == "resize") await RunResizeProbe(Check, Wait);
             else if (phase == "input") await RunInputProbe(Check, Wait);
-            else if (phase == "input-compat") await RunInputProbe(Check, Wait,true);
             else if (phase is "input-close" or "input-close-native") await RunInputCloseProbe(Check, Wait);
             else if (phase is "navigation-prepare" or "navigation-reconnect") await RunNavigationProbe(phase, Check, Wait);
             else if (phase is "prepare" or "crash-prepare")

@@ -224,7 +224,6 @@ public sealed partial class TerminalView : Grid, IDisposable
     internal bool HoldSnapshotsForCheck { get; set; }
     private int _frameQueued;
     internal long FrameNotifications { get; private set; }
-    internal bool LegacyRefreshForCheck { get; set; }
     internal event Action? FramePaintedForCheck;
     internal event Action<string, long>? LatencyStageForCheck;
     private void TraceLatency(string stage) => LatencyStageForCheck?.Invoke(stage, System.Diagnostics.Stopwatch.GetTimestamp());
@@ -383,7 +382,7 @@ public sealed partial class TerminalView : Grid, IDisposable
     }
     private void OnRemoteFrame()
     {
-        if (_disposed || _renderSuspended || LegacyRefreshForCheck) return;
+        if (_disposed || _renderSuspended) return;
         if (Interlocked.Exchange(ref _frameQueued, 1) != 0) return;
         TraceLatency("frame-dispatch-post");
         if (!_viewDispatcher.TryEnqueue(() =>

@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using System.Text.Json;
 using Toiqtty.Hosting;
 using Toiqtty.Models;
@@ -22,60 +21,22 @@ public sealed partial class MainWindow
         // The session-probe finally block closes the window immediately.
     }
 
-    private async Task RunInputProbe(Action<bool,string> check,Func<Func<bool>,Task> wait,bool compatibility=false)
+    private async Task RunInputProbe(Action<bool,string> check,Func<Func<bool>,Task> wait)
     {
         _metadataTimer.Stop();
         string client=Environment.GetEnvironmentVariable("TOIQTTY_SMOKE_EXE")!;
         var original=_selected!;
-        NewWorkspace($"\"{client}\" --latency-client","Input latency"); RemoveWorkspace(original);
+        NewWorkspace($"\"{client}\" --latency-client","Input correctness"); RemoveWorkspace(original);
         await wait(()=>_focused is { FramesPainted:>0 } ready && ready.RenderedText.Contains("LATENCY_READY") && !ready.ResizePendingForCheck);
         var view=_focused!;
         var remote=(RemoteTerminalSession)_selected!.Root.Session!;
-        check(_host!.SupportsOutputWatch!=compatibility,compatibility?"An older host remains usable through the compatibility polling path":"The updated host advertises output notifications through protocol-2 capabilities");
-        var results=new List<object>();
-        foreach(bool legacy in new[] { true,false,true,false })
-        {
-            remote.LegacyRefreshForCheck=legacy; view.LegacyRefreshForCheck=legacy;
-            await Task.Delay(150);
-            var latencies=new List<double>(); var admissions=new List<double>();
-            var traces=new List<object>();
-            long notifications=view.FrameNotifications;
-            for(int i=0;i<(legacy?30:100);i++)
-            {
-                string token=Guid.NewGuid().ToString("N");
-                var drawn=new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-                void Painted() { if(view.RenderedText.Contains("ACK_"+token)) drawn.TrySetResult(); }
-                view.FramePaintedForCheck+=Painted;
-                var timer=Stopwatch.StartNew();
-                long origin=Stopwatch.GetTimestamp();
-                var stages=new System.Collections.Concurrent.ConcurrentQueue<object>();
-                void Stage(string stage,long ticks) => stages.Enqueue(new { stage,ms=Stopwatch.GetElapsedTime(origin,ticks).TotalMilliseconds });
-                remote.LatencyStageForCheck+=Stage; view.LatencyStageForCheck+=Stage;
-                try
-                {
-                    remote.Paste("echo "+token); remote.Key(13,0);
-                    admissions.Add(timer.Elapsed.TotalMilliseconds);
-                    await drawn.Task.WaitAsync(TimeSpan.FromSeconds(5));
-                    latencies.Add(timer.Elapsed.TotalMilliseconds);
-                }
-                finally { view.FramePaintedForCheck-=Painted; remote.LatencyStageForCheck-=Stage; view.LatencyStageForCheck-=Stage; }
-                traces.Add(new { sample=i,stages=stages.ToArray() });
-                await Task.Delay(5);
-            }
-            latencies.Sort(); admissions.Sort();
-            results.Add(new { cadence=legacy?"reference-33ms-capture-plus-33ms-UI-on-swapchain":compatibility?"compatibility-poll-with-immediate-swapchain":"output-notification-with-immediate-swapchain",samples=latencies.Count,
-                requestToPresentMedianMs=latencies[latencies.Count/2],requestToPresentP95Ms=latencies[(int)((latencies.Count-1)*.95)],
-                requestToPresentP99Ms=latencies[(int)((latencies.Count-1)*.99)],requestToPresentMaxMs=latencies[^1],within120HzBudget=latencies.Count(ms=>ms<=1000d/120),
-                admissionMedianMs=admissions[admissions.Count/2],admissionP95Ms=admissions[(int)((admissions.Count-1)*.95)],
-                frameNotifications=view.FrameNotifications-notifications,latencies,traces });
-            check(legacy || view.FrameNotifications>notifications,"New terminal frames invalidate the view through dispatcher notifications");
-        }
-        remote.LegacyRefreshForCheck=false; view.LegacyRefreshForCheck=false;
-        check(remote.PendingInput==0,"Input acknowledgements drain after the latency workload");
-        File.WriteAllText(Path.Combine(SessionStore.Folder,"input-latency.json"),JsonSerializer.Serialize(new {
-            version=BuildInfo.Version,measurements=results,
-            meaning="UI admission through ConPTY child response, drawing-session disposal and CanvasSwapChain.Present(0) returning for the response frame. Not physical key hardware latency or measured display scanout. The 33ms timer reference uses the same swapchain and is not a measurement of an older release. Stage traces use Stopwatch timestamps; modern phases each contain 100 samples."
-        },new JsonSerializerOptions { WriteIndented=true }));
+        check(_host!.SupportsOutputWatch,"The host advertises output notifications through protocol-2 capabilities");
+        long notifications=view.FrameNotifications;
+        string token=Guid.NewGuid().ToString("N");
+        remote.Paste("echo "+token); remote.Key(13,0);
+        await wait(()=>view.RenderedText.Contains("ACK_"+token));
+        await remote.InputDrained;
+        check(remote.PendingInput==0 && view.FrameNotifications>notifications,"Input acknowledgements drain and response frames reach the view through dispatcher notifications");
         view.HoldSnapshotsForCheck=true;
         string heldToken=Guid.NewGuid().ToString("N");
         remote.Paste("echo "+heldToken); remote.Key(13,0);

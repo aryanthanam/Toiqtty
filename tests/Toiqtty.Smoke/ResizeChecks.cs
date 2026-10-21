@@ -4,13 +4,12 @@ using Toiqtty.Hosting;
 
 internal static class ResizeChecks
 {
-    public static async Task RunWindows(string executable,Action<bool,string> check,string phase="resize",string? hostExecutable=null)
+    public static async Task RunWindows(string executable,Action<bool,string> check,string phase="resize")
     {
         string folder=Path.GetFullPath("artifacts/"+phase+"-ui-"+Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(folder);
         try
         {
-            if(hostExecutable is not null) _=SessionHostClient.ConnectOrStart(folder,hostExecutable);
             var start=new ProcessStartInfo(executable) { UseShellExecute=false,WorkingDirectory=Environment.CurrentDirectory };
             start.ArgumentList.Add("--ui-smoke");
             start.Environment["TOIQTTY_DATA_DIR"]=folder;

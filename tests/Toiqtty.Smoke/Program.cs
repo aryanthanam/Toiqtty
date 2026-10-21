@@ -63,8 +63,6 @@ if (args.Length == 1 && args[0] == "--status-published") { await StatusSnapshotC
 if (args.Length == 1 && args[0] == "--console-lifetime") { await ConsoleLifetimeChecks.Run(Check); return; }
 if (args.Length == 2 && args[0] == "--metadata-batch") { await MetadataBatchChecks.Run(args[1], Check); Console.WriteLine($"{passed} metadata batch checks passed."); return; }
 if (args.Length == 2 && args[0] == "--metadata-payload") { await MetadataPayloadChecks.Run(args[1], Check); return; }
-if (args.Length == 2 && args[0] == "--metadata-compat") { await MetadataBatchChecks.LegacyMetadata(args[1], Check); return; }
-if (args.Length == 3 && args[0] == "--resize-selection") { await MetadataBatchChecks.ResizeCompatibility(args[1], args[2] == "legacy", Check); return; }
 if (args.Length == 3 && args[0] == "--snapshot-fuzz") { await SnapshotFuzzChecks.Run(int.Parse(args[1]), int.Parse(args[2]), Check); return; }
 if (args.Length == 2 && args[0] == "--host-scheduling") { await HostSchedulingChecks.Run(args[1], Check); Console.WriteLine($"{passed} host scheduling checks passed."); return; }
 if (args.Length == 2 && args[0] == "--host-accept-storm") { await HostSchedulingChecks.AcceptStorm(args[1], Check); return; }
@@ -94,16 +92,13 @@ if (args.Contains("--delta-client"))
 }
 if (args.Length == 2 && args[0] == "--scrolling-ui") { await ScrollingChecks.RunWindows(args[1], Check); Console.WriteLine($"{passed} scrolling WinUI checks passed."); return; }
 if (args.Length == 2 && args[0] == "--resize-ui") { await ResizeChecks.RunWindows(args[1], Check); Console.WriteLine($"{passed} resize WinUI checks passed."); return; }
-if (args.Length == 3 && args[0] == "--resize-compat-ui") { await ResizeChecks.RunWindows(args[1], Check, "resize", args[2]); Console.WriteLine($"{passed} compatible resize WinUI checks passed."); return; }
 if (args.Length == 2 && args[0] == "--pane-reuse-ui") { await ResizeChecks.RunWindows(args[1], Check, "pane-reuse"); Console.WriteLine($"{passed} retained pane WinUI checks passed."); return; }
 if (args.Length == 2 && args[0] == "--scale-ui") { await ResizeChecks.RunWindows(args[1], Check, "scale"); Console.WriteLine($"{passed} scale WinUI checks passed."); return; }
 if (args.Length == 2 && args[0] == "--frame-delta-ui") { await ResizeChecks.RunWindows(args[1], Check, "frame-delta"); Console.WriteLine($"{passed} row-delta WinUI checks passed."); return; }
 if (args.Length == 2 && args[0] == "--background-ui") { await ResizeChecks.RunWindows(args[1], Check, "background"); Console.WriteLine($"{passed} background WinUI checks passed."); return; }
-if (args.Length == 3 && args[0] == "--frame-delta-compat-ui") { await ResizeChecks.RunWindows(args[1], Check, "frame-delta-compat", args[2]); Console.WriteLine($"{passed} compatible snapshot WinUI checks passed."); return; }
 if (args.Length == 2 && args[0] == "--input-ui") { await ResizeChecks.RunWindows(args[1], Check, "input"); Console.WriteLine($"{passed} input WinUI checks passed."); return; }
 if (args.Length == 2 && args[0] == "--input-close-ui") { await ResizeChecks.RunWindows(args[1], Check, "input-close"); Console.WriteLine($"{passed} input close WinUI checks passed."); return; }
 if (args.Length == 2 && args[0] == "--input-native-close-ui") { await ResizeChecks.RunWindows(args[1], Check, "input-close-native"); Console.WriteLine($"{passed} native input close WinUI checks passed."); return; }
-if (args.Length == 3 && args[0] == "--input-compat-ui") { await ResizeChecks.RunWindows(args[1], Check, "input-compat", args[2]); Console.WriteLine($"{passed} compatible input WinUI checks passed."); return; }
 if (args.Contains("--snapshot-optimizations")) { SnapshotOptimizationChecks.Run(Check); Console.WriteLine($"{passed} snapshot optimization checks passed."); return; }
 if (args.Contains("--frame-deltas")) { FrameDeltaChecks.Run(Check); Console.WriteLine($"{passed} frame delta checks passed."); return; }
 if (args.Length == 2 && args[0] == "--navigation-ui") { await NavigationChecks.RunWindows(args[1], Check); Console.WriteLine($"{passed} navigation WinUI checks passed."); return; }
@@ -111,7 +106,6 @@ if (args.Length is 3 or 4 && args[0] == "--startup-benchmark") { await StartupCh
 if (args.Contains("--browser-only")) { await BrowserChecks.Run(Check); Console.WriteLine($"{passed} browser checks passed."); return; }
 if (args.Length == 2 && args[0] == "--lua-config") { await LuaConfigChecks.Run(args[1], Check); Console.WriteLine($"{passed} Lua configuration checks passed."); return; }
 if (args.Length == 2 && args[0] == "--lua-ui") { await LuaConfigChecks.RunWindows(args[1], Check); Console.WriteLine($"{passed} Lua WinUI checks passed."); return; }
-if (args.Length == 3 && args[0] == "--lua-legacy-ui") { await LuaConfigChecks.RunWindows(args[1], Check, args[2]); Console.WriteLine($"{passed} legacy-host Lua WinUI checks passed."); return; }
 if (args.Contains("--session-themes")) { await SessionThemeChecks.Run(Check); Console.WriteLine($"{passed} session theme checks passed."); return; }
 if (args.Length == 2 && args[0] == "--interactions") { InteractionChecks.Run(Check); await InteractionChecks.RunConfig(args[1], Check); Console.WriteLine($"{passed} interaction checks passed."); return; }
 if (args.Contains("--appearance")) { AppearanceChecks.Run(Check); Console.WriteLine($"{passed} appearance checks passed."); return; }
@@ -158,6 +152,12 @@ if (args.Length == 3 && args[0] == "--uia-window") { await AccessibilityChecks.R
 if (args.Length is 5 or 6 && args[0] is "--uia-observe" or "--uia-post-soak") { await UiaObserveChecks.Run(int.Parse(args[1]), args[2], int.Parse(args[3]), args[4], args.Length == 6 ? int.Parse(args[5]) : -1, args[0] == "--uia-post-soak"); return; }
 if (args.Length == 5 && args[0] == "--dpi-uia") { await DpiAccessibilityChecks.Run(int.Parse(args[1]), args[2], int.Parse(args[3]), int.Parse(args[4])); return; }
 if (args.Length >= 1 && args[0] == "--soak") { await SoakChecks.Run(args.Length > 1 ? int.Parse(args[1]) : 600, Check, args.Length > 2 ? args[2] : "artifacts/soak.json"); return; }
+if (args.Length > 0)
+{
+    Console.Error.WriteLine("Unknown test arguments: " + string.Join(' ', args));
+    Environment.ExitCode = 1;
+    return;
+}
 void Write(GhosttyTerminal terminal, string text) { var bytes = Encoding.UTF8.GetBytes(text); terminal.Write(bytes, bytes.Length); }
 string Row(TerminalCell[] cells, int columns, int row = 0) => string.Concat(cells.Skip(row * columns).Take(columns).Select(c => c.GetText().Length == 0 ? " " : c.GetText())).TrimEnd();
 using (var terminal = new GhosttyTerminal(20, 5))

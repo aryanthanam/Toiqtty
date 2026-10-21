@@ -1,6 +1,6 @@
 param(
     [ValidateRange(30,86400)][int]$Seconds=10800,
-    [string]$AppDirectory='artifacts/release-0.7.6',
+    [string]$AppDirectory='artifacts/release',
     [string]$TestDirectory='',
     [switch]$CommandTrace,
     [switch]$PauseCheck,

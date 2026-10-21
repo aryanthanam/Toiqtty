@@ -1,4 +1,4 @@
-param([string]$AppDirectory = 'artifacts/release-0.10.2-startup', [ValidateRange(1,10)][int]$Iterations = 3, [switch]$Profile, [switch]$UserConfig, [switch]$ImmediateShell)
+param([string]$AppDirectory = 'artifacts/release', [ValidateRange(1,10)][int]$Iterations = 3, [switch]$Profile, [switch]$UserConfig, [switch]$ImmediateShell)
 $ErrorActionPreference = 'Stop'
 if ($Profile -and $ImmediateShell) { throw 'Choose either the PowerShell profile or the immediate-output shell.' }
 $repoRoot = Split-Path $PSScriptRoot -Parent

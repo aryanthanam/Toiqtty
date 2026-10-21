@@ -1,6 +1,6 @@
 param(
     [ValidateRange(30,86400)][int]$Seconds=14400,
-    [string]$AppDirectory='artifacts/release-0.7.6',
+    [string]$AppDirectory='artifacts/release',
     [string]$RunDirectory
 )
 $ErrorActionPreference='Stop'

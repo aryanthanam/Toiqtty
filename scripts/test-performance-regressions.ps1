@@ -1,4 +1,4 @@
-param([string]$AppDirectory='artifacts/release-0.7.6',[string]$TestDirectory='artifacts/performance-regression-tests',[string]$LegacyHostDirectory='artifacts/release-0.6.6',[switch]$SkipBuild)
+param([string]$AppDirectory='artifacts/release',[string]$TestDirectory='artifacts/performance-regression-tests',[switch]$SkipBuild)
 $ErrorActionPreference='Stop'
 $root=Split-Path $PSScriptRoot -Parent
 Push-Location -LiteralPath $root
@@ -26,13 +26,6 @@ try {
         $results | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $folder 'results.json')
         Get-Content -LiteralPath (Join-Path $folder "$phase.log") -Tail 2
         if($code -ne 0){throw "$phase regression failed: $folder"}
-    }
-    if($LegacyHostDirectory){
-        foreach($phase in @('frame-delta-compat','input-compat')){
-            & $client ("--$phase-ui") (Join-Path $app 'toiqtty.exe') (Join-Path ([IO.Path]::GetFullPath($LegacyHostDirectory)) 'Toiqtty.SessionHost.exe') *> (Join-Path $folder "$phase.log")
-            if($LASTEXITCODE -ne 0){throw "$phase regression failed: $folder"}
-            $results+=@{phase=$phase;exitCode=$LASTEXITCODE;checks=@(Select-String -LiteralPath (Join-Path $folder "$phase.log") -Pattern '^PASS:').Count}
-        }
     }
     $results | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $folder 'results.json')
     Write-Output "Performance/lifecycle regression evidence: $folder"

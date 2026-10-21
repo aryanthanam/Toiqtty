@@ -1,4 +1,4 @@
-param([string]$OldReleaseDirectory='artifacts/release-0.6.9',[string]$ReleaseDirectory='artifacts/release-0.7.6')
+param([Parameter(Mandatory)][string]$OldReleaseDirectory,[string]$ReleaseDirectory='artifacts/release')
 $ErrorActionPreference='Stop'
 . "$PSScriptRoot/release-tools.ps1"
 $repo=Split-Path $PSScriptRoot -Parent
