@@ -12,14 +12,14 @@ public sealed class ConPtyProcess : IDisposable
 {
     internal static readonly int OutputBufferBytes = Environment.GetEnvironmentVariable("TOIQTTY_PERFORMANCE_READ_KIB") == "64" ? 65536 : 16384;
     private nint _console;
-    private readonly object _consoleGate = new();
+    private readonly Lock _consoleGate = new();
     internal Action? BeforeResizeForCheck { get; set; }
     internal Action? BeforeConsoleCloseForCheck { get; set; }
-    private SafeFileHandle? _process;
-    private PipeStream? _input, _output;
+    private readonly SafeFileHandle? _process;
+    private readonly PipeStream? _input, _output;
     private volatile bool _disposed;
     public const int MaxQueuedInputBytes = 8 * 1024 * 1024;
-    private readonly object _writeGate = new();
+    private readonly Lock _writeGate = new();
     private readonly Channel<byte[]> _writes = Channel.CreateBounded<byte[]>(new BoundedChannelOptions(256) { SingleReader = true, FullMode = BoundedChannelFullMode.Wait });
     private long _queuedInputBytes;
     public long QueuedInputBytes => Interlocked.Read(ref _queuedInputBytes);

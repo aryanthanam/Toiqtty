@@ -1,7 +1,6 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Automation;
-using Microsoft.UI.Xaml.Media;
 using Toiqtty.Hosting;
 using Toiqtty.Models;
 using Toiqtty.Terminal;
@@ -20,7 +19,7 @@ public sealed partial class MainWindow
         QueueTitleRegions();
         ApplyLuaTabTitles();
     }
-    private void TabOverflowOpening(object sender,object args)
+    private void TabOverflowOpening(object _1,object _2)
     {
         TabOverflowMenu.Items.Clear();
         if(_selected is not { } workspace) return;
@@ -68,7 +67,7 @@ public sealed partial class MainWindow
                 if (pane.Session == shell) return (owner, pane);
         return null;
     }
-    private void NewTabClick(object sender,RoutedEventArgs e)=>NewTab();
+    private void NewTabClick(object _1,RoutedEventArgs _2)=>NewTab();
     private void NewTab(string? command=null,string? name=null,string? directory=null)
     {
         if (_selected is null) { NewWorkspace(command,name,directory); return; }
@@ -165,8 +164,16 @@ public sealed partial class MainWindow
             var openDirectory = new MenuFlyoutItem { Text = "Open in Windows Explorer" };
             openDirectory.Click += async (_, _) => await OpenDirectory(session, tab);
             menu.Items.Add(move); menu.Items.Add(openDirectory); AddTabOrderMenu(menu, session, tab); select.ContextFlyout=menu;
-            var close=new Button { Content=new FontIcon { Glyph="\uE8BB",FontSize=8 },Style=(Style)Root.Resources["ToolButton"],Width=23,MinWidth=23,Height=25,Padding=new Thickness(0) };
-            close.Foreground = Controls.Chrome.Brush(colors.Text);
+            var close = new Button
+            {
+                Content = new FontIcon { Glyph = "\uE8BB", FontSize = 8 },
+                Style = (Style)Root.Resources["ToolButton"],
+                Width = 23,
+                MinWidth = 23,
+                Height = 25,
+                Padding = new Thickness(0),
+                Foreground = Controls.Chrome.Brush(colors.Text)
+            };
             AutomationProperties.SetName(close,"Close tab "+tab.Name); close.Click+=(_,_)=>RemoveTab(session,tab);
             ToolTipService.SetToolTip(close,"Close tab "+tab.Name);
             close.Opacity=active?1:0;

@@ -1,6 +1,4 @@
 using Microsoft.UI.Windowing;
-using Microsoft.UI.Xaml;
-using Toiqtty.Configuration;
 using Toiqtty.Models;
 using Windows.System;
 

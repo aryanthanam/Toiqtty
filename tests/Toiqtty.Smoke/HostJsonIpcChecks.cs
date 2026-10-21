@@ -20,8 +20,8 @@ internal static class HostJsonIpcChecks
                 baseline = await client.CaptureAsync(new() { Operation = "capture", Pane = pane, Numbers = [-1], AllowStyleRuns = true }, [], CancellationToken.None, lease);
                 if (baseline.BinaryLength > 0)
                 {
-                    var decoded = HostSnapshotCodec.Decode(baseline.Binary, [], payloadLength: baseline.BinaryLength);
-                    bool ready = string.Concat(decoded.Cells.Select(cell => cell.GetText())).Contains("PERSIST_READY"); TerminalCellPool.Shared.Return(decoded.Cells);
+                    var (Snapshot, Cells) = HostSnapshotCodec.Decode(baseline.Binary, [], payloadLength: baseline.BinaryLength);
+                    bool ready = string.Concat(Cells.Select(cell => cell.GetText())).Contains("PERSIST_READY"); TerminalCellPool.Shared.Return(Cells);
                     if (ready) break;
                 }
                 if (DateTime.UtcNow > deadline) throw new TimeoutException("JSON IPC fixture did not start."); await Task.Delay(10);

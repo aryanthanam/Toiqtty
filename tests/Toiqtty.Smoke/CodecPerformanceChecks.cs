@@ -16,7 +16,7 @@ internal static class CodecPerformanceChecks
         cells[20*160].Text="b"; byte[] second=HostSnapshotCodec.EncodeDelta(snapshot,cells,[]);
         var samples=new List<object>(); const int iterations=5000;
         for(int round=0;round<3;round++)
-        foreach(bool sparse in round%2==0?new[]{false,true}:new[]{true,false})
+        foreach(bool sparse in round%2==0?new[]{false,true}:[true,false])
         {
             var images=new Dictionary<ulong,TerminalImage>();
             var current=HostSnapshotCodec.Decode(full,images);

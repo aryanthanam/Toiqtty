@@ -2,7 +2,6 @@ using System.Diagnostics;
 using System.Text.Json;
 using System.Text.Json.Serialization.Metadata;
 using Toiqtty.Hosting;
-using Toiqtty.Models;
 using Toiqtty.Terminal;
 using Toiqtty.Configuration;
 
@@ -125,7 +124,7 @@ internal static class HostJsonChecks
         void Measure<T>(T value, JsonTypeInfo<T> info, string name)
         {
             byte[] data = JsonSerializer.SerializeToUtf8Bytes(value);
-            for (int round = 0; round < 3; round++) foreach (bool generated in round % 2 == 0 ? new[] { false, true } : new[] { true, false }) foreach (bool decode in new[] { false, true })
+            for (int round = 0; round < 3; round++) foreach (bool generated in round % 2 == 0 ? new[] { false, true } : [true, false]) foreach (bool decode in new[] { false, true })
             {
                 void Once() { if (decode) { if (generated) _ = JsonSerializer.Deserialize(data, info); else _ = JsonSerializer.Deserialize<T>(data); } else { if (generated) _ = JsonSerializer.SerializeToUtf8Bytes(value, info); else _ = JsonSerializer.SerializeToUtf8Bytes(value); } }
                 for (int warm = 0; warm < 100; warm++) Once(); long allocation = GC.GetAllocatedBytesForCurrentThread(); var timer = Stopwatch.StartNew();

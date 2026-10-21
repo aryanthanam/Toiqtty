@@ -18,8 +18,8 @@ internal static class CellBufferChecks
         check(!ReferenceEquals(reused,simultaneous),"Two live cell leases never share the same array");
         pool.Return(reused); pool.Return(simultaneous); pool.Return(pool.Rent(12)); pool.Return(pool.Rent(20));
         check(pool.Statistics.Bytes<=32L*size && pool.Statistics.Buffers<=2,"Cell-buffer retention obeys both the byte and array-count budgets");
-        var oversized=pool.Rent(21); var before=pool.Statistics; pool.Return(oversized);
-        check(pool.Statistics.Bytes==before.Bytes && pool.Statistics.Buffers==before.Buffers,"Oversized cell arrays are not retained in the pool");
+        var oversized=pool.Rent(21); var (Bytes, Buffers, Created, Reused) = pool.Statistics; pool.Return(oversized);
+        check(pool.Statistics.Bytes==Bytes && pool.Statistics.Buffers==Buffers,"Oversized cell arrays are not retained in the pool");
         var warm=new TerminalCellPool(); var buffer=warm.Rent(128); warm.Return(buffer);
         long start=GC.GetAllocatedBytesForCurrentThread();
         for(int i=0;i<1000;i++){buffer=warm.Rent(128);warm.Return(buffer);}

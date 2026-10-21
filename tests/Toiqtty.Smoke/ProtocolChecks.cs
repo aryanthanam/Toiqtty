@@ -69,7 +69,7 @@ internal static class ProtocolChecks
         Graphics("a=d,d=A");
         using (var compressed = new MemoryStream())
         {
-            using (var zlib = new ZLibStream(compressed, CompressionLevel.SmallestSize, true)) zlib.Write(new byte[] {0, 255, 0});
+            using (var zlib = new ZLibStream(compressed, CompressionLevel.SmallestSize, true)) zlib.Write([0, 255, 0]);
             Graphics("a=T,i=46,f=24,s=1,v=1,o=z,C=1", compressed.ToArray());
         }
         check(Snapshot().Graphics.Single().Image.Pixels.SequenceEqual(new byte[] {0, 255, 0}), "Kitty zlib transmission is decompressed by Ghostty");

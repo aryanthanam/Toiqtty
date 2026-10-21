@@ -79,9 +79,9 @@ internal static class ReadConnectionChecks
     private static string Text(HostReply reply)
     {
         if (reply.BinaryLength == 0) return "";
-        var decoded = HostSnapshotCodec.Decode(reply.Binary, [], payloadLength: reply.BinaryLength);
-        try { return string.Concat(decoded.Cells.Select(cell => cell.GetText())); }
-        finally { TerminalCellPool.Shared.Return(decoded.Cells); }
+        var (Snapshot, Cells) = HostSnapshotCodec.Decode(reply.Binary, [], payloadLength: reply.BinaryLength);
+        try { return string.Concat(Cells.Select(cell => cell.GetText())); }
+        finally { TerminalCellPool.Shared.Return(Cells); }
     }
     private static async Task StaleConnection(bool replaceIdentity, Action<bool, string> check)
     {

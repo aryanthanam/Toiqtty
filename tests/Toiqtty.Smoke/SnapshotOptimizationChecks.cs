@@ -33,8 +33,8 @@ internal static class SnapshotOptimizationChecks
         _=HostSnapshotCodec.Encode(largeSnapshot,largeCells,[]);
         check(singleBuffer.SequenceEqual(retainedPayload),"Each encoded reply retains its own bytes while later replies are encoded");
         var reusable = new TerminalCell[cells.Length];
-        var decoded = HostSnapshotCodec.Decode(encoded, [], reusable);
-        check(ReferenceEquals(decoded.Cells, reusable) && cells.Select((cell, i) => cell.SameAppearance(in reusable[i])).All(value => value),
+        var (Snapshot, Cells) = HostSnapshotCodec.Decode(encoded, [], reusable);
+        check(ReferenceEquals(Cells, reusable) && cells.Select((cell, i) => cell.SameAppearance(in reusable[i])).All(value => value),
             "reusing a decoder buffer preserves every glyph and style field");
         var arena=new byte[encoded.Length+4096]; Array.Fill(arena,(byte)0xcc); encoded.CopyTo(arena,0);
         var bounded=HostSnapshotCodec.Decode(arena,[],payloadLength:encoded.Length);

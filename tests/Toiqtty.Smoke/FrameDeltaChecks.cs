@@ -95,8 +95,8 @@ internal static class FrameDeltaChecks
         check(delta.Length < HostSnapshotCodec.Encode(changed, nativeCells, []).Length / 3, "A sparse row delta is substantially smaller than the equivalent full frame");
         check(Equal(nativeCells, decoded.Cells) && decoded.Snapshot.Frame.Equals(changed.Frame), "A row delta preserves Unicode clusters, styles, widths and frame metadata");
         check(Equal(baseline.Cells, HostSnapshotCodec.Decode(full, []).Cells), "Decoding a delta leaves its previous baseline untouched");
-        var aliased = HostSnapshotCodec.DecodeDelta(delta, images, baseline.Snapshot, baseline.Cells, baseline.Cells);
-        check(!ReferenceEquals(aliased.Cells, baseline.Cells) && Equal(aliased.Cells, nativeCells), "An aliased reusable buffer cannot overwrite a delta baseline");
+        var (Snapshot, Cells) = HostSnapshotCodec.DecodeDelta(delta, images, baseline.Snapshot, baseline.Cells, baseline.Cells);
+        check(!ReferenceEquals(Cells, baseline.Cells) && Equal(Cells, nativeCells), "An aliased reusable buffer cannot overwrite a delta baseline");
         byte[] badMagic = (byte[])delta.Clone(); badMagic[0] ^= 255;
         Reject(badMagic, "A delta with an unknown format is rejected");
         byte[] badCount = (byte[])delta.Clone(); BitConverter.GetBytes(9).CopyTo(badCount, 72);
@@ -109,9 +109,9 @@ internal static class FrameDeltaChecks
         Reject(delta[..^1], "A truncated delta is rejected before publishing");
         byte[] trailing = delta.Concat(new byte[] { 1 }).ToArray(); Reject(trailing, "Unexpected trailing delta data is rejected");
         bool duplicate = false;
-        try { HostSnapshotCodec.EncodeDelta(changed with { ChangedRows = new[] { 1, 1 } }, nativeCells, []); } catch (ArgumentException) { duplicate = true; }
+        try { HostSnapshotCodec.EncodeDelta(changed with { ChangedRows = [1, 1] }, nativeCells, []); } catch (ArgumentException) { duplicate = true; }
         check(duplicate, "The delta encoder rejects duplicate or unordered rows");
-        byte[] duplicateRows = HostSnapshotCodec.EncodeDelta(changed with { ChangedRows = new[] { 1, 2 } }, nativeCells, []);
+        byte[] duplicateRows = HostSnapshotCodec.EncodeDelta(changed with { ChangedRows = [1, 2] }, nativeCells, []);
         using (var stream = new MemoryStream(duplicateRows))
         using (var reader = new BinaryReader(stream, Encoding.UTF8))
         {

@@ -1,5 +1,4 @@
 using Toiqtty.Hosting;
-using Toiqtty.Models;
 
 if (args.Length == 1 && args[0] == "--evaluate-config") { await Toiqtty.Configuration.LuaConfigService.RunWorker(); return; }
 if (args.Length == 1 && args[0] == "--runtime-config") { await Toiqtty.Configuration.LuaRuntimeClient.RunWorker(); return; }

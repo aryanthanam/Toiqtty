@@ -35,14 +35,14 @@ public sealed partial class SessionHostClient
     public bool SupportsAdvancedAppearance { get; private set; }
     public bool SupportsLiteralInput { get; private set; }
     private readonly SemaphoreSlim _layoutSaveGate = new(1, 1);
-    private readonly object _navigationGate = new();
+    private readonly Lock _navigationGate = new();
     private HostRequest? _pendingNavigation;
     private List<TaskCompletionSource> _navigationCompletions = [];
     private bool _savingNavigation;
     internal long WatchRequestsForCheck, WatchNotificationsForCheck;
     internal bool DisablePaneOutputWatchForCheck { get; set; }
     internal bool CancelRetiredWatchForCheck { get; set; }
-    private readonly object _watchGate = new();
+    private readonly Lock _watchGate = new();
     private sealed record OutputSubscription(Action<string> Listener, Func<bool> Demand, Func<bool>? Visible);
     private readonly Dictionary<string, OutputSubscription[]> _outputListeners = [];
     private string[] _lastInterests = [];

@@ -37,7 +37,7 @@ internal sealed class TerminalTextRenderer : IDisposable
     private readonly StringBuilder _rowBuilder = new(256), _widthBuilder = new(256);
     private CanvasTypography? _ligaturesOn, _ligaturesOff;
     private DirectXRenderer? _gpu;
-    private Dictionary<string, uint> _features = new();
+    private Dictionary<string, uint> _features = [];
     internal void ConfigureFeatures(Dictionary<string, uint> features)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
@@ -175,7 +175,7 @@ internal sealed class TerminalTextRenderer : IDisposable
             {
                 if (!_asciiShapes.TryGetValue(key, out var ascii) && !_nativeLayouts.ContainsKey(key) && !_layouts.ContainsKey(key))
                 {
-                    ascii = _gpu.TryCreateAsciiShape(NativeFormat(key.Item2), key.Item1, NativeFeatures(ligatures), cellWidth);
+                    ascii = _gpu.TryCreateAsciiShape(NativeFormat(key.Item2), key.runText, NativeFeatures(ligatures), cellWidth);
                     if (ascii is not null)
                     {
                         while (_asciiShapes.Count > 0 && (_asciiShapes.Count >= 256 || _asciiShapeBytes + ascii.NativeBytes > 2 * 1024 * 1024))
@@ -192,7 +192,7 @@ internal sealed class TerminalTextRenderer : IDisposable
                     if (_nativeLayouts.Count >= 2048 && _nativeLayouts.Remove(_nativeLayoutOrder.Dequeue(), out var evicted))
                     { _gpu.ForgetTextLayout(evicted); evicted.Dispose(); }
                     var nativeFormat = NativeFormat(key.Item2);
-                    native = _gpu.CreateTerminalLayout(nativeFormat, key.Item1, key.Item3, NativeFeatures(ligatures), cellWidth, cellHeight, runAdvance,
+                    native = _gpu.CreateTerminalLayout(nativeFormat, key.runText, key.Item3, NativeFeatures(ligatures), cellWidth, cellHeight, runAdvance,
                         !DisableSpacingBatchForCheck, out var metrics);
                     SpacingCalls += metrics.SpacingCalls; MaxAdvanceError = Math.Max(MaxAdvanceError, metrics.AdvanceError);
                     _nativeLayouts.Add(key, native); _nativeLayoutOrder.Enqueue(key); ShapedRuns++;
@@ -203,11 +203,11 @@ internal sealed class TerminalTextRenderer : IDisposable
             {
                 if (_layouts.Count >= 2048 && _layouts.Remove(_layoutOrder.Dequeue(), out var evicted))
                 { _gpu.ForgetTextLayout(evicted); evicted.Dispose(); }
-                layout = new CanvasTextLayout(resource, key.Item1, format(first.Flags), 100000, cellHeight);
+                layout = new CanvasTextLayout(resource, key.runText, format(first.Flags), 100000, cellHeight);
                 SetLineMetrics(layout, resource, format(first.Flags), cellHeight, first.Flags);
-                layout.SetTypography(0, key.Item1.Length, Typography(ligatures));
+                layout.SetTypography(0, key.runText.Length, Typography(ligatures));
                 int offset = 0, pendingStart = 0, pendingCount = 0; float pendingSpacing = 0;
-                foreach (var cluster in _clusterMetrics.Read(layout, key.Item1.Length))
+                foreach (var cluster in _clusterMetrics.Read(layout, key.runText.Length))
                 {
                     float advance = 0;
                     for (int i = offset; i < offset + cluster.CharacterCount; i++)

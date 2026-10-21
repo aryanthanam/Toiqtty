@@ -56,18 +56,18 @@ public sealed partial class MainWindow
             do
             {
                 records.Clear(); correct = true;
-                foreach (var marker in new (string Name, float X, float Y, int R, int G, int B)[] { ("white", 2, 2, 255, 255, 255), ("cyan", width - 2, 2, 0, 255, 255), ("yellow", 2, height - 2, 255, 255, 0), ("red", width - 2, height - 2, 255, 0, 0), ("alpha", width / 2, 2, transparent ? 127 : 0, transparent ? 127 : 0, 255) })
+                foreach (var (Name, X, Y, R, G, B) in new (string Name, float X, float Y, int R, int G, int B)[] { ("white", 2, 2, 255, 255, 255), ("cyan", width - 2, 2, 0, 255, 255), ("yellow", 2, height - 2, 255, 255, 0), ("red", width - 2, height - 2, 255, 0, 0), ("alpha", width / 2, 2, transparent ? 127 : 0, transparent ? 127 : 0, 255) })
                 {
-                    Point local = panel.TransformToVisual(Root).TransformPoint(new(marker.X, marker.Y));
+                    Point local = panel.TransformToVisual(Root).TransformPoint(new(X, Y));
                     var screen = new DirectXDesktop.Point { X = (int)Math.Round(local.X * Root.XamlRoot.RasterizationScale), Y = (int)Math.Round(local.Y * Root.XamlRoot.RasterizationScale) };
                     if (!DirectXDesktop.ClientToScreen(window, ref screen)) throw new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error());
                     bool owned = DirectXDesktop.GetAncestor(DirectXDesktop.WindowFromPoint(screen), 2) == window;
                     // Read only explicit marker pixels inside this owned fixture.
                     uint pixel = owned ? DirectXDesktop.GetPixel(dc, screen.X, screen.Y) : uint.MaxValue;
                     int r = (int)(pixel & 255), g = (int)(pixel >> 8 & 255), b = (int)(pixel >> 16 & 255);
-                    int expectedR = (int)Math.Round(255 - (255 - marker.R) * panel.Opacity), expectedG = (int)Math.Round(255 - (255 - marker.G) * panel.Opacity), expectedB = (int)Math.Round(255 - (255 - marker.B) * panel.Opacity);
+                    int expectedR = (int)Math.Round(255 - (255 - R) * panel.Opacity), expectedG = (int)Math.Round(255 - (255 - G) * panel.Opacity), expectedB = (int)Math.Round(255 - (255 - B) * panel.Opacity);
                     bool equal = owned && Math.Abs(r - expectedR) <= 4 && Math.Abs(g - expectedG) <= 4 && Math.Abs(b - expectedB) <= 4; correct &= equal;
-                    records.Add(new { marker.Name, screen.X, screen.Y, owned, r, g, b, expected = new { R = expectedR, G = expectedG, B = expectedB }, passed = equal });
+                    records.Add(new { Name, screen.X, screen.Y, owned, r, g, b, expected = new { R = expectedR, G = expectedG, B = expectedB }, passed = equal });
                 }
                 if (!correct) { await Task.Delay(50); Marshal.ThrowExceptionForHR(DirectXDesktop.DwmFlush()); }
             } while (!correct && DateTime.UtcNow < deadline);

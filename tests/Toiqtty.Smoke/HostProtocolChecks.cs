@@ -6,7 +6,7 @@ internal static class HostProtocolChecks
 {
     internal static async Task DropTransport(Action<bool, string> check)
     {
-        async Task WaitReady(TerminalSession session)
+        static async Task WaitReady(TerminalSession session)
         {
             var deadline = DateTime.UtcNow.AddSeconds(10);
             while (DateTime.UtcNow < deadline)
@@ -123,7 +123,7 @@ internal static class HostProtocolChecks
         check(terminal.ReadSnapshot(cells).ChangedRows.Count == 0 && cells[0].GetText() == "h", "unchanged snapshots preserve the cell buffer and report zero dirty rows");
         Write("\x1b[2;1HX");
         var partial = terminal.ReadSnapshot(cells);
-        check(partial.ChangedRows.SequenceEqual(new[] { 1 }) && cells[24].GetText() == "X" && cells[0].GetText() == "h", "a one-row edit only extracts that row and preserves every other row");
+        check(partial.ChangedRows.SequenceEqual([1]) && cells[24].GetText() == "X" && cells[0].GetText() == "h", "a one-row edit only extracts that row and preserves every other row");
         var different = new TerminalCell[cells.Length];
         check(terminal.ReadSnapshot(different).ChangedRows.Count == 6 && different[0].GetText() == "h", "switching consumer buffers forces a complete snapshot");
         Write("\x1b" + "c\x1b[?2027h" + "a" + new string('\u0301', 64));

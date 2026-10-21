@@ -6,7 +6,7 @@ namespace Toiqtty.Hosting;
 internal sealed class SessionPersistenceQueue(Func<SavedSession, bool, SessionHostClient?, Task>? writer = null)
 {
     private sealed record SaveRequest(SavedSession Snapshot, bool NavigationOnly, SessionHostClient? Host);
-    private readonly object _gate = new();
+    private readonly Lock _gate = new();
     private SaveRequest? _pending;
     private TaskCompletionSource? _drained;
 

@@ -6,7 +6,7 @@ public sealed partial class TerminalView
 {
     internal void CheckBackgroundLayersForCheck(Action<bool, string> check)
     {
-        if (_snapshot is null || _rows < 4 || _columns < 12) throw new InvalidOperationException("Background checks require an accepted visible grid.");
+        if (_snapshot is null || GridRows < 4 || GridColumns < 12) throw new InvalidOperationException("Background checks require an accepted visible grid.");
         var previousCells = _cells; var previousFrame = _frame; var previousSnapshot = _snapshot;
         bool previousHold = HoldSnapshotsForCheck, previousEager = _eagerBackgroundForCheck;
         var reference = new byte[6][];
@@ -16,7 +16,7 @@ public sealed partial class TerminalView
             foreach (bool eager in new[] { true, false })
             {
                 SetEagerBackgroundForCheck(eager); ResetLayers();
-                _cells = new TerminalCell[_columns * _rows]; _frame.CursorVisible = 0;
+                _cells = new TerminalCell[GridColumns * GridRows]; _frame.CursorVisible = 0;
                 for (int index = 0; index < _cells.Length; index++) _cells[index] = new() { Text = "x", Length = 1, Width = 1, Foreground = _frame.Foreground, Background = _frame.Background };
                 _snapshot = new(_frame, [], []);
                 for (int state = 0; state < 6; state++)
@@ -43,7 +43,7 @@ public sealed partial class TerminalView
                     {
                         for (int column = 2; column < 10; column++)
                         {
-                            ref var cell = ref _cells[row * _columns + column]; cell.Background = background; cell.Flags = selected ? 64u : 0;
+                            ref var cell = ref _cells[row * GridColumns + column]; cell.Background = background; cell.Flags = selected ? 64u : 0;
                         }
                         _redrawRows[row] = true;
                     }

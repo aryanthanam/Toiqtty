@@ -35,7 +35,7 @@ public static class UserPreferences
         {
             if (new FileInfo(path).Length > 256 * 1024) throw new InvalidDataException("Preferences file is too large.");
             var settings = JsonSerializer.Deserialize(File.ReadAllText(path), ConfigurationJsonContext.Default.AppSettings) ?? LuaConfigResult.Clone(legacy);
-            settings.Keybindings ??= new(); settings.Browser ??= new(); settings.StatusBar ??= new(); LuaConfigParser.Validate(settings); return settings;
+            settings.Keybindings ??= []; settings.Browser ??= new(); settings.StatusBar ??= new(); LuaConfigParser.Validate(settings); return settings;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException or ArgumentException or NullReferenceException or FormatException) { return LuaConfigResult.Clone(legacy); }
     }

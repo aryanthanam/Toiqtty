@@ -47,7 +47,7 @@ public sealed partial class TerminalView : Grid, IDisposable
     internal void RefreshWallpaper() => _canvas.Invalidate();
     internal ushort FontWeightForCheck => Format(0).FontWeight.Weight;
     internal float FontSizeForCheck => Format(0).FontSize;
-    internal float CellHeightForCheck => _cellHeight;
+    internal float CellHeightForCheck => CellHeight;
     internal double ContentOpacityForCheck => _canvas.Opacity;
     internal string FontFaceForCheck => Format(0).FontFamily;
     internal TerminalFrame FrameForCheck => _frame;
@@ -65,7 +65,7 @@ public sealed partial class TerminalView : Grid, IDisposable
     private uint _sessionAccent = Chrome.Accent;
     internal uint SessionAccent { get => _sessionAccent; set { if (_sessionAccent == value) return; _sessionAccent = value; UpdateBorder(); ((Microsoft.UI.Xaml.Shapes.Ellipse)_scrollAnchor.Children[0]).Stroke = Chrome.Brush(value); } }
     internal bool ShowFocusMarker { get => _showFocusMarker; set { if (_showFocusMarker == value) return; _showFocusMarker = value; UpdateBorder(); } }
-    internal string ViewportLabel => $"{_columns} × {_rows}";
+    internal string ViewportLabel => $"{GridColumns} × {GridRows}";
     private bool _syntheticInputOnlyForCheck;
     internal void UseSyntheticInputOnlyForCheck()
     {
@@ -107,8 +107,8 @@ public sealed partial class TerminalView : Grid, IDisposable
     {
         requestedColumns = _requestedColumns,
         requestedRows = _requestedRows,
-        columns = _columns,
-        rows = _rows,
+        columns = GridColumns,
+        rows = GridRows,
         resizeCells = _resizeCells?.Length,
         cells = _cells.Length,
         _hasSized,
@@ -171,16 +171,16 @@ public sealed partial class TerminalView : Grid, IDisposable
     internal bool InputHasFocus => _input.FocusState != FocusState.Unfocused;
     internal bool IsComposing => _composing;
     internal event Action<string, string>? ValidationObserved;
-    internal bool PhysicalCellsAreIntegral => Math.Abs(_cellWidth * (XamlRoot?.RasterizationScale ?? 1) - Math.Round(_cellWidth * (XamlRoot?.RasterizationScale ?? 1))) < .001
-        && Math.Abs(_cellHeight * (XamlRoot?.RasterizationScale ?? 1) - Math.Round(_cellHeight * (XamlRoot?.RasterizationScale ?? 1))) < .001;
+    internal bool PhysicalCellsAreIntegral => Math.Abs(CellWidth * (XamlRoot?.RasterizationScale ?? 1) - Math.Round(CellWidth * (XamlRoot?.RasterizationScale ?? 1))) < .001
+        && Math.Abs(CellHeight * (XamlRoot?.RasterizationScale ?? 1) - Math.Round(CellHeight * (XamlRoot?.RasterizationScale ?? 1))) < .001;
     internal int ResourceGenerations { get; private set; }
     internal bool HasGraphicsDeviceForCheck => _canvas.ReadyToDraw;
     internal float RenderDpi => _canvas.Dpi;
     internal (uint Width, uint Height) PhysicalCellSize => (_frame.CellWidth, _frame.CellHeight);
-    internal bool PointerGeometryIsAligned => _frame.CellWidth == TerminalCellMetrics.PhysicalSize(_cellWidth, XamlRoot?.RasterizationScale ?? 1)
-        && _frame.CellHeight == TerminalCellMetrics.PhysicalSize(_cellHeight, XamlRoot?.RasterizationScale ?? 1);
-    internal bool InputCaretIsAligned => Math.Abs(_input.Margin.Left - Math.Min(_frame.CursorX, (uint)Math.Max(0, _columns - 1)) * _cellWidth) < .01
-        && Math.Abs(_input.Margin.Top - Math.Min(_frame.CursorY, (uint)Math.Max(0, _rows - 1)) * _cellHeight) < .01;
+    internal bool PointerGeometryIsAligned => _frame.CellWidth == TerminalCellMetrics.PhysicalSize(CellWidth, XamlRoot?.RasterizationScale ?? 1)
+        && _frame.CellHeight == TerminalCellMetrics.PhysicalSize(CellHeight, XamlRoot?.RasterizationScale ?? 1);
+    internal bool InputCaretIsAligned => Math.Abs(_input.Margin.Left - Math.Min(_frame.CursorX, (uint)Math.Max(0, GridColumns - 1)) * CellWidth) < .01
+        && Math.Abs(_input.Margin.Top - Math.Min(_frame.CursorY, (uint)Math.Max(0, GridRows - 1)) * CellHeight) < .01;
     internal void RecreateRenderResources()
     {
         if (!_canvas.ReadyToDraw)
@@ -213,8 +213,8 @@ public sealed partial class TerminalView : Grid, IDisposable
     private readonly record struct PendingKey(uint Key, uint Modifiers, TerminalKeyAction Action, uint Unshifted, uint Consumed, bool AltGr = false);
     private TerminalGridGeometry _geometry = new(100, 30, 8.4f, 21, 8, 21, 1);
     private TerminalGridGeometry? _pendingGeometry;
-    private ushort _columns => _geometry.Columns;
-    private ushort _rows => _geometry.Rows;
+    private ushort GridColumns => _geometry.Columns;
+    private ushort GridRows => _geometry.Rows;
     private ushort _requestedColumns = 100, _requestedRows = 30;
     private uint _requestedCellWidth, _requestedCellHeight;
     private TerminalCell[]? _resizeCells;
@@ -234,8 +234,8 @@ public sealed partial class TerminalView : Grid, IDisposable
     private bool _resettingText, _selecting, _focused, _composing;
     private volatile bool _disposed;
     private int _compositionGeneration;
-    private float _cellWidth => _geometry.CellWidth;
-    private float _cellHeight => _geometry.CellHeight;
+    private float CellWidth => _geometry.CellWidth;
+    private float CellHeight => _geometry.CellHeight;
     private float _measuredCellWidth = 8.4f, _measuredCellHeight = 21;
     private bool _hasSized;
     private bool _lastAttention;
@@ -247,9 +247,9 @@ public sealed partial class TerminalView : Grid, IDisposable
     internal string RenderedText => string.Concat(_cells.Select(c => c.GetText()));
     internal string RenderedRowForCheck(int row)
     {
-        if (row < 0 || row >= _rows) return "";
-        var text = new System.Text.StringBuilder(_columns);
-        for (int column = 0; column < _columns; column++) text.Append(_cells[row * _columns + column].GetText());
+        if (row < 0 || row >= GridRows) return "";
+        var text = new System.Text.StringBuilder(GridColumns);
+        for (int column = 0; column < GridColumns; column++) text.Append(_cells[row * GridColumns + column].GetText());
         return text.ToString();
     }
     internal bool HasColoredCells => _cells.Any(c => c.Background != 0 && c.Background != _frame.Background);
@@ -352,7 +352,7 @@ public sealed partial class TerminalView : Grid, IDisposable
             // A stalled synchronized-output writer must not freeze this pane forever.
             if (_frame.RenderHeld != 0) _canvas.Invalidate();
             if (Environment.TickCount64 >= _animationDue) _canvas.Invalidate();
-            if (_selecting && Environment.TickCount64 - _lastAutoscroll >= 50 && (_dragPosition.Y < 0 || _dragPosition.Y >= _rows * _cellHeight))
+            if (_selecting && Environment.TickCount64 - _lastAutoscroll >= 50 && (_dragPosition.Y < 0 || _dragPosition.Y >= GridRows * CellHeight))
             {
                 _lastAutoscroll = Environment.TickCount64;
                 Gesture(3, _dragPosition); _canvas.Invalidate();
@@ -544,7 +544,7 @@ public sealed partial class TerminalView : Grid, IDisposable
     }
     private void StopObservingRoot()
     {
-        if (_observedRoot is not null) _observedRoot.Changed -= OnRootChanged;
+        _observedRoot?.Changed -= OnRootChanged;
         _observedRoot = null;
     }
     private void ResizeTerminal()
@@ -596,9 +596,8 @@ public sealed partial class TerminalView : Grid, IDisposable
         {
             int version = session.Version;
             var captureCells = _resizeCells ?? _cells;
-            TerminalSnapshot? fresh;
             bool ready = _remote is { } remote
-                ? remote.TryReadSnapshot(captureCells, ref _readCacheRevision, out fresh)
+                ? remote.TryReadSnapshot(captureCells, ref _readCacheRevision, out TerminalSnapshot? fresh)
                 : session.TryReadSnapshot(captureCells, out fresh);
             if (ready)
             {
@@ -622,14 +621,14 @@ public sealed partial class TerminalView : Grid, IDisposable
             else _capturePending = true;
         }
         if (_snapshot is not { } snapshot) { drawing.Clear(_canvas.ClearColor); return; }
-        _powerline ??= new PowerlineRenderer(_canvas.Device, _cellWidth, _cellHeight);
+        _powerline ??= new PowerlineRenderer(_canvas.Device, CellWidth, CellHeight);
         PositionInput();
         if (_textLayer is null)
         {
-            _textLayer = _canvas.Renderer.CreateRenderTarget(_columns * _cellWidth, _rows * _cellHeight, _canvas.Dpi);
+            _textLayer = _canvas.Renderer.CreateRenderTarget(GridColumns * CellWidth, GridRows * CellHeight, _canvas.Dpi);
             using (var clear = _textLayer.CreateDrawingSession()) clear.Clear(Colors.Transparent);
-            _blinkingRows = new bool[_rows]; _backgroundRows = new bool[_rows]; _backgroundRowCount = 0;
-            _redrawRows = new bool[_rows]; _forceRows = true;
+            _blinkingRows = new bool[GridRows]; _backgroundRows = new bool[GridRows]; _backgroundRowCount = 0;
+            _redrawRows = new bool[GridRows]; _forceRows = true;
         }
         if (_forceRows) Array.Fill(_redrawRows, true);
         else foreach (int row in changed) _redrawRows[row] = true;
@@ -648,16 +647,16 @@ public sealed partial class TerminalView : Grid, IDisposable
                 for (int y = 0; y < _redrawRows.Length; y++) if (_redrawRows[y])
                 {
                     _blinkingRows[y] = false;
-                    for (int x = 0; x < _columns; x++)
+                    for (int x = 0; x < GridColumns; x++)
                     {
-                        ref var cell = ref _cells[y * _columns + x];
+                        ref var cell = ref _cells[y * GridColumns + x];
                         _blinkingRows[y] |= (cell.Flags & 256) != 0;
                         needed |= cell.Background != _frame.Background || (cell.Flags & (64 | 512)) != 0;
                     }
                 }
                 if (needed)
                 {
-                    _backgroundLayer = _canvas.Renderer.CreateRenderTarget(_columns * _cellWidth, _rows * _cellHeight, _canvas.Dpi);
+                    _backgroundLayer = _canvas.Renderer.CreateRenderTarget(GridColumns * CellWidth, GridRows * CellHeight, _canvas.Dpi);
                     using var clear = _backgroundLayer.CreateDrawingSession(); clear.Clear(Colors.Transparent);
                 }
             }
@@ -665,7 +664,7 @@ public sealed partial class TerminalView : Grid, IDisposable
             {
                 backgrounds.Blend = CanvasBlend.Copy;
                 for (int y = 0; y < _redrawRows.Length; y++) if (_redrawRows[y])
-                    backgrounds.FillRectangle(0, y * _cellHeight, _columns * _cellWidth, _cellHeight, Colors.Transparent);
+                    backgrounds.FillRectangle(0, y * CellHeight, GridColumns * CellWidth, CellHeight, Colors.Transparent);
                 backgrounds.Blend = CanvasBlend.SourceOver;
                 uint selectionBackground = _terminalTheme is null ? 0xff3b4962 : _paneColors.Selected;
                 for (int y = 0; y < _redrawRows.Length; y++)
@@ -690,21 +689,21 @@ public sealed partial class TerminalView : Grid, IDisposable
                             if ((nextSelected ? selectionBackground : next.Background) != backgroundColor) break;
                             _blinkingRows[y] |= (next.Flags & 256) != 0; x++;
                         }
-                        backgrounds.FillRectangle(start * _cellWidth, y * _cellHeight, (x - start) * _cellWidth, _cellHeight, Color(backgroundColor));
+                        backgrounds.FillRectangle(start * CellWidth, y * CellHeight, (x - start) * CellWidth, CellHeight, Color(backgroundColor));
                     }
                 }
             }
             using var text = _textLayer.CreateDrawingSession();
             text.Blend = CanvasBlend.Copy;
             for (int y = 0; y < _redrawRows.Length; y++) if (_redrawRows[y])
-                text.FillRectangle(0, y * _cellHeight, _columns * _cellWidth, _cellHeight, Colors.Transparent);
+                text.FillRectangle(0, y * CellHeight, GridColumns * CellWidth, CellHeight, Colors.Transparent);
             text.Blend = CanvasBlend.SourceOver;
             for (int y = 0; y < _redrawRows.Length; y++)
             {
                 if (!_redrawRows[y]) continue;
                 _redrawRows[y] = false;
-                text.SetClip(new Rect(0, y * _cellHeight, _columns * _cellWidth, _cellHeight));
-                _textRenderer.DrawRow(_canvas.Device, text, _cells, y, _columns, _cellWidth, _cellHeight, _formatForDrawing,
+                text.SetClip(new Rect(0, y * CellHeight, GridColumns * CellWidth, CellHeight));
+                _textRenderer.DrawRow(_canvas.Device, text, _cells, y, GridColumns, CellWidth, CellHeight, _formatForDrawing,
                     _settings.Ligatures, _blinkVisible, _powerline, _underlineForDrawing, _terminalTheme is null ? null : _selectionForeground);
                 RowsPainted++;
             }
@@ -724,25 +723,25 @@ public sealed partial class TerminalView : Grid, IDisposable
         if (_canvas.ClearColor != background) _canvas.ClearColor = background;
         drawing.Clear(background);
         _wallpaper?.Draw(_canvas.Renderer, _canvas.Device, drawing, (float)_canvas.ActualWidth, (float)_canvas.ActualHeight, _wallpaperSettings.Fit, (float)_wallpaperSettings.Opacity);
-        using var clip = drawing.CreateLayer(1, new Rect(0, 0, _columns * _cellWidth, _rows * _cellHeight));
-        _images.Draw(drawing, snapshot, _cellWidth, _cellHeight, 0);
+        using var clip = drawing.CreateLayer(1, new Rect(0, 0, GridColumns * CellWidth, GridRows * CellHeight));
+        _images.Draw(drawing, snapshot, CellWidth, CellHeight, 0);
         if (_backgroundLayer is not null && (_backgroundRowCount > 0 || _eagerBackgroundForCheck)) drawing.DrawImage(_backgroundLayer);
-        _images.Draw(drawing, snapshot, _cellWidth, _cellHeight, 1);
+        _images.Draw(drawing, snapshot, CellWidth, CellHeight, 1);
         drawing.DrawImage(_textLayer);
-        _images.Draw(drawing, snapshot, _cellWidth, _cellHeight, 2);
+        _images.Draw(drawing, snapshot, CellWidth, CellHeight, 2);
         if (_frame.CursorVisible != 0 && !_session.HasExited && (!_focused || _frame.CursorBlinking == 0 || _blinkVisible))
         {
             uint cursorX = _frame.CursorWideTail != 0 && _frame.CursorX > 0 ? _frame.CursorX - 1 : _frame.CursorX;
-            var px = cursorX * _cellWidth; var py = _frame.CursorY * _cellHeight;
-            float cursorWidth = Math.Max(1, _cells[_frame.CursorY * _frame.Columns + cursorX].Width) * _cellWidth;
+            var px = cursorX * CellWidth; var py = _frame.CursorY * CellHeight;
+            float cursorWidth = Math.Max(1, _cells[_frame.CursorY * _frame.Columns + cursorX].Width) * CellWidth;
             var color = Color(_focused || _terminalTheme is not null ? _frame.CursorColor : 0xff626c7c);
-            if (_focused && _frame.CursorStyle == 0) drawing.FillRectangle(px, py + 1, 2, _cellHeight - 2, color);
-            else if (_focused && _frame.CursorStyle == 2) drawing.FillRectangle(px, py + _cellHeight - 3, cursorWidth, 2, color);
+            if (_focused && _frame.CursorStyle == 0) drawing.FillRectangle(px, py + 1, 2, CellHeight - 2, color);
+            else if (_focused && _frame.CursorStyle == 2) drawing.FillRectangle(px, py + CellHeight - 3, cursorWidth, 2, color);
             else if (_focused && _frame.CursorStyle == 1)
             {
                 ref var cell = ref _cells[_frame.CursorY * _frame.Columns + cursorX];
-                float width = Math.Max(1, cell.Width) * _cellWidth;
-                drawing.FillRectangle(px, py, width, _cellHeight, color);
+                float width = Math.Max(1, cell.Width) * CellWidth;
+                drawing.FillRectangle(px, py, width, CellHeight, color);
                 if (cell.Length > 0 && (cell.Flags & 32) == 0)
                 {
                     var key = (cell.GetText(), cell.Flags & 3, cell.Width);
@@ -750,13 +749,13 @@ public sealed partial class TerminalView : Grid, IDisposable
                     if (!_glyphs.TryGetValue(key, out var glyph))
                     {
                         if (_glyphs.Count >= 256) { var old = _glyphs.First(); _canvas.Renderer.ForgetTextLayout(old.Value); old.Value.Dispose(); _glyphs.Remove(old.Key); }
-                        glyph = new CanvasTextLayout(_canvas.Device, key.Item1, Format(cell.Flags), width + _cellWidth, _cellHeight);
-                        _textRenderer.SetLineMetrics(glyph, _canvas.Device, Format(cell.Flags), _cellHeight, cell.Flags); _glyphs.Add(key, glyph);
+                        glyph = new CanvasTextLayout(_canvas.Device, key.Item1, Format(cell.Flags), width + CellWidth, CellHeight);
+                        _textRenderer.SetLineMetrics(glyph, _canvas.Device, Format(cell.Flags), CellHeight, cell.Flags); _glyphs.Add(key, glyph);
                     }
                     drawing.DrawTextLayout(glyph, px, py + 1, Color(_cursorForeground ?? cell.Background));
                 }
             }
-            else drawing.DrawRectangle(px + .5f, py + 1, cursorWidth - 1, _cellHeight - 2, color);
+            else drawing.DrawRectangle(px + .5f, py + 1, cursorWidth - 1, CellHeight - 2, color);
         }
         TraceLatency("draw-end");
     }
@@ -774,12 +773,12 @@ public sealed partial class TerminalView : Grid, IDisposable
     {
         // The real text control anchors the IME candidate window at the terminal
         // caret. During composition it also shows preedit without sending it to PTY.
-        double left = Math.Min(_frame.CursorX, (uint)Math.Max(0, _columns - 1)) * _cellWidth;
-        double top = Math.Min(_frame.CursorY, (uint)Math.Max(0, _rows - 1)) * _cellHeight;
+        double left = Math.Min(_frame.CursorX, (uint)Math.Max(0, GridColumns - 1)) * CellWidth;
+        double top = Math.Min(_frame.CursorY, (uint)Math.Max(0, GridRows - 1)) * CellHeight;
         var margin = _input.Margin;
         if (margin.Left != left || margin.Top != top) _input.Margin = new Thickness(left, top, 0, 0);
-        double width = _composing ? Math.Max(_cellWidth * 2, Math.Max(0, (int)_columns - (int)_frame.CursorX) * _cellWidth) : 2;
-        double height = _composing ? _cellHeight + 8 : 2;
+        double width = _composing ? Math.Max(CellWidth * 2, Math.Max(0, (int)GridColumns - (int)_frame.CursorX) * CellWidth) : 2;
+        double height = _composing ? CellHeight + 8 : 2;
         double opacity = _composing ? 1 : .01;
         if (_input.Width != width) _input.Width = width;
         if (_input.Height != height) _input.Height = height;
@@ -793,28 +792,28 @@ public sealed partial class TerminalView : Grid, IDisposable
         int selectionStart = -1, selectionEnd = -1;
         for (int index = 0; index < _cells.Length; index++)
         {
-            if (index > 0 && index % _columns == 0) text.Append('\n');
+            if (index > 0 && index % GridColumns == 0) text.Append('\n');
             var cell = _cells[index];
-            offsets[index] = cell.Width == 0 && index % _columns > 0 ? offsets[index - 1] : text.Length;
+            offsets[index] = cell.Width == 0 && index % GridColumns > 0 ? offsets[index - 1] : text.Length;
             if (cell.Width > 0) text.Append(cell.Length == 0 ? " " : cell.GetText());
             if ((cell.Flags & 64) != 0) { if (selectionStart < 0) selectionStart = offsets[index]; selectionEnd = text.Length; }
         }
         offsets[^1] = text.Length;
-        int cursor = offsets[Math.Clamp((int)(_frame.CursorY * _columns + _frame.CursorX), 0, offsets.Length - 1)];
-        return _accessibleText = new(text.ToString(), offsets, _columns, _rows, cursor, selectionStart, selectionEnd);
+        int cursor = offsets[Math.Clamp((int)(_frame.CursorY * GridColumns + _frame.CursorX), 0, offsets.Length - 1)];
+        return _accessibleText = new(text.ToString(), offsets, GridColumns, GridRows, cursor, selectionStart, selectionEnd);
     }
     private Rect AccessibleGridBounds()
     {
         var bounds = TextPeer.GetBoundingRectangle();
         var position = _canvas.TransformToVisual(this).TransformPoint(new());
         double scale = XamlRoot?.RasterizationScale ?? 1;
-        return new(bounds.X + position.X * scale, bounds.Y + position.Y * scale, _columns * _cellWidth * scale, _rows * _cellHeight * scale);
+        return new(bounds.X + position.X * scale, bounds.Y + position.Y * scale, GridColumns * CellWidth * scale, GridRows * CellHeight * scale);
     }
     internal int AccessibleCellAt(Point screenPoint)
     {
-        var bounds = AccessibleGridBounds(); double scale = XamlRoot?.RasterizationScale ?? 1;
-        var local = _geometry.FromScreen(screenPoint.X, screenPoint.Y, bounds.X, bounds.Y);
-        return _geometry.CellAt(local.X, local.Y);
+        var bounds = AccessibleGridBounds();
+        var (X, Y) = _geometry.FromScreen(screenPoint.X, screenPoint.Y, bounds.X, bounds.Y);
+        return _geometry.CellAt(X, Y);
     }
     internal double[] AccessibleRectangles(AccessibleTerminalText document, int start, int end)
     {
@@ -833,7 +832,7 @@ public sealed partial class TerminalView : Grid, IDisposable
                 if (offset >= end || document.CellOffsets[next] <= start) continue;
                 if (first < 0) first = col; last = col;
             }
-            if (first >= 0) result.AddRange([bounds.X + first * _cellWidth * scale, bounds.Y + row * _cellHeight * scale, (last - first + 1) * _cellWidth * scale, _cellHeight * scale]);
+            if (first >= 0) result.AddRange([bounds.X + first * CellWidth * scale, bounds.Y + row * CellHeight * scale, (last - first + 1) * CellWidth * scale, CellHeight * scale]);
         }
         return result.ToArray();
     }
@@ -860,7 +859,7 @@ public sealed partial class TerminalView : Grid, IDisposable
     private void DrawUnderline(DirectXDrawingSession drawing, float x, float y, float width, uint style, Windows.UI.Color color)
     {
         if (style == 0 || width == 0) return;
-        float baseline = y + _cellHeight - 2;
+        float baseline = y + CellHeight - 2;
         if (style is 1 or 2)
         {
             drawing.DrawLine(x, baseline, x + width, baseline, color);
@@ -869,7 +868,7 @@ public sealed partial class TerminalView : Grid, IDisposable
         else if (style == 3)
         {
             // Phase depends on absolute x so adjacent cells form one continuous wave.
-            float period = Math.Max(4, _cellWidth / 2);
+            float period = Math.Max(4, CellWidth / 2);
             for (float offset = 0; offset < width; offset += .5f)
             {
                 float end = Math.Min(width, offset + .5f);
@@ -886,7 +885,7 @@ public sealed partial class TerminalView : Grid, IDisposable
     }
     internal async Task<bool> CheckRenderedColorJoins(string imagePath)
     {
-        using var target = new CanvasRenderTarget(_canvas.Device, _columns * _cellWidth, _rows * _cellHeight, _canvas.Dpi);
+        using var target = new CanvasRenderTarget(_canvas.Device, GridColumns * CellWidth, GridRows * CellHeight, _canvas.Dpi);
         using (var drawing = _canvas.Renderer.CreateDrawingSession(target)) Render(drawing);
         await target.SaveAsync(imagePath);
         var pixels = target.GetPixelColors();
@@ -904,11 +903,11 @@ public sealed partial class TerminalView : Grid, IDisposable
                 bool flatJoin = separator && cell.Foreground == previous.Background;
                 bool sameBackground = cell.Background == previous.Background && !separator;
                 if (!flatJoin && !sameBackground) continue;
-                int boundary = (int)MathF.Round(x * _cellWidth * scale);
-                int top = (int)MathF.Round(y * _cellHeight * scale);
-                int height = (int)MathF.Round(_cellHeight * scale);
+                int boundary = (int)MathF.Round(x * CellWidth * scale);
+                int top = (int)MathF.Round(y * CellHeight * scale);
+                int height = (int)MathF.Round(CellHeight * scale);
                 var expected = Color(previous.Background);
-                var rows = flatJoin ? Enumerable.Range(2, Math.Max(0, height - 4)) : new[] { 0, height - 1 };
+                var rows = flatJoin ? Enumerable.Range(2, Math.Max(0, height - 4)) : [0, height - 1];
                 foreach (int py in rows)
                     if (pixels[(top + py) * stride + boundary - 1] != expected || pixels[(top + py) * stride + boundary] != expected)
                         return false;
@@ -916,7 +915,7 @@ public sealed partial class TerminalView : Grid, IDisposable
             }
         return checkedJoins > 0;
     }
-    internal CanvasRenderTarget CreateRenderTargetForCheck() => new(_canvas.Device, _columns * _cellWidth, _rows * _cellHeight, _canvas.Dpi);
+    internal CanvasRenderTarget CreateRenderTargetForCheck() => new(_canvas.Device, GridColumns * CellWidth, GridRows * CellHeight, _canvas.Dpi);
     internal Point ContentOriginForCheck(UIElement relativeTo) => _canvas.TransformToVisual(relativeTo).TransformPoint(new());
     internal void RenderFrameForCheck(CanvasRenderTarget target)
     {
@@ -927,14 +926,14 @@ public sealed partial class TerminalView : Grid, IDisposable
         && g.Image.Pixels[0] == 0 && g.Image.Pixels[1] == 0 && g.Image.Pixels[2] == 255) == true;
     internal async Task<bool> CheckRenderedImage(uint imageId, Windows.UI.Color expected, string imagePath)
     {
-        using var target = new CanvasRenderTarget(_canvas.Device, _columns * _cellWidth, _rows * _cellHeight, _canvas.Dpi);
+        using var target = new CanvasRenderTarget(_canvas.Device, GridColumns * CellWidth, GridRows * CellHeight, _canvas.Dpi);
         using (var drawing = _canvas.Renderer.CreateDrawingSession(target)) Render(drawing);
         await target.SaveAsync(imagePath);
         var graphic = _snapshot?.Graphics.FirstOrDefault(g => g.ImageId == imageId);
         if (graphic is null) return false;
         var scale = target.Dpi / 96;
-        float x = graphic.Column * _cellWidth + (graphic.OffsetX + graphic.PixelWidth / 2f) * _cellWidth / _frame.CellWidth;
-        float y = graphic.Row * _cellHeight + (graphic.OffsetY + graphic.PixelHeight / 2f) * _cellHeight / _frame.CellHeight;
+        float x = graphic.Column * CellWidth + (graphic.OffsetX + graphic.PixelWidth / 2f) * CellWidth / _frame.CellWidth;
+        float y = graphic.Row * CellHeight + (graphic.OffsetY + graphic.PixelHeight / 2f) * CellHeight / _frame.CellHeight;
         int px = (int)(x * scale), py = (int)(y * scale);
         if (px < 0 || py < 0 || px >= target.SizeInPixels.Width || py >= target.SizeInPixels.Height) return false;
         var actual = target.GetPixelColors()[py * (int)target.SizeInPixels.Width + px];
@@ -966,8 +965,8 @@ public sealed partial class TerminalView : Grid, IDisposable
     {
         int cell = CellAt(point);
         if (_session is Hosting.RemoteTerminalSession remote)
-        { _ = OpenRemoteHyperlink(remote, (ushort)(cell % _columns), (ushort)(cell / _columns)); return true; }
-        var target = _session?.Hyperlink((ushort)(cell % _columns), (ushort)(cell / _columns));
+        { _ = OpenRemoteHyperlink(remote, (ushort)(cell % GridColumns), (ushort)(cell / GridColumns)); return true; }
+        var target = _session?.Hyperlink((ushort)(cell % GridColumns), (ushort)(cell / GridColumns));
         if (!Uri.TryCreate(target, UriKind.Absolute, out var uri) || uri.Scheme is not ("http" or "https" or "mailto")) return false;
         if (uri.Scheme is "http" or "https" && HyperlinkRequested is not null) HyperlinkRequested(uri);
         else _ = Launcher.LaunchUriAsync(uri);
@@ -994,7 +993,7 @@ public sealed partial class TerminalView : Grid, IDisposable
                 if (!_hoverPending) _ = UpdateRemoteHover(remote);
                 return;
             }
-            var link = _session?.Hyperlink((ushort)(cell % _columns), (ushort)(cell / _columns));
+            var link = _session?.Hyperlink((ushort)(cell % GridColumns), (ushort)(cell / GridColumns));
             ProtectedCursor = InputSystemCursor.Create(string.IsNullOrEmpty(link) ? InputSystemCursorShape.IBeam : InputSystemCursorShape.Hand);
             ToolTipService.SetToolTip(_canvas, string.IsNullOrEmpty(link) ? null : "Ctrl+click · " + link);
             return;
@@ -1005,14 +1004,14 @@ public sealed partial class TerminalView : Grid, IDisposable
     private void Gesture(int action, Point point)
     {
         if (_pendingGeometry is not null) return;
-        var native = _geometry.ToNative(point.X, point.Y);
-        _session?.QueueSelectionGesture(action, native.X, native.Y, Down(VirtualKey.Menu));
+        var (X, Y) = _geometry.ToNative(point.X, point.Y);
+        _session?.QueueSelectionGesture(action, X, Y, Down(VirtualKey.Menu));
     }
     internal void DragSelectionForCheck(int row, int firstColumn, int lastColumn)
     {
         ClearSelection();
-        var start = new Point((firstColumn + .1) * _cellWidth, (row + .5) * _cellHeight);
-        var end = new Point((lastColumn + .9) * _cellWidth, (row + .5) * _cellHeight);
+        var start = new Point((firstColumn + .1) * CellWidth, (row + .5) * CellHeight);
+        var end = new Point((lastColumn + .9) * CellWidth, (row + .5) * CellHeight);
         Gesture(0, start); Gesture(2, end); Gesture(1, end);
     }
     private async Task UpdateRemoteHover(Hosting.RemoteTerminalSession remote)
@@ -1025,7 +1024,7 @@ public sealed partial class TerminalView : Grid, IDisposable
                 int cell = _hoverCell;
                 if (cell < 0) return;
                 int version = remote.Version;
-                var link = await remote.HyperlinkAsync((ushort)(cell % _columns), (ushort)(cell / _columns));
+                var link = await remote.HyperlinkAsync((ushort)(cell % GridColumns), (ushort)(cell / GridColumns));
                 if (_disposed || _selecting || _middleScroll.Active) return;
                 if (cell != _hoverCell) continue;
                 _hoverVersion = version;
@@ -1053,8 +1052,8 @@ public sealed partial class TerminalView : Grid, IDisposable
     private bool ReportMouseAt(Point point, int action, int button, uint modifiers)
     {
         if (_pendingGeometry is not null) return false;
-        var native = _geometry.ToNative(point.X, point.Y);
-        return _session?.Mouse(action, button, modifiers, native.X, native.Y) ?? false;
+        var (X, Y) = _geometry.ToNative(point.X, point.Y);
+        return _session?.Mouse(action, button, modifiers, X, Y) ?? false;
     }
     private void ClearSelection() { _selecting = false; _session?.Select(-1, -1); }
     private void SendInputText()
@@ -1127,8 +1126,7 @@ public sealed partial class TerminalView : Grid, IDisposable
     {
         if (_syntheticInputOnlyForCheck || _disposed || _inputClosing || _inputSuspended || _windowSuspended) { e.Handled = true; return; }
         if (MiddleScrollKeyDown((uint)e.Key)) { e.Handled = true; return; }
-        if (ValidationObserved is not null)
-            ValidationObserved.Invoke("input-key", $"key={e.Key}; original={e.OriginalKey}; scan={e.KeyStatus.ScanCode}; composing={_composing}; modifiers={CurrentModifiers()}");
+        ValidationObserved?.Invoke("input-key", $"key={e.Key}; original={e.OriginalKey}; scan={e.KeyStatus.ScanCode}; composing={_composing}; modifiers={CurrentModifiers()}");
         uint virtualKey = (uint)e.Key;
         if (WindowsKeyboard.IsImeKey(virtualKey) || WindowsKeyboard.IsImeKey((uint)e.OriginalKey))
         { _pendingTextKey = null; return; }
@@ -1143,12 +1141,12 @@ public sealed partial class TerminalView : Grid, IDisposable
         if (binding == "paste" || (shift && e.Key == VirtualKey.Insert)) { _ = PasteClipboard(); e.Handled = true; return; }
         if (ctrl && !alt && e.Key == VirtualKey.C && _session is Hosting.RemoteTerminalSession remote)
         {
-            var translation = WindowsKeyboard.Translate(virtualKey, e.KeyStatus.ScanCode);
-            var copyKey = new PendingKey(key, CurrentModifiers(), e.KeyStatus.WasKeyDown ? TerminalKeyAction.Repeat : TerminalKeyAction.Press, translation.Unshifted, shift ? 1u : 0);
-            _pressedKeys[key] = copyKey; _ = CopyOrInterrupt(remote, copyKey, translation.Text); e.Handled = true; return;
+            var (Text, Unshifted) = WindowsKeyboard.Translate(virtualKey, e.KeyStatus.ScanCode);
+            var copyKey = new PendingKey(key, CurrentModifiers(), e.KeyStatus.WasKeyDown ? TerminalKeyAction.Repeat : TerminalKeyAction.Press, Unshifted, shift ? 1u : 0);
+            _pressedKeys[key] = copyKey; _ = CopyOrInterrupt(remote, copyKey, Text); e.Handled = true; return;
         }
         if (ctrl && !alt && e.Key == VirtualKey.C && !string.IsNullOrEmpty(_session?.CopySelection())) { CopySelection(); ClearSelection(); _canvas.Invalidate(); e.Handled = true; return; }
-        if (binding is "scrollUp" or "scrollDown") { _session?.Scroll(binding == "scrollUp" ? -_rows : _rows); e.Handled = true; return; }
+        if (binding is "scrollUp" or "scrollDown") { _session?.Scroll(binding == "scrollUp" ? -GridRows : GridRows); e.Handled = true; return; }
         bool modifierKey = virtualKey is 16 or 17 or 18 or 91 or 92;
         bool special = modifierKey || virtualKey is 8 or 9 or 13 or 19 or 20 or 27 or >= 33 and <= 46 or >= 112 and <= 145;
         bool shortcut = ctrl || alt;

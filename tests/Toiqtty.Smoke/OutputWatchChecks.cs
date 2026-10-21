@@ -12,8 +12,8 @@ internal static class OutputWatchChecks
         var host = SessionHostClient.ConnectOrStart(folder, executable);
         string pane = Guid.NewGuid().ToString("N"), other = Guid.NewGuid().ToString("N");
         int demand = 0, notifications = 0, otherNotifications = 0, cancellations = 0;
-        Action<string> listener = _ => Interlocked.Increment(ref notifications);
-        Action<string> otherListener = _ => Interlocked.Increment(ref otherNotifications);
+        void listener(string _) => Interlocked.Increment(ref notifications);
+        void otherListener(string _) => Interlocked.Increment(ref otherNotifications);
         void Thrown(object? _, FirstChanceExceptionEventArgs args)
         { if (args.Exception is OperationCanceledException) Interlocked.Increment(ref cancellations); }
         async Task Wait(Func<bool> condition)
@@ -95,7 +95,7 @@ internal static class OutputWatchChecks
         var session = new RemoteTerminalSession(client, pane, command, Environment.CurrentDirectory, new AppSettings());
         using var release = new ManualResetEventSlim();
         var noticed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        Action<string> watch = _ => noticed.TrySetResult();
+        void watch(string _) => noticed.TrySetResult();
         var held = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously); int intercept = 0;
         var cells = new TerminalCell[3000]; session.AttachView();
         async Task Wait(Func<bool> condition, int milliseconds = 5000)

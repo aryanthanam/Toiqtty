@@ -26,7 +26,7 @@ public sealed partial class MainWindow
         check(view.FramesPainted==frames && remote.CapturesForCheck<=captures+1,"Minimizing stops drawing and visible captures while the shell continues parsing megabytes of output");
         NewTab(command,"Created while minimized");
         await wait(()=>_selected!.ActiveTab.Root.Session?.Performance.BytesRead>0);
-        check(_views.All(v=>v.IsSuspendedForCheck && (v.Session as RemoteTerminalSession)?.ViewersForCheck==0),
+        check(_views.All(v=>v.IsSuspendedForCheck && v.Session is RemoteTerminalSession { ViewersForCheck: 0 }),
             "A terminal created while minimized remains suspended without a capture attachment");
         SelectTab(first);
         check(ReferenceEquals(_views.Single(),view) && view.IsSuspendedForCheck,"Rebinding a retained tab while minimized does not resume presentation");

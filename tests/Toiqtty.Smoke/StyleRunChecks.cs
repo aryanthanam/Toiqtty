@@ -66,8 +66,8 @@ internal static class StyleRunChecks
         try { _ = HostSnapshotCodec.Decode(impossible, []); } catch (HostSnapshotException) { rejected = true; }
         check(rejected && GC.GetAllocatedBytesForCurrentThread() - beforeAllocation < 65536, "Impossible full-run dimensions are rejected before renting a large cell grid");
         Write("\x1b_Ga=T,f=32,s=1,v=1,i=998,q=2;/wAA/w==\x1b\\"); var graphic = terminal.ReadSnapshot(raw);
-        var image = HostSnapshotCodec.Decode(HostSnapshotCodec.EncodeUtf8Runs(graphic, raw, []), []);
-        check(image.Snapshot.Graphics.Count == 1 && image.Snapshot.Graphics[0].Image.Pixels.SequenceEqual(new byte[] { 255, 0, 0, 255 }),
+        var (Snapshot, Cells) = HostSnapshotCodec.Decode(HostSnapshotCodec.EncodeUtf8Runs(graphic, raw, []), []);
+        check(Snapshot.Graphics.Count == 1 && Snapshot.Graphics[0].Image.Pixels.SequenceEqual(new byte[] { 255, 0, 0, 255 }),
             "Style-run frames preserve Kitty image generations and pixels");
         void Write(string text) { var input = Encoding.UTF8.GetBytes(text); terminal.Write(input, input.Length); }
     }
@@ -79,7 +79,7 @@ internal static class StyleRunChecks
         byte[] legacy = HostSnapshotCodec.EncodeUtf8(snapshot, raw, []), runs = HostSnapshotCodec.EncodeUtf8Runs(snapshot, raw, []);
         var destination = new TerminalCell[8000]; var samples = new List<object>(); const int iterations = 1000;
         for (int round = 0; round < 3; round++)
-            foreach (string operation in round % 2 == 0 ? new[] { "encode-legacy", "encode-runs", "decode-legacy", "decode-runs" } : new[] { "decode-runs", "decode-legacy", "encode-runs", "encode-legacy" })
+            foreach (string operation in round % 2 == 0 ? new[] { "encode-legacy", "encode-runs", "decode-legacy", "decode-runs" } : ["decode-runs", "decode-legacy", "encode-runs", "encode-legacy"])
             {
                 void Once()
                 {

@@ -24,7 +24,7 @@ public sealed partial class MainWindow
             await CheckCaptionInsetRecovery(Check);
             var toast = Notifications.DesktopNotifications.Build("workspace-1", "pane-1", "Workspace", new(DateTimeOffset.Now, "Build <done> & ready", "café 中"));
             var toastXml = System.Xml.Linq.XDocument.Parse(toast.Payload);
-            Check(toastXml.Descendants("text").Select(item => item.Value).SequenceEqual(new[] { "Build <done> & ready", "café 中" }),
+            Check(toastXml.Descendants("text").Select(item => item.Value).SequenceEqual(["Build <done> & ready", "café 中"]),
                 "native Windows notification builder preserves Unicode and escapes terminal text");
             Check(toastXml.Root?.Attribute("launch")?.Value.Contains("workspace=workspace-1") == true
                 && toastXml.Root.Attribute("launch")!.Value.Contains("pane=pane-1"), "Windows notifications carry the workspace and pane activation target");

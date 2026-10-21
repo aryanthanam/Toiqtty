@@ -1,6 +1,5 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
-using Toiqtty.Controls;
 using Toiqtty.Models;
 
 namespace Toiqtty;
@@ -47,6 +46,6 @@ public sealed partial class MainWindow
         return directory.Equals(home, StringComparison.OrdinalIgnoreCase) ? "~"
             : directory.StartsWith(home + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase) ? "~" + directory[home.Length..] : directory;
     }
-    private void SidebarClick(object sender, RoutedEventArgs e) => ToggleSidebar();
-    private void CloseFocusedPaneClick(object sender,RoutedEventArgs e) { if (ActivePaneId is { } id) ClosePane(id); }
+    private void SidebarClick(object _1, RoutedEventArgs _2) => ToggleSidebar();
+    private void CloseFocusedPaneClick(object _1,RoutedEventArgs _2) { if (ActivePaneId is { } id) ClosePane(id); }
 }

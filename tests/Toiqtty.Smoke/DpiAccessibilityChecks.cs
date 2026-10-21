@@ -16,12 +16,11 @@ internal static class DpiAccessibilityChecks
             if (previousDpi == 0) throw new InvalidOperationException("Could not enable per-monitor DPI awareness for the UIA reader.");
             using var process = Process.GetProcessById(pid);
             var window = AutomationElement.FromHandle(process.MainWindowHandle);
-            var terminals = window.FindAll(TreeScope.Descendants, new PropertyCondition(AutomationElement.ClassNameProperty, "Toiqtty.Terminal"));
+            var terminals = window.FindAll(TreeScope.Descendants, new PropertyCondition(AutomationElement.ClassNameProperty, "toiqtty.Terminal"));
             if (terminals.Count != 1) throw new InvalidOperationException("Expected one isolated DPI terminal.");
             var terminal = terminals[0];
             var text = (TextPattern)terminal.GetCurrentPattern(TextPattern.Pattern);
-            var match = text.DocumentRange.FindText("DPI_CHECK", false, false);
-            if (match is null) throw new InvalidOperationException("Fixture marker is not accessible.");
+            var match = text.DocumentRange.FindText("DPI_CHECK", false, false) ?? throw new InvalidOperationException("Fixture marker is not accessible.");
             var rectangles = match.GetBoundingRectangles();
             var bounds = window.Current.BoundingRectangle;
             geometry = new { window = new { bounds.X, bounds.Y, bounds.Width, bounds.Height },

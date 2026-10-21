@@ -21,7 +21,7 @@ public sealed partial class MainWindow
         {
             if (!ReferenceEquals(_titleRoot, TitleBar.XamlRoot))
             {
-                if (_titleRoot is not null) _titleRoot.Changed -= TitleRootChanged;
+                _titleRoot?.Changed -= TitleRootChanged;
                 _titleRoot = TitleBar.XamlRoot;
                 _titleRoot.Changed += TitleRootChanged;
             }
@@ -36,7 +36,7 @@ public sealed partial class MainWindow
         Closed += (_, _) =>
         {
             AppWindow.Changed -= TitleWindowChanged;
-            if (_titleRoot is not null) _titleRoot.Changed -= TitleRootChanged;
+            _titleRoot?.Changed -= TitleRootChanged;
         };
     }
 

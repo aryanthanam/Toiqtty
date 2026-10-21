@@ -14,8 +14,8 @@ public sealed class RemoteTerminalSession : ITerminalSession
     internal long ResizeSelectionRequestsSentForCheck;
     private readonly string _pane;
     private readonly object _gate = new();
-    private readonly object _closeGate = new();
-    private readonly object _metadataGate = new();
+    private readonly Lock _closeGate = new();
+    private readonly Lock _metadataGate = new();
     private CancellationTokenSource? _metadataRequest;
     private readonly CancellationTokenSource _stop = new();
     private readonly Dictionary<ulong, TerminalImage> _images = [];
@@ -74,7 +74,7 @@ public sealed class RemoteTerminalSession : ITerminalSession
     internal Task InputDrained => _input.Drain;
     internal Task CompleteInput() => _input.Complete();
     internal string CaptureFailure { get; private set; } = "";
-    private static readonly object CaptureTraceGate = new();
+    private static readonly Lock CaptureTraceGate = new();
     private TerminalSnapshot? _snapshot;
     private TerminalCell[] _cells = [];
     private TerminalCell[] _decodeCells = [];
@@ -91,7 +91,7 @@ public sealed class RemoteTerminalSession : ITerminalSession
     private bool MatchesViewport(TerminalFrame frame) => frame.Columns == _columns && frame.Rows == _rows
         && (_cellPixelWidth == 0 || frame.CellWidth == _cellPixelWidth)
         && (_cellPixelHeight == 0 || frame.CellHeight == _cellPixelHeight);
-    private readonly object _resizeGate = new();
+    private readonly Lock _resizeGate = new();
     private (ushort Columns, ushort Rows, uint Width, uint Height)? _pendingResize;
     private bool _resizing;
     internal long ResizeRequestsSent;
@@ -429,7 +429,7 @@ public sealed class RemoteTerminalSession : ITerminalSession
                 if (differs)
                 { _cells.AsSpan(row * columns, columns).CopyTo(cells.AsSpan(row * columns, columns)); (changed ??= []).Add(row); }
             }
-            snapshot = _snapshot with { ChangedRows = changed ?? (IReadOnlyList<int>)Array.Empty<int>() };
+            snapshot = _snapshot with { ChangedRows = changed ?? (IReadOnlyList<int>)[] };
             if (tracked) revision = _cacheRevision;
             if (Interlocked.Exchange(ref _frameAwaitingRead, 0) != 0) WakeCapture();
             return true;

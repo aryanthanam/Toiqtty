@@ -8,13 +8,13 @@ namespace Toiqtty.Configuration;
 public sealed record LuaTextSegment(string Text, string Foreground = "", bool Bold = false, bool Italic = false);
 public sealed class LuaPresentationRequest
 {
-    public Dictionary<string, object?> Status { get; set; } = new();
+    public Dictionary<string, object?> Status { get; set; } = [];
     public List<Dictionary<string, object?>> Tabs { get; set; } = [];
     public string? Action { get; set; }
 }
 public sealed class LuaPresentationResult
 {
-    public Dictionary<string, LuaTextSegment[]> Titles { get; set; } = new();
+    public Dictionary<string, LuaTextSegment[]> Titles { get; set; } = [];
     public LuaTextSegment[]? Left { get; set; }
     public LuaTextSegment[]? Right { get; set; }
     public string? Error { get; set; }
@@ -78,7 +78,7 @@ internal sealed class LuaConfigEvaluation(LuaState state, LuaConfigResult result
             foreach (var pair in table) if (pair.Key.Type != LuaValueType.String || pair.Key.Read<string>() is not ("text" or "foreground" or "bold" or "italic")) throw new ArgumentException("Unknown styled text field.");
             string color = table["foreground"].Type == LuaValueType.Nil ? "" : Text(table["foreground"]);
             if (color.Length != 0 && !SessionTheme.TryColor(color, out _)) throw new ArgumentException("Styled text foreground must be #RRGGBB.");
-            bool Flag(string key) => table[key].Type == LuaValueType.Nil ? false : table[key].Type == LuaValueType.Boolean ? table[key].Read<bool>() : throw new ArgumentException(key + " must be boolean.");
+            bool Flag(string key) => table[key].Type != LuaValueType.Nil && (table[key].Type == LuaValueType.Boolean ? table[key].Read<bool>() : throw new ArgumentException(key + " must be boolean."));
             segments.Add(new(Text(table["text"]), color, Flag("bold"), Flag("italic")));
         }
         if (value.Type == LuaValueType.String) Add(value);

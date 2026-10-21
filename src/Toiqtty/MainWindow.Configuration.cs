@@ -10,7 +10,8 @@ namespace Toiqtty;
 
 public sealed partial class MainWindow
 {
-    private bool _luaEnabled, _luaInitialized;
+    private readonly bool _luaEnabled;
+    private bool _luaInitialized;
     private AppSettings _userSettings = new();
     private LuaConfigResult _luaConfig = new();
     private LuaConfigWatcher? _luaWatcher;
@@ -141,7 +142,7 @@ public sealed partial class MainWindow
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Runtime.InteropServices.COMException) { ConfigError(ex.Message); }
     }
-    private async void LuaConfigStatusClick(object sender, RoutedEventArgs e) => await ShowLuaStatus();
+    private async void LuaConfigStatusClick(object _1, RoutedEventArgs _2) => await ShowLuaStatus();
     private async Task ShowLuaStatus()
     {
         var text = new TextBlock { Text = "Config: " + LuaConfigService.ConfigPath + "\n\n" + (_luaError ??

@@ -1,6 +1,5 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
-using Microsoft.UI.Xaml.Media;
 using Toiqtty.Browser;
 using Toiqtty.Controls;
 using Toiqtty.Models;
@@ -64,10 +63,10 @@ public sealed partial class MainWindow
         if (await ShowDialog(new ContentDialog { Title = "Change browser profile", Content = choices, PrimaryButtonText = "Switch and reload", CloseButtonText = "Cancel" }) == ContentDialogResult.Primary && choices.SelectedItem is ComboBoxItem { Tag: string id } && id != view.SourceId)
             RecreateBrowser(view, id);
     }
-    private void NewBrowserClick(object sender, RoutedEventArgs e) => NewBrowser();
-    private void SplitBrowserRightClick(object sender, RoutedEventArgs e) => NewBrowser(split: true);
-    private void SplitBrowserDownClick(object sender, RoutedEventArgs e) => NewBrowser(split: true, vertical: false);
-    private async void BrowserSettingsClick(object sender, RoutedEventArgs e) => await BrowserSettingsDialog();
+    private void NewBrowserClick(object _1, RoutedEventArgs _2) => NewBrowser();
+    private void SplitBrowserRightClick(object _1, RoutedEventArgs _2) => NewBrowser(split: true);
+    private void SplitBrowserDownClick(object _1, RoutedEventArgs _2) => NewBrowser(split: true, vertical: false);
+    private async void BrowserSettingsClick(object _1, RoutedEventArgs _2) => await BrowserSettingsDialog();
     private void NewBrowser(string? url = null, bool split = false, bool vertical = true, string? sourceId = null)
     {
         if (_selected is null) NewWorkspace();
@@ -148,7 +147,7 @@ public sealed partial class MainWindow
             status.Text = "Disconnected. Cookies already imported remain until cleared from the browser pane menu.";
         };
         void Changed() => DispatcherQueue.TryEnqueue(() => { Refresh(); code.Text = ""; code.Visibility = Visibility.Collapsed; });
-        if (bridge is not null) bridge.SourcesChanged += Changed;
+        bridge?.SourcesChanged += Changed;
         var panel = new StackPanel { Spacing = 14, MinWidth = 400, MaxWidth = 520 };
         foreach (var item in new UIElement[] { home, links, choices, connections, name, origins, controls, pair, code, folder,
             new TextBlock { Text = "Install chromium/ in Edge, Chrome, Brave, Vivaldi, or another Chromium browser using Load unpacked. For Firefox and compatible browsers, use firefox/. See README.txt in that folder. Cookies sync while toiqtty and the source browser are open. Passwords, history, local storage, and partitioned cookies are not copied.", TextWrapping = TextWrapping.Wrap, FontSize = 12 }, status }) panel.Children.Add(item);

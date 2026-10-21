@@ -1,6 +1,5 @@
 using Microsoft.UI.Xaml.Controls;
 using Toiqtty.Controls;
-using Toiqtty.Models;
 
 namespace Toiqtty;
 

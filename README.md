@@ -135,6 +135,13 @@ To display a PNG from PowerShell inside toiqtty:
 
 CI builds, tests, and validates packaging for toiqtty on Windows x64. Generated packages stay on the temporary runner; CI does not upload build artifacts. A separate Ubuntu job checks the Bash/Zsh scripts used by WSL in real PTYs; it does not build a Linux terminal. Full WSL-through-ConPTY interoperability is covered by the optional Windows interop checks below.
 
+C# style preferences live in `.editorconfig`. After building the Debug Client project to populate WinUI's design-time references, check them without changing files:
+
+```powershell
+dotnet build src/Toiqtty.Client -c Debug
+dotnet format style Toiqtty.slnx --no-restore --severity info --verify-no-changes
+```
+
 ```powershell
 ./scripts/test.ps1                 # Native engine + real ConPTY integration checks
 ./scripts/test.ps1 -SkipNative -Ui -Notifications # Also deliver and remove one real Windows toast

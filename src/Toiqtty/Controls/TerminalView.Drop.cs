@@ -25,14 +25,14 @@ public sealed partial class TerminalView
         int generation = _dropGeneration;
         var deferral = e.GetDeferral();
         var point = e.GetPosition(_canvas);
-        var native = _geometry.ToNative(point.X, point.Y);
+        var (X, Y) = _geometry.ToNative(point.X, point.Y);
         uint operations = (uint)e.AllowedOperations & 3;
         try
         {
             if (await _session.QueryDropAsync(0) == 1)
             {
                 if (_disposed || generation != _dropGeneration) return;
-                await _session.QueryDropAsync(1, (int)native.X, (int)native.Y, TerminalDropData.Offer(e.DataView), operations);
+                await _session.QueryDropAsync(1, (int)X, (int)Y, TerminalDropData.Offer(e.DataView), operations);
                 var accepted = (DataPackageOperation)await _session.QueryDropAsync(4, operations: operations);
                 if (_disposed || generation != _dropGeneration) return;
                 e.AcceptedOperation = _dropAccepted = accepted & e.AllowedOperations;
@@ -59,7 +59,7 @@ public sealed partial class TerminalView
         var deferral = e.GetDeferral();
         var targetSession = _session;
         var point = e.GetPosition(_canvas);
-        var native = _geometry.ToNative(point.X, point.Y);
+        var (X, Y) = _geometry.ToNative(point.X, point.Y);
         uint operations = (uint)e.AllowedOperations & 3;
         e.AcceptedOperation = DataPackageOperation.None;
         try
@@ -68,7 +68,7 @@ public sealed partial class TerminalView
             if (_disposed) return;
             if (targetSession is not null && await targetSession.QueryDropAsync(0) == 1)
             {
-                int completed = await targetSession.DropAsync((int)native.X, (int)native.Y, representations, operations);
+                int completed = await targetSession.DropAsync((int)X, (int)Y, representations, operations);
                 e.AcceptedOperation = (DataPackageOperation)((uint)completed & operations);
             }
             else if (fallback is not null && (operations & 1) != 0 && targetSession is not null)

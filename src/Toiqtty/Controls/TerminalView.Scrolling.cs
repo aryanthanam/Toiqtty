@@ -37,8 +37,8 @@ public sealed partial class TerminalView
             IsHitTestVisible = false, Visibility = Visibility.Collapsed };
         anchor.Children.Add(new Ellipse { Width = 22, Height = 22,
             Fill = Chrome.Brush(Chrome.Selected), Stroke = Chrome.Brush(Chrome.Accent), StrokeThickness = 1 });
-        var up = new Polygon { Points = new PointCollection { new(0, 4), new(3.5, 0), new(7, 4) }, Fill = Chrome.Brush(Chrome.Text) };
-        var down = new Polygon { Points = new PointCollection { new(0, 0), new(7, 0), new(3.5, 4) }, Fill = Chrome.Brush(Chrome.Text) };
+        var up = new Polygon { Points = [new(0, 4), new(3.5, 0), new(7, 4)], Fill = Chrome.Brush(Chrome.Text) };
+        var down = new Polygon { Points = [new(0, 0), new(7, 0), new(3.5, 4)], Fill = Chrome.Brush(Chrome.Text) };
         var dot = new Ellipse { Width = 3, Height = 3, Fill = Chrome.Brush(Chrome.Text) };
         Canvas.SetLeft(up, 7.5); Canvas.SetTop(up, 4);
         Canvas.SetLeft(down, 7.5); Canvas.SetTop(down, 14);
@@ -111,7 +111,7 @@ public sealed partial class TerminalView
             _scrollbar.IsEnabled = state is { Maximum: > 0 };
             _scrollbar.Opacity = _scrollbar.IsEnabled ? 1 : .25;
             _scrollbar.Maximum = state?.Maximum ?? 0;
-            _scrollbar.ViewportSize = state?.Visible ?? _rows;
+            _scrollbar.ViewportSize = state?.Visible ?? GridRows;
             _scrollbar.SmallChange = 1;
             _scrollbar.LargeChange = Math.Max(1, _scrollbar.ViewportSize - 1);
             if (!_scrollbarDragging && _pendingScrollRow is null)
@@ -186,8 +186,7 @@ public sealed partial class TerminalView
         DispatcherQueue.TryEnqueue(() =>
         {
             if (_disposed || !_middleScroll.Active || !IsLoaded || XamlRoot is null) return;
-            var focused = Microsoft.UI.Xaml.Input.FocusManager.GetFocusedElement(XamlRoot) as DependencyObject;
-            if (focused is null) { FocusTerminal(); return; }
+            if (Microsoft.UI.Xaml.Input.FocusManager.GetFocusedElement(XamlRoot) is not DependencyObject focused) { FocusTerminal(); return; }
             for (var ancestor = focused; ancestor is not null; ancestor = Microsoft.UI.Xaml.Media.VisualTreeHelper.GetParent(ancestor))
                 if (ReferenceEquals(ancestor, this)) return;
             StopAutoScroll("focus-left-pane");
@@ -206,7 +205,7 @@ public sealed partial class TerminalView
     internal void TickScrolling(long now)
     {
         FlushScrollbar(now);
-        int delta = _middleScroll.Tick(now, _cellHeight);
+        int delta = _middleScroll.Tick(now, CellHeight);
         // Scroll(0) means jump to the bottom, so never send a stationary tick.
         if (delta == 0) return;
         RouteAutoscroll(delta);

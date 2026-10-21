@@ -15,7 +15,7 @@ internal static class ArchitectureChecks
         var intercepted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var rejected = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         int hold = 0, oldReply = 0;
-        async Task Wait(Func<bool> condition)
+        static async Task Wait(Func<bool> condition)
         {
             var watch = System.Diagnostics.Stopwatch.StartNew();
             while (!condition()) { if (watch.Elapsed.TotalSeconds > 10) throw new TimeoutException("Geometry transition did not settle."); await Task.Delay(10); }

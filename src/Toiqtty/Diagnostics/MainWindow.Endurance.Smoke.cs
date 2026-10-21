@@ -64,10 +64,10 @@ public sealed partial class MainWindow
         void Save(bool finished)
         {
             process.Refresh(); hostProcess.Refresh();
-            var pool=Terminal.TerminalCellPool.Shared.Statistics;
+            var (Bytes, Buffers, Created, Reused) = Terminal.TerminalCellPool.Shared.Statistics;
             var sample=new { timestamp=DateTimeOffset.Now,elapsedSeconds=timer.Elapsed.TotalSeconds,wallElapsedSeconds=wall.Elapsed.TotalSeconds,
                 pausedSeconds=_endurancePausedSeconds,unplannedPauses=_endurancePauseCount,requestedSeconds=seconds,cycle,inputSamples,interruptedInputSamples,worstPresentMs=worstPresent,
-                cellBufferPool=new { retainedBytes=pool.Bytes,buffers=pool.Buffers,created=pool.Created,reused=pool.Reused },
+                cellBufferPool=new { retainedBytes=Bytes,buffers=Buffers,created=Created,reused=Reused },
                 host=hostIdentity,viewsCreated=_terminalViewsCreated,viewsEvicted=_terminalViewsEvicted,cachedViews=_terminalViews.Count,
                 coldPrivateBytes=coldPrivate,coldHandles,warmedPrivateBytes=initialPrivate,warmedHandles=initialHandles,
                 privateBytes=process.PrivateMemorySize64,handles=process.HandleCount,threads=process.Threads.Count,

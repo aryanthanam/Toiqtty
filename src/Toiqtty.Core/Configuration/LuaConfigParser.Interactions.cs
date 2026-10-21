@@ -43,7 +43,7 @@ public static partial class LuaConfigParser
         if (Present(table, "key_tables"))
         {
             var tables = Table(table["key_tables"], "key_tables"); if (tables.Count() > 32) throw new ArgumentException("At most 32 key tables are supported.");
-            settings.KeyTables = new();
+            settings.KeyTables = [];
             foreach (var pair in tables)
             {
                 string name = Text(pair.Key, "key table name", 64); var definition = Table(pair.Value, "key table");

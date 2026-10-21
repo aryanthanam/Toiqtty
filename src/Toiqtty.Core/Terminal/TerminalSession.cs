@@ -3,7 +3,7 @@ namespace Toiqtty.Terminal;
 public sealed class TerminalSession : ITerminalSession, IAsyncDisposable
 {
     private readonly object _gate = new();
-    private readonly object _resizeGate = new();
+    private readonly Lock _resizeGate = new();
     internal object ParserGateForCheck => _gate;
     private readonly GhosttyTerminal _terminal;
     private readonly ConPtyProcess _process;

@@ -32,9 +32,9 @@ public sealed partial class MainWindow
         await PollMetadata();
         check(_branchLookupsForCheck-branchLookups==1,"Thirty-three sessions sharing a directory require only one asynchronous Git lookup per metadata pass");
         using var ui=Process.GetCurrentProcess(); using var owner=Process.GetProcessById(_host.ProcessId);
-        var idleStart=Sample(ui,owner); var timer=Stopwatch.StartNew(); await Task.Delay(5000); var idleEnd=Sample(ui,owner);
-        var idle=new { seconds=timer.Elapsed.TotalSeconds,uiCpuMs=idleEnd.UiCpu-idleStart.UiCpu,hostCpuMs=idleEnd.HostCpu-idleStart.HostCpu,
-            uiAllocatedBytes=idleEnd.Allocated-idleStart.Allocated,uiPrivateBytes=idleEnd.UiPrivate,hostPrivateBytes=idleEnd.HostPrivate };
+        var (UiCpu, HostCpu, Allocated, UiPrivate, HostPrivate) = Sample(ui,owner); var timer=Stopwatch.StartNew(); await Task.Delay(5000); var idleEnd=Sample(ui,owner);
+        var idle=new { seconds=timer.Elapsed.TotalSeconds,uiCpuMs=idleEnd.UiCpu-UiCpu,hostCpuMs=idleEnd.HostCpu-HostCpu,
+            uiAllocatedBytes=idleEnd.Allocated-Allocated,uiPrivateBytes=idleEnd.UiPrivate,hostPrivateBytes=idleEnd.HostPrivate };
         var latencies=new List<double>();
         for(int i=0;i<32;i++) latencies.Add((await Probe(sessions[i%16],_views.Single(v=>ReferenceEquals(v.Session,sessions[i%16])))).PresentMs);
         check(latencies.Count==32,"All sixteen visible panes answer timestamped input while sixty-four other shells remain alive");

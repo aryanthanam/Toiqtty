@@ -20,9 +20,9 @@ internal static class SelectionCoordinateChecks
             foreach (var cell in new[] { (0, 0), (40, 20), (70, 37) })
             {
                 terminal.Select(-1, -1);
-                var start=geometry.ToNative((cell.Item1+.1)*width,(cell.Item2+.5)*height);
+                var (X, Y) = geometry.ToNative((cell.Item1+.1)*width,(cell.Item2+.5)*height);
                 var end=geometry.ToNative((cell.Item1+4.9)*width,(cell.Item2+.5)*height);
-                float x1=start.X, x2=end.X, y=start.Y;
+                float x1=X, x2=end.X, y=Y;
                 terminal.SelectionGesture(0, x1, y);
                 terminal.SelectionGesture(2, x2, y);
                 terminal.SelectionGesture(1, x2, y);

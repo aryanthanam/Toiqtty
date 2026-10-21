@@ -1,6 +1,5 @@
 using System.Buffers.Binary;
 using System.Buffers;
-using System.IO.Pipes;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;

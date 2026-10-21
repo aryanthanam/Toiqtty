@@ -53,7 +53,7 @@ internal static class UiaObserveChecks
                 try
                 {
                     var window = AutomationElement.FromHandle(hwnd);
-                    var terminals = window.FindAll(TreeScope.Descendants, new PropertyCondition(AutomationElement.ClassNameProperty, "Toiqtty.Terminal"));
+                    var terminals = window.FindAll(TreeScope.Descendants, new PropertyCondition(AutomationElement.ClassNameProperty, "toiqtty.Terminal"));
                     foreach (AutomationElement terminal in terminals)
                         if (terminal.TryGetCurrentPattern(TextPattern.Pattern, out var pattern))
                             documents.Add(((TextPattern)pattern).DocumentRange.GetText(65536));

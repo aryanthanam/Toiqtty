@@ -88,16 +88,16 @@ public sealed partial class MainWindow
             int idleSettle = int.TryParse(Environment.GetEnvironmentVariable("TOIQTTY_PERFORMANCE_IDLE_SETTLE_MS"), out int settle) ? Math.Clamp(settle, 0, 30000) : 0;
             int idleDuration = int.TryParse(Environment.GetEnvironmentVariable("TOIQTTY_PERFORMANCE_IDLE_MS"), out int duration) ? Math.Clamp(duration, 2000, 30000) : 2000;
             if (idleSettle > 0) await Task.Delay(idleSettle);
-            var idleStart = Sample(ui, host); var timer = Stopwatch.StartNew(); await Task.Delay(idleDuration); var idleEnd = Sample(ui, host);
+            var (UiCpu, HostCpu, Allocated, UiPrivate, HostPrivate) = Sample(ui, host); var timer = Stopwatch.StartNew(); await Task.Delay(idleDuration); var idleEnd = Sample(ui, host);
             measurements.Add(new
             {
                 phase = "idle",
                 paneCount,
                 settleMilliseconds = idleSettle,
                 seconds = timer.Elapsed.TotalSeconds,
-                uiCpuMs = idleEnd.UiCpu - idleStart.UiCpu,
-                hostCpuMs = idleEnd.HostCpu - idleStart.HostCpu,
-                uiAllocatedBytes = idleEnd.Allocated - idleStart.Allocated,
+                uiCpuMs = idleEnd.UiCpu - UiCpu,
+                hostCpuMs = idleEnd.HostCpu - HostCpu,
+                uiAllocatedBytes = idleEnd.Allocated - Allocated,
                 uiPrivateBytes = idleEnd.UiPrivate,
                 hostPrivateBytes = idleEnd.HostPrivate
             });
@@ -144,7 +144,7 @@ public sealed partial class MainWindow
                     }
                     if (finished.Count > 0) await Task.WhenAll(finished).WaitAsync(TimeSpan.FromMilliseconds(outputMilliseconds + 10000));
                 }
-                finally { foreach (var subscription in subscriptions) subscription.Shell.StateObservedForCheck -= subscription.Handler; }
+                finally { foreach (var (Shell, Handler) in subscriptions) Shell.StateObservedForCheck -= Handler; }
                 double seconds = timer.Elapsed.TotalSeconds; var end = Sample(ui, host);
                 var gpuAfter = views.Select(v => v.NativeRenderStatsForCheck).ToArray();
                 var presentationAfter = views.Select(v => v.PresentationForCheck).ToArray();
@@ -295,10 +295,10 @@ public sealed partial class MainWindow
         try
         {
             shell.Paste("ping2 " + token + " " + origin); shell.Key(13, 0);
-            var result = await WaitForProbePresentation(presented.Task);
-            return new(view.PaneId, result.ReadUs / 1000d, result.WriteUs / 1000d, hostTicks == 0 ? null : Stopwatch.GetElapsedTime(origin, hostTicks).TotalMilliseconds,
-                Stopwatch.GetElapsedTime(origin, result.Present).TotalMilliseconds, Stopwatch.GetElapsedTime(origin).TotalMilliseconds,
-                Stopwatch.GetElapsedTime(origin, result.DrawBegin).TotalMilliseconds, Stopwatch.GetElapsedTime(result.DrawBegin, result.DrawEnd).TotalMilliseconds, result.Draws, origin, result.DrawBegin, result.Present);
+            var (Present, ReadUs, WriteUs, DrawBegin, DrawEnd, Draws) = await WaitForProbePresentation(presented.Task);
+            return new(view.PaneId, ReadUs / 1000d, WriteUs / 1000d, hostTicks == 0 ? null : Stopwatch.GetElapsedTime(origin, hostTicks).TotalMilliseconds,
+                Stopwatch.GetElapsedTime(origin, Present).TotalMilliseconds, Stopwatch.GetElapsedTime(origin).TotalMilliseconds,
+                Stopwatch.GetElapsedTime(origin, DrawBegin).TotalMilliseconds, Stopwatch.GetElapsedTime(DrawBegin, DrawEnd).TotalMilliseconds, Draws, origin, DrawBegin, Present);
         }
         catch (TimeoutException)
         {

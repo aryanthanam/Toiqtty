@@ -44,8 +44,8 @@ public sealed class ActionBindingState
     private Dictionary<string,KeyTableSettings>? _definitions;
     private LeaderSettings? _leader;
     private (uint Key,uint Modifiers)? _leaderChord;
-    private readonly Dictionary<(bool Leader,uint Key,uint Modifiers),ActionSpec> _chords = new();
-    private readonly Dictionary<string,Dictionary<(uint Key,uint Modifiers),ActionSpec>> _tableChords = new();
+    private readonly Dictionary<(bool Leader,uint Key,uint Modifiers),ActionSpec> _chords = [];
+    private readonly Dictionary<string,Dictionary<(uint Key,uint Modifiers),ActionSpec>> _tableChords = [];
     public void Reset() { _leaderUntil = 0; _tables.Clear(); _bindings = null; }
     private void Compile(AppSettings settings)
     {
@@ -55,12 +55,12 @@ public sealed class ActionBindingState
         foreach (var (name,normal) in Keybindings.Defaults)
         {
             string chord=settings.Keybindings.GetValueOrDefault(name,normal); if(chord.Length==0) continue;
-            var parsed=Keybindings.Parse(chord); _chords[(false,parsed.Key,parsed.Modifiers)]=new() { Value=name };
+            var (Key, Modifiers) = Keybindings.Parse(chord); _chords[(false,Key,Modifiers)]=new() { Value=name };
         }
         foreach(var binding in settings.Bindings)
         {
             bool leader=binding.Key.StartsWith("LEADER+",StringComparison.OrdinalIgnoreCase);
-            var parsed=Keybindings.Parse(leader?binding.Key[7..]:binding.Key); _chords[(leader,parsed.Key,parsed.Modifiers)]=binding.Action;
+            var (Key, Modifiers) = Keybindings.Parse(leader?binding.Key[7..]:binding.Key); _chords[(leader,Key,Modifiers)]=binding.Action;
         }
         foreach(var (name,table) in settings.KeyTables)
             _tableChords[name]=table.Bindings.ToDictionary(b=>Keybindings.Parse(b.Key),b=>b.Action);

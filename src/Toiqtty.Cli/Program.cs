@@ -1,4 +1,3 @@
-using System.Text.Json;
 using Toiqtty.Automation;
 using Toiqtty.Hosting;
 using Toiqtty.Models;
@@ -50,13 +49,13 @@ try
             default: throw new ArgumentException("Unknown option: " + argument);
         }
     }
-    var allowed = request.Command switch {
-        "sessions" or "reload" or "launch" => Array.Empty<string>(),
-        "focus" => Array.Empty<string>(), "rename-session" => Array.Empty<string>(),
-        "new-session" => new[] { "--name", "--cwd", "--shell" },
-        "new-tab" => new[] { "--session", "--name", "--cwd", "--shell" },
-        "split" or "action" => new[] { "--session" },
-        "send-text" or "paste" => new[] { "--pane", "--session", "--text" },
+    string[] allowed = request.Command switch {
+        "sessions" or "reload" or "launch" => [],
+        "focus" => [], "rename-session" => [],
+        "new-session" => ["--name", "--cwd", "--shell"],
+        "new-tab" => ["--session", "--name", "--cwd", "--shell"],
+        "split" or "action" => ["--session"],
+        "send-text" or "paste" => ["--pane", "--session", "--text"],
         _ => throw new ArgumentException("Unknown command: " + request.Command)
     };
     foreach (string option in seen) if (option is not ("--json" or "--data-dir") && !allowed.Contains(option)) throw new ArgumentException(option + " is not supported for " + request.Command);

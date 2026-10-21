@@ -40,16 +40,16 @@ internal static class MetadataBatchChecks
             sessions[0].Resize(100,30,9,18);
             Pass(client.SupportsResizeSelectionClear && hadSelection && cleared && sessions[0].ResizeSelectionRequestsSentForCheck==0,
                 "Updated-host resizing clears selection without an additional transport request");
-            bool demand=true; string subscriber=Guid.NewGuid().ToString("N"); Action<string> listener=_=> { };
-            client.AddOutputListener(subscriber,listener,()=>demand); var interests=client.OutputInterestsForCheck();
+            bool demand=true; string subscriber=Guid.NewGuid().ToString("N"); void listener(string _) { }
+            client.AddOutputListener(subscriber, listener,()=>demand); var interests=client.OutputInterestsForCheck();
             long allocationStart=GC.GetAllocatedBytesForCurrentThread(); bool same=true;
             for(int i=0;i<1000;i++) same &= ReferenceEquals(interests,client.OutputInterestsForCheck());
             long interestAllocations=GC.GetAllocatedBytesForCurrentThread()-allocationStart;
             Pass(same && interestAllocations==0,"One thousand unchanged output-interest reads reuse immutable subscriptions without managed allocation");
             demand=false; Pass(!client.OutputInterestsForCheck().Contains(subscriber),"Output interest snapshots immediately reflect changed consumer demand");
-            client.AddOutputListener(subscriber,listener,()=>true); client.RemoveOutputListener(subscriber,listener);
+            client.AddOutputListener(subscriber, listener,()=>true); client.RemoveOutputListener(subscriber, listener);
             Pass(!client.OutputInterestsForCheck().Contains(subscriber),"Removing a duplicate subscription removes its last registration and preserves earlier demand");
-            client.RemoveOutputListener(subscriber,listener);
+            client.RemoveOutputListener(subscriber, listener);
             // Frontend caches and ConPTY resize output can still advance after
             // the RPC completes. Establish the host's own version baseline.
             var versions=ids.ToDictionary(id=>id,_=>-1);

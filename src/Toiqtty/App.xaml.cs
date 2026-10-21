@@ -1,15 +1,6 @@
-using Windows.ApplicationModel;
-using Windows.ApplicationModel.Activation;
-using Windows.Foundation;
-using Windows.Foundation.Collections;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
-using Microsoft.UI.Xaml.Controls.Primitives;
-using Microsoft.UI.Xaml.Data;
-using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
-using Microsoft.UI.Xaml.Navigation;
-using Microsoft.UI.Xaml.Shapes;
 
 // To learn more about WinUI, the WinUI project structure,
 // and more about our project templates, see: http://aka.ms/winui-project-info.
@@ -27,7 +18,7 @@ public partial class App : Application
     private Notifications.DesktopNotifications? _notifications;
     private (string Workspace, string Pane)? _pendingNotification;
     private readonly TaskCompletionSource<(string Workspace, string Pane)> _notificationActivation = new(TaskCreationOptions.RunContinuationsAsynchronously);
-    private readonly object _notificationGate = new();
+    private readonly Lock _notificationGate = new();
 
     /// <summary>
     /// Initializes the singleton application object.  This is the first line of authored code
@@ -74,8 +65,8 @@ public partial class App : Application
                 notifications.ReadInitialActivation();
                 try
                 {
-                    var target = await _notificationActivation.Task.WaitAsync(TimeSpan.FromSeconds(3));
-                    await Models.InstanceCoordinator.ActivateExisting(Models.SessionStore.Folder, target.Workspace, target.Pane);
+                    var (Workspace, Pane) = await _notificationActivation.Task.WaitAsync(TimeSpan.FromSeconds(3));
+                    await Models.InstanceCoordinator.ActivateExisting(Models.SessionStore.Folder, Workspace, Pane);
                 }
                 catch (TimeoutException) { await Models.InstanceCoordinator.ActivateExisting(Models.SessionStore.Folder); }
             }
@@ -189,8 +180,8 @@ public partial class App : Application
             string arguments = System.Xml.Linq.XDocument.Parse(probe.Payload).Root!.Attribute("launch")!.Value;
             System.IO.File.WriteAllText(System.IO.Path.Combine(folder, "ready.json"), System.Text.Json.JsonSerializer.Serialize(new { appId, clsid, arguments, processId = Environment.ProcessId }));
             bool initialPayload = notifications.ReadInitialActivation();
-            var target = await received.Task.WaitAsync(TimeSpan.FromSeconds(15));
-            System.IO.File.WriteAllText(System.IO.Path.Combine(folder, "result.json"), System.Text.Json.JsonSerializer.Serialize(new { passed = true, initialPayload, workspace = target.Workspace, pane = target.Pane }));
+            var (Workspace, Pane) = await received.Task.WaitAsync(TimeSpan.FromSeconds(15));
+            System.IO.File.WriteAllText(System.IO.Path.Combine(folder, "result.json"), System.Text.Json.JsonSerializer.Serialize(new { passed = true, initialPayload, workspace = Workspace, pane = Pane }));
         }
         catch (Exception ex)
         {

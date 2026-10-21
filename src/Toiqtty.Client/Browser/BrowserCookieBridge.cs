@@ -48,7 +48,7 @@ public sealed class BrowserCookieBridge : IDisposable
         public List<BrowserSource> Sources { get; set; } = [];
     }
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
-    private readonly object _gate = new();
+    private readonly Lock _gate = new();
     private readonly string _file;
     private readonly Registry _registry;
     private readonly TcpListener _listener;
@@ -157,7 +157,7 @@ public sealed class BrowserCookieBridge : IDisposable
                 {
                     if (await stream.ReadAsync(one, timeout.Token).ConfigureAwait(false) == 0) return;
                     header.Add(one[0]);
-                    if (header.Count >= 4 && header.TakeLast(4).SequenceEqual(new byte[] { 13, 10, 13, 10 })) break;
+                    if (header is [.., 13, 10, 13, 10]) break;
                 }
                 if (header.Count >= 16384) { await Reply(stream, 413, new { error = "Request too large" }, timeout.Token).ConfigureAwait(false); return; }
                 var lines = Encoding.ASCII.GetString(header.ToArray()).Split("\r\n");

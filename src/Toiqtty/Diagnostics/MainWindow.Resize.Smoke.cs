@@ -77,12 +77,12 @@ public sealed partial class MainWindow
         foreach(var paneView in _views)
         {
             var paneSession=(RemoteTerminalSession)paneView.Session!;
-            foreach(var sample in new[] { (Row:0, Text:"DPI_CHECK"), (Row:8, Text:"CARET>") })
+            foreach(var (Row, Text) in new[] { (Row:0, Text:"DPI_CHECK"), (Row:8, Text:"CARET>") })
             {
-                paneView.DragSelectionForCheck(sample.Row,0,sample.Text.Length-1);
+                paneView.DragSelectionForCheck(Row,0,Text.Length-1);
                 await paneSession.InputDrained;
-                check(await paneSession.CopySelectionAsync()==sample.Text,
-                    $"Pointer drags select the displayed text in row {sample.Row+1} after split resizing: {paneView.PaneId}");
+                check(await paneSession.CopySelectionAsync()==Text,
+                    $"Pointer drags select the displayed text in row {Row+1} after split resizing: {paneView.PaneId}");
             }
             paneSession.Select(-1,-1);
         }

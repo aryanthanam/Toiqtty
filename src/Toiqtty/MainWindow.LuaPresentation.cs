@@ -81,10 +81,14 @@ public sealed partial class MainWindow
         block.Text=""; block.Inlines.Clear();
         foreach(var segment in segments)
         {
-            var run=new Run { Text=segment.Text,FontWeight=segment.Bold?Microsoft.UI.Text.FontWeights.Bold:Microsoft.UI.Text.FontWeights.Normal,
-                FontStyle=segment.Italic?Windows.UI.Text.FontStyle.Italic:Windows.UI.Text.FontStyle.Normal };
-            run.FontFamily=new Microsoft.UI.Xaml.Media.FontFamily(TerminalFont.Resolve(_saved.Settings.FontFamily,(segment.Bold?1u:0)|(segment.Italic?2u:0),_saved.Settings.FontWeight));
-            if(SessionTheme.TryColor(segment.Foreground,out uint color)) run.Foreground=Chrome.Brush(color);
+            var run = new Run
+            {
+                Text = segment.Text,
+                FontWeight = segment.Bold ? Microsoft.UI.Text.FontWeights.Bold : Microsoft.UI.Text.FontWeights.Normal,
+                FontStyle = segment.Italic ? Windows.UI.Text.FontStyle.Italic : Windows.UI.Text.FontStyle.Normal,
+                FontFamily = new Microsoft.UI.Xaml.Media.FontFamily(TerminalFont.Resolve(_saved.Settings.FontFamily, (segment.Bold ? 1u : 0) | (segment.Italic ? 2u : 0), _saved.Settings.FontWeight))
+            };
+            if (SessionTheme.TryColor(segment.Foreground,out uint color)) run.Foreground=Chrome.Brush(color);
             block.Inlines.Add(run);
         }
     }

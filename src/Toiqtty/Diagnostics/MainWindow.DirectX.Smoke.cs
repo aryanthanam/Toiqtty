@@ -80,8 +80,10 @@ public sealed partial class MainWindow
                 {
                     foreach (string text in corpus)
                     {
-                        var layout = new CanvasTextLayout(device, "\u202d" + text + "\u202c", format, 10000, 36);
-                        layout.Options = CanvasDrawTextOptions.EnableColorFont;
+                        var layout = new CanvasTextLayout(device, "\u202d" + text + "\u202c", format, 10000, 36)
+                        {
+                            Options = CanvasDrawTextOptions.EnableColorFont
+                        };
                         metrics.SetLineMetrics(layout, device, format, 36, style); layouts.Add(layout);
                     }
                     var foreground = Color.FromArgb(255, 220, 230, 240);

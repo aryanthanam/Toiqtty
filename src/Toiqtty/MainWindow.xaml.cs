@@ -91,10 +91,10 @@ public sealed partial class MainWindow : Window
         if (ShellDefaults.FindPowerShell7() is { } pwsh) profiles.Insert(0, ("PowerShell 7", $"\"{pwsh}\" -NoLogo"));
         if (File.Exists(Path.Combine(Environment.SystemDirectory, "wsl.exe"))) profiles.Add(("WSL", "wsl.exe"));
         var shellProfiles=new MenuFlyoutSubItem { Text="New shell tab" }; ShellMenu.Items.Add(shellProfiles);
-        foreach (var profile in profiles)
+        foreach (var (Name, Command) in profiles)
         {
-            var item = new MenuFlyoutItem { Text = profile.Name };
-            item.Click += (_, _) => NewTab(profile.Command, profile.Name);
+            var item = new MenuFlyoutItem { Text = Name };
+            item.Click += (_, _) => NewTab(Command, Name);
             shellProfiles.Items.Add(item);
         }
         Root.Loaded += async (_, _) =>
@@ -256,8 +256,9 @@ public sealed partial class MainWindow : Window
     private void SyncSidebarSelection()
     {
         _refreshing = true;
-        foreach (ListViewItem item in WorkspaceList.Items)
+        foreach (var value in WorkspaceList.Items)
         {
+            var item = (ListViewItem)value;
             if (item.Tag is not Workspace workspace || item.Content is not Border card) continue;
             bool selected = workspace == _selected;
             var colors = Chrome.For(ThemeFor(workspace));
@@ -269,7 +270,7 @@ public sealed partial class MainWindow : Window
         }
         _refreshing = false;
     }
-    private void WorkspaceSelectionChanged(object sender, SelectionChangedEventArgs e)
+    private void WorkspaceSelectionChanged(object _1, SelectionChangedEventArgs _2)
     {
         if (!_closed && !_closing && !_refreshing && _draggedPaneId is null && WorkspaceList.SelectedItem is ListViewItem { Tag: Workspace workspace }) SelectWorkspace(workspace);
     }
@@ -319,8 +320,13 @@ public sealed partial class MainWindow : Window
         }
         var grid = new Grid();
         var first = BuildNode(node.First!, workspace); var second = BuildNode(node.Second!, workspace);
-        var splitter = new Thumb { Background = Chrome.Brush(Chrome.Background), MinWidth = 5, MinHeight = 5 };
-        splitter.Template=(ControlTemplate)Root.Resources[node.Vertical?"ColumnSplitter":"RowSplitter"];
+        var splitter = new Thumb
+        {
+            Background = Chrome.Brush(Chrome.Background),
+            MinWidth = 5,
+            MinHeight = 5,
+            Template = (ControlTemplate)Root.Resources[node.Vertical ? "ColumnSplitter" : "RowSplitter"]
+        };
         Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(splitter, node.Vertical ? "Resize side-by-side panes" : "Resize stacked panes");
         ToolTipService.SetToolTip(splitter, "Drag to resize panes");
         splitter.PointerEntered += (_, _) => splitter.Background = Chrome.Brush(Chrome.Accent);
@@ -361,7 +367,7 @@ public sealed partial class MainWindow : Window
         if (_selected is not null)
         {
             _selected.FocusedPaneId = view.PaneId;
-            if (focusedPane is not null) focusedPane.Attention = false;
+            focusedPane?.Attention = false;
             if(attention) { _selected.Attention = _selected.AllPanes().Any(p => p.Attention); RefreshSidebar(); RefreshTabs(); }
         }
         foreach (var pane in _views) pane.IsActive = pane == view;
@@ -501,10 +507,10 @@ public sealed partial class MainWindow : Window
         }
         catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or IOException or InvalidOperationException) { return ""; }
     }
-    private void NewWorkspaceClick(object sender, RoutedEventArgs e) => NewWorkspace();
-    private void SplitRightClick(object sender, RoutedEventArgs e) => Split(true);
-    private void SplitDownClick(object sender, RoutedEventArgs e) => Split(false);
-    private void ZoomClick(object sender, RoutedEventArgs e) { if ((ActivePaneId??_selected?.FocusedPaneId) is not { } id) return; _zoomed = !_zoomed; RebuildPanes(id); }
+    private void NewWorkspaceClick(object _1, RoutedEventArgs _2) => NewWorkspace();
+    private void SplitRightClick(object _1, RoutedEventArgs _2) => Split(true);
+    private void SplitDownClick(object _1, RoutedEventArgs _2) => Split(false);
+    private void ZoomClick(object _1, RoutedEventArgs _2) { if ((ActivePaneId??_selected?.FocusedPaneId) is not { } id) return; _zoomed = !_zoomed; RebuildPanes(id); }
     private async void SettingsClick(object sender, RoutedEventArgs e)
     {
         var shell = new TextBox { Header = "Default shell command", Text = _saved.Settings.Shell, PlaceholderText = "pwsh.exe -NoLogo" };
@@ -551,12 +557,12 @@ public sealed partial class MainWindow : Window
         _saved.Settings.Shell = shell.Text.Trim(); _saved.Settings.StartDirectory = Environment.ExpandEnvironmentVariables(directory.Text);
         _saved.Settings.FontFamily = font.Text.Trim(); _saved.Settings.FontSize = (float)(double.IsFinite(size.Value) ? Math.Clamp(size.Value, 9, 32) : 14);
         _saved.Settings.AllowClipboardWrite = clipboardWrite.IsOn; _saved.Settings.AllowClipboardRead = clipboardRead.IsOn;
-        _saved.Settings.Ligatures = ligatures.IsOn; _saved.Settings.Keybindings = parsedBindings ?? new();
+        _saved.Settings.Ligatures = ligatures.IsOn; _saved.Settings.Keybindings = parsedBindings ?? [];
         _saved.Settings.DesktopNotifications = notifications.IsOn;
         foreach (var workspace in _saved.Workspaces) foreach (var pane in workspace.AllPanes()) pane.Session?.ApplySettings(_saved.Settings.WithTerminalTheme(workspace.Theme));
         foreach (var view in _views) view.ApplySettings(); UpdateStatusBar(); Save();
     }
-    private async void PaletteClick(object sender, RoutedEventArgs e) => await ShowCommandPalette();
+    private async void PaletteClick(object _1, RoutedEventArgs _2) => await ShowCommandPalette();
     private async Task ShowCommandPalette()
     {
             if (_dialogOpen) return;
@@ -628,7 +634,7 @@ public sealed partial class MainWindow : Window
         SidebarColumn.Width = TitleSidebarColumn.Width = new GridLength(show ? SidebarWidth : 0);
         UpdateChrome(); QueueTitleRegions();
     }
-    private async void FindClick(object sender, RoutedEventArgs e) => await ShowFind();
+    private async void FindClick(object _1, RoutedEventArgs _2) => await ShowFind();
     private async Task ShowFind()
     {
         if (_dialogOpen || _selected is null || _focused is null) return;

@@ -27,7 +27,7 @@ internal static class SnapshotFuzzChecks
         IReadOnlyList<int>? repairRows = null;
         void Save()
         {
-            var buffers = pool.Statistics;
+            var (Bytes, Buffers, Created, Reused) = pool.Statistics;
             string path = Path.Combine(folder, "result.json");
             File.WriteAllText(path + ".tmp", JsonSerializer.Serialize(new
             {
@@ -49,7 +49,7 @@ internal static class SnapshotFuzzChecks
                 runPayloads,
                 nativeBufferAllocations = optimized.NativeCellBufferAllocationsForCheck,
                 nativeCapacity = optimized.NativeCellBufferCapacityForCheck,
-                pool = new { bytes = buffers.Bytes, buffers = buffers.Buffers, created = buffers.Created, reused = buffers.Reused },
+                pool = new { bytes = Bytes, buffers = Buffers, created = Created, reused = Reused },
                 recent,
                 meaning = "Seeded direct-engine differential test: incremental/pool/transport output versus full reference captures. No real shell, desktop input, clipboard or physical GPU events."
             }, new JsonSerializerOptions { WriteIndented = true }));

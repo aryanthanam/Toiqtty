@@ -7,7 +7,7 @@ internal static class StatusSnapshotChecks
     internal static async Task RunSession(Action<bool,string> check)
     {
         await using var session=new TerminalSession($"\"{Environment.ProcessPath}\" --status-snapshot-client",Environment.CurrentDirectory);
-        async Task Wait(Func<bool> condition)
+        static async Task Wait(Func<bool> condition)
         {
             var timer=Stopwatch.StartNew();
             while(!condition()){if(timer.Elapsed.TotalSeconds>10)throw new TimeoutException("Published session status did not become ready.");await Task.Delay(10);}
@@ -18,7 +18,7 @@ internal static class StatusSnapshotChecks
         var owner=Task.Run(()=>{lock(session.ParserGateForCheck){entered.Set();release.Wait(TimeSpan.FromSeconds(5));}});
         if(!entered.Wait(TimeSpan.FromSeconds(2)))throw new TimeoutException("The parser contention fixture did not start.");
         var started=new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var read=Task.Run(()=>{started.SetResult();return (Status:session.Status,Tracking:session.MouseTracking);});
+        var read=Task.Run(()=>{started.SetResult();return (session.Status,Tracking:session.MouseTracking);});
         bool nonBlocking=false;
         try {await started.Task.WaitAsync(TimeSpan.FromSeconds(2));await read.WaitAsync(TimeSpan.FromMilliseconds(250));nonBlocking=true;}
         catch(TimeoutException){}

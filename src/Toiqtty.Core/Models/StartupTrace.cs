@@ -9,7 +9,7 @@ internal static class StartupTrace
     private static readonly Stopwatch Clock = Stopwatch.StartNew();
     private static readonly double BeforeTraceMs = (DateTime.UtcNow - Process.GetCurrentProcess().StartTime.ToUniversalTime()).TotalMilliseconds;
     private static readonly Dictionary<string, double> Steps = [];
-    private static readonly object Gate = new();
+    private static readonly Lock Gate = new();
     internal static void Mark(string name)
     {
         if (Enabled) lock (Gate) Steps.TryAdd(name, BeforeTraceMs + Clock.Elapsed.TotalMilliseconds);

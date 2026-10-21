@@ -1,5 +1,4 @@
 using Microsoft.UI.Xaml;
-using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
@@ -17,7 +16,7 @@ public sealed partial class MainWindow
     private bool _tabActivationPending;
     private TerminalTab? _pendingTabActivation;
 
-    private async void WorkspaceDoubleTapped(object sender, DoubleTappedRoutedEventArgs e)
+    private async void WorkspaceDoubleTapped(object _1, DoubleTappedRoutedEventArgs e)
     {
         if (_closed || _closing || _dialogOpen || _draggingSessions || _draggedPaneId is not null) return;
         for (var node = e.OriginalSource as DependencyObject; node is not null && node != WorkspaceList; node = VisualTreeHelper.GetParent(node))
@@ -29,14 +28,14 @@ public sealed partial class MainWindow
         }
     }
 
-    private void SessionDragStarting(object sender, DragItemsStartingEventArgs e)
+    private void SessionDragStarting(object _1, DragItemsStartingEventArgs e)
     {
         if (_dialogOpen || e.Items.Count != 1) { e.Cancel = true; return; }
         _draggingSessions = true;
         e.Data.RequestedOperation = DataPackageOperation.Move;
     }
 
-    private void SessionDragCompleted(ListViewBase sender, DragItemsCompletedEventArgs e)
+    private void SessionDragCompleted(ListViewBase _1, DragItemsCompletedEventArgs _2)
     {
         // WinUI moves the item containers; publish that final order to the host
         // only after the drag has completed, never while hovering or cancelling.
@@ -102,7 +101,7 @@ public sealed partial class MainWindow
         RefreshTabs(); Save();
     }
 
-    private void TabItemClick(object sender, ItemClickEventArgs e)
+    private void TabItemClick(object _1, ItemClickEventArgs e)
     {
         // Explicit ListViewItem containers report their Content as ClickedItem.
         var item = e.ClickedItem as ListViewItem ?? TabStrip.Items.OfType<ListViewItem>()
@@ -110,7 +109,7 @@ public sealed partial class MainWindow
         if (item?.Tag is TerminalTab tab) QueueTabActivation(tab);
     }
 
-    private void TabSelectionChanged(object sender, SelectionChangedEventArgs e)
+    private void TabSelectionChanged(object _1, SelectionChangedEventArgs _2)
     {
         if (TabStrip.SelectedItem is ListViewItem { Tag: TerminalTab tab }) QueueTabActivation(tab);
     }
@@ -132,14 +131,14 @@ public sealed partial class MainWindow
         });
     }
 
-    private void TabDragStarting(object sender, DragItemsStartingEventArgs e)
+    private void TabDragStarting(object _1, DragItemsStartingEventArgs e)
     {
         if (_dialogOpen || _selected is null || e.Items.Count != 1) { e.Cancel = true; return; }
         _pendingTabActivation = null;
         _draggingTabs = true; e.Data.RequestedOperation = DataPackageOperation.Move;
     }
 
-    private void TabDragCompleted(ListViewBase sender, DragItemsCompletedEventArgs e)
+    private void TabDragCompleted(ListViewBase _1, DragItemsCompletedEventArgs _2)
     {
         var workspace = _selected;
         var order = TabStrip.Items.Cast<ListViewItem>().Select(item => (TerminalTab)item.Tag).ToList();
@@ -155,7 +154,7 @@ public sealed partial class MainWindow
         workspace.Tabs.Clear(); workspace.Tabs.AddRange(order); Save(); return true;
     }
     private void RestorePaneFocusAfterDrag() => QueuePaneFocus();
-    private void MovePaneClick(object sender, RoutedEventArgs e)
+    private void MovePaneClick(object _1, RoutedEventArgs _2)
     {
         if (ActivePaneId is { } id) _ = MovePaneDialog(id);
     }

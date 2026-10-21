@@ -22,7 +22,7 @@ internal static class AccessibilityChecks
             // Focus checks require the test's own window to be active. Another
             // desktop window can otherwise retain foreground keyboard focus.
             window.SetFocus();
-            var terminals = window.FindAll(TreeScope.Descendants, new PropertyCondition(AutomationElement.ClassNameProperty, "Toiqtty.Terminal"));
+            var terminals = window.FindAll(TreeScope.Descendants, new PropertyCondition(AutomationElement.ClassNameProperty, "toiqtty.Terminal"));
             Check(terminals.Count == 3, "external UIA client discovers each terminal document");
             foreach (AutomationElement terminal in terminals)
             {
@@ -38,7 +38,7 @@ internal static class AccessibilityChecks
                 Check(ReferenceEquals(document.GetAttributeValue(TextPattern.FontNameAttribute), AutomationElement.NotSupported), "unsupported text attributes use UIA's reserved value");
                 var character = match.Clone(); character.MoveEndpointByRange(TextPatternRangeEndpoint.End, character, TextPatternRangeEndpoint.Start);
                 character.ExpandToEnclosingUnit(TextUnit.Character);
-                Check(character.GetText(-1) == "O", "external ranges navigate by character");
+                Check(character.GetText(-1) == "T", "external ranges navigate by character");
                 var accent = document.FindText("\u0301", false, false);
                 Check(accent is not null && accent.GetBoundingRectangles().Length > 0, "a range inside a combining cluster still has visible cell geometry");
                 accent!.Select();

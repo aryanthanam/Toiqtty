@@ -159,7 +159,7 @@ internal sealed class BrowserView : Grid, IDisposable
         {
             string resolved = BrowserAddress.Resolve(address);
             _pane.BrowserUrl = resolved; _address.Text = resolved;
-            if (_web.CoreWebView2 is not null) _web.CoreWebView2.Navigate(resolved);
+            _web.CoreWebView2?.Navigate(resolved);
             LocationChanged?.Invoke();
         }
         catch (ArgumentException ex) { _status.Text = ex.Message; }

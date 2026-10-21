@@ -5,7 +5,7 @@ using Toiqtty.Terminal;
 namespace Toiqtty.Hosting;
 
 /// <summary>The only owner of persistent ConPTY handles and libghostty instances.</summary>
-public sealed partial class SessionHostServer : IAsyncDisposable
+public sealed partial class SessionHostServer(string folder) : IAsyncDisposable
 {
     private sealed class Entry(TerminalSession session)
     {
@@ -24,7 +24,7 @@ public sealed partial class SessionHostServer : IAsyncDisposable
         public long OutputRevision;
         public TaskCompletionSource? OutputPulse;
     }
-    private readonly object _gate = new();
+    private readonly Lock _gate = new();
     private readonly Dictionary<string, Entry> _sessions = [];
     private readonly CancellationTokenSource _stop = new();
     private readonly SemaphoreSlim _connections = new(32);
@@ -32,15 +32,15 @@ public sealed partial class SessionHostServer : IAsyncDisposable
     // requests, even when several frontends retain idle read connections.
     private readonly SemaphoreSlim _persistentReads = new(16);
     private readonly List<Task> _requests = [];
-    private readonly string _folder, _identity = Guid.NewGuid().ToString("N");
-    private SavedSession _layout;
+    private readonly string _folder = folder, _identity = Guid.NewGuid().ToString("N");
+    private SavedSession _layout = SessionStore.Load();
     private bool _created;
     private bool _shutdownPending;
     private int _shutdownReplies;
     private long _emptySince = Environment.TickCount64;
     private long _outputRevision;
     private long _transportAcceptRetries;
-    private readonly object _outputGate = new();
+    private readonly Lock _outputGate = new();
     private TaskCompletionSource? _outputPulse;
     private void OutputChanged(Entry entry)
     {
@@ -51,7 +51,6 @@ public sealed partial class SessionHostServer : IAsyncDisposable
             _outputPulse?.TrySetResult(); _outputPulse = null;
         }
     }
-    public SessionHostServer(string folder) { _folder = folder; _layout = SessionStore.Load(); }
     public async Task Run()
     {
         Directory.CreateDirectory(_folder);

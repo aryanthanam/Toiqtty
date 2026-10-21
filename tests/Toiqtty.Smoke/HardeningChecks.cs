@@ -1,7 +1,6 @@
 using Toiqtty.Terminal;
 using Toiqtty.Models;
 using System.Diagnostics;
-using System.Text;
 using System.Text.Json;
 
 internal static class HardeningChecks

@@ -1,7 +1,6 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
-using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using Toiqtty.Controls;
 using Toiqtty.Models;
@@ -86,7 +85,7 @@ public sealed partial class MainWindow
         _pendingTabActivation=null; _draggedPaneId=paneId; _paneDragToken=Guid.NewGuid().ToString("N");
         data.SetData(PaneMoveFormat,_paneDragToken); data.Properties[PaneMoveFormat]=_paneDragToken;
         data.RequestedOperation=DataPackageOperation.Move; data.Properties.Title="Move pane";
-        foreach(var surface in _paneDragSurfaces.Values) surface.HitArea.Visibility=Visibility.Visible;
+        foreach (var (_, HitArea, _, _) in _paneDragSurfaces.Values) HitArea.Visibility=Visibility.Visible;
         return true;
     }
     private bool OwnPaneDrag(DataPackageView data) => !_closed && !_closing && _draggedPaneId is not null && _paneDragToken is not null
@@ -114,7 +113,7 @@ public sealed partial class MainWindow
     private void EndPaneDrag(bool refresh=true)
     {
         _draggedPaneId=null; _paneDragToken=null;
-        foreach(var surface in _paneDragSurfaces.Values){surface.HitArea.Visibility=Visibility.Collapsed;surface.Preview.Visibility=Visibility.Collapsed;}
+        foreach (var (_, HitArea, Preview, _) in _paneDragSurfaces.Values){HitArea.Visibility=Visibility.Collapsed;Preview.Visibility=Visibility.Collapsed;}
         if(!refresh || _closed) return;
         RefreshSidebar(); RefreshTabs(); QueuePaneFocus();
     }

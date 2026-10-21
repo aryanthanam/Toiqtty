@@ -7,7 +7,7 @@ internal sealed class OrderedHostInput(Func<HostRequest,Task<HostReply>> send)
 {
     internal const int MaxRequests=2048, MaxBytes=8*1024*1024;
     private sealed record Entry(HostRequest Request,int Bytes,TaskCompletionSource<HostReply> Completion);
-    private readonly object _gate=new();
+    private readonly Lock _gate =new();
     private readonly Queue<Entry> _queue=[];
     private readonly HashSet<long> _pressed=[];
     private int _count,_bytes;

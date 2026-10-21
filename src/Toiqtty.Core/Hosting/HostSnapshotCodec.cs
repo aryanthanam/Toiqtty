@@ -25,7 +25,7 @@ public static partial class HostSnapshotCodec
             int previous = -1;
             foreach (int row in rows) { if (row <= previous || row >= frame.Rows) throw new ArgumentException("Changed rows must be unique and ordered within the frame."); previous = row; }
         }
-        var images = snapshot.Graphics.Count == 0 ? Array.Empty<TerminalImage>() : snapshot.Graphics.Select(g => g.Image).DistinctBy(i => i.Generation).ToArray();
+        var images = snapshot.Graphics.Count == 0 ? [] : snapshot.Graphics.Select(g => g.Image).DistinctBy(i => i.Generation).ToArray();
         int encodedSize = EncodedSize(frame, cells, count, snapshot.Graphics, images, known, rows, utf8);
         // This exact-sized array belongs to the reply until its pipe write has
         // completed. A fixed stream writes directly into it without ToArray.

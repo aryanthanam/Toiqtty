@@ -54,8 +54,8 @@ public sealed partial class MainWindow
             TryHandleActionKey(27,0); _bindingState.Reset(); _saved.Settings.FontSize=font;
             foreach(var terminal in _views) terminal.ApplySettings();
 
-            var listed=await Cli("sessions");
-            check(listed.Exit==0 && JsonDocument.Parse(listed.Output).RootElement.EnumerateArray().Any(w=>w.GetProperty("id").GetString()==original.Id),
+            var (Exit, Output) = await Cli("sessions");
+            check(Exit==0 && JsonDocument.Parse(Output).RootElement.EnumerateArray().Any(w=>w.GetProperty("id").GetString()==original.Id),
                 "The public CLI lists real sessions through the window-owned control endpoint");
             check(!(await Automation.ControlProtocol.Call(SessionStore.Folder,new() { Version=99 })).Ok,
                 "The control endpoint rejects incompatible public protocol versions");

@@ -22,8 +22,8 @@ internal static class SnapshotLimitChecks
         var baselineCells=new TerminalCell[cells.Length];
         var deltaSnapshot=snapshot with {ChangedRows=[0]};
         byte[] delta=HostSnapshotCodec.EncodeDelta(deltaSnapshot,cells,[]);
-        var decoded=HostSnapshotCodec.DecodeDelta(delta,[],snapshot,baselineCells);
-        check(decoded.Cells.Take(128).All(c=>c.GetText()==grapheme) && decoded.Cells.Skip(128).All(c=>c.Length==0),
+        var (Snapshot, Cells) = HostSnapshotCodec.DecodeDelta(delta,[],snapshot,baselineCells);
+        check(Cells.Take(128).All(c=>c.GetText()==grapheme) && Cells.Skip(128).All(c=>c.Length==0),
             "Outgoing delta budgeting counts only changed rows while preserving oversized graphemes byte for byte");
 
         var smallCells=new TerminalCell[4];

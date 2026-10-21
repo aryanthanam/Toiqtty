@@ -7,7 +7,7 @@ internal sealed class TerminalCellPool(long maxBytes=16L*1024*1024,int maxBuffer
 {
     internal static readonly TerminalCellPool Shared=new();
     private static readonly int CellBytes=Unsafe.SizeOf<TerminalCell>();
-    private readonly object _gate=new();
+    private readonly Lock _gate =new();
     private readonly List<TerminalCell[]> _buffers=[];
     private long _retainedBytes,_created,_reused;
 

@@ -46,7 +46,7 @@ public sealed partial class MainWindow
         if (Environment.GetEnvironmentVariable("TOIQTTY_DIRECTX_RESIZE_BENCHMARK") == "1")
         {
             var results = new List<object>();
-            for (int pair = 0; pair < 3; pair++) foreach (bool capacity in pair % 2 == 0 ? new[] { false, true } : new[] { true, false })
+            for (int pair = 0; pair < 3; pair++) foreach (bool capacity in pair % 2 == 0 ? new[] { false, true } : [true, false])
             {
                 using var gpu = new DirectXRenderer(device) { ReserveResizeForCheck = capacity };
                 gpu.Resize(768, 512, 96, false); Paint(768, 512);

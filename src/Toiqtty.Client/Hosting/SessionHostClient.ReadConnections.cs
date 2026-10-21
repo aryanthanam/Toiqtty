@@ -5,7 +5,7 @@ namespace Toiqtty.Hosting;
 
 public sealed partial class SessionHostClient
 {
-    private readonly object _capturePoolGate = new();
+    private readonly Lock _capturePoolGate = new();
     private CaptureReadPool? _capturePool;
     private int _capturePoolReferences;
     internal bool HasCapturePoolForCheck { get { lock (_capturePoolGate) return _capturePool is not null; } }

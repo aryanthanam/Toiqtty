@@ -106,7 +106,7 @@ public sealed class WindowsClipboard : ITerminalClipboard
                         data = Utf8.GetBytes(end < 0 ? text : text[..end]);
                     }
                 }
-                else if (data is null) data = Get(RegisterClipboardFormatW(mime), false);
+                else data ??= Get(RegisterClipboardFormatW(mime), false);
                 if (data is null && mime == "image/png") data = Get(RegisterClipboardFormatW("PNG"), false);
                 if (data is null && mime == "text/html")
                 {

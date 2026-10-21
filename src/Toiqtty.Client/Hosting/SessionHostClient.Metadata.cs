@@ -3,7 +3,7 @@ namespace Toiqtty.Hosting;
 public sealed partial class SessionHostClient
 {
     private sealed record MetadataRequest(int Version,CancellationToken Cancellation,TaskCompletionSource<ShellState?> Completion);
-    private readonly object _metadataGate=new();
+    private readonly Lock _metadataGate =new();
     private Dictionary<string,List<MetadataRequest>> _metadataPending=[];
     private bool _metadataRunning;
     internal int MetadataIntervalForCheck { get; set; }=400;

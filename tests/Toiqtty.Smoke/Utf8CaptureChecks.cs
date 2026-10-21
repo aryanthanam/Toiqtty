@@ -54,8 +54,8 @@ internal static class Utf8CaptureChecks
         using var image = new GhosttyTerminal(8, 4); var imageCells = new Utf8TerminalBuffer(32);
         byte[] graphic = Encoding.UTF8.GetBytes("\x1b_Ga=T,f=32,s=1,v=1,i=998,q=2;/wAA/w==\x1b\\");
         image.Write(graphic, graphic.Length); var imageSnapshot = image.ReadSnapshot(imageCells);
-        var decoded = HostSnapshotCodec.Decode(HostSnapshotCodec.EncodeUtf8(imageSnapshot, imageCells, []), []);
-        check(decoded.Snapshot.Graphics.Count == 1 && decoded.Snapshot.Graphics[0].Image.Pixels.SequenceEqual(new byte[] { 255, 0, 0, 255 }),
+        var (Snapshot, Cells) = HostSnapshotCodec.Decode(HostSnapshotCodec.EncodeUtf8(imageSnapshot, imageCells, []), []);
+        check(Snapshot.Graphics.Count == 1 && Snapshot.Graphics[0].Image.Pixels.SequenceEqual(new byte[] { 255, 0, 0, 255 }),
             "UTF-8 host snapshots preserve Kitty graphics and image pixels");
         using var arenas = new GhosttyTerminal(40, 4); arenas.EnableIncrementalRendering();
         var arenaCells = new TerminalCell[160]; _ = arenas.ReadSnapshot(arenaCells); ulong emptyBytes = arenas.CaptureTextBytesForCheck;
@@ -89,7 +89,7 @@ internal static class Utf8CaptureChecks
         var samples = new List<object>(); const int iterations = 1000;
         foreach (string corpus in new[] { "ascii", "unicode" })
             for (int round = 0; round < 3; round++)
-                foreach (bool utf8 in round % 2 == 0 ? new[] { false, true } : new[] { true, false })
+                foreach (bool utf8 in round % 2 == 0 ? new[] { false, true } : [true, false])
                     foreach (bool encode in new[] { false, true })
                     {
                         using var terminal = new GhosttyTerminal(100, 40); terminal.EnableIncrementalRendering();

@@ -13,7 +13,7 @@ public sealed class AppSettings
     public WindowSettings Window { get; set; } = new();
     public List<ActionBinding> Bindings { get; set; } = [];
     public LeaderSettings? Leader { get; set; }
-    public Dictionary<string, KeyTableSettings> KeyTables { get; set; } = new();
+    public Dictionary<string, KeyTableSettings> KeyTables { get; set; } = [];
     public string Shell { get; set; } = ShellDefaults.Command;
     public string StartDirectory { get; set; } = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
     public string FontFamily { get; set; } = TerminalFont.BundledFamily;
@@ -29,7 +29,7 @@ public sealed class AppSettings
     public long? ScrollbackLimitLines { get; set; }
     public ScrollingSettings Scrolling { get; set; } = new();
     public bool DesktopNotifications { get; set; } = true;
-    public Dictionary<string, string> Keybindings { get; set; } = new();
+    public Dictionary<string, string> Keybindings { get; set; } = [];
     public BrowserSettings Browser { get; set; } = new();
     public StatusBarSettings StatusBar { get; set; } = new();
 }
@@ -66,11 +66,11 @@ public static class SessionStore
             if (session.Settings.ScrollbackLimitLines is < 0) session.Settings.ScrollbackLimitLines = null;
             session.Settings.Scrolling ??= new();
             try { session.Settings.Scrolling.Validate(); } catch (ArgumentException) { session.Settings.Scrolling = new(); }
-            session.Settings.Keybindings ??= new();
+            session.Settings.Keybindings ??= [];
             session.Settings.Browser ??= new();
             session.Settings.StatusBar ??= new();
-            session.Settings.Cursor ??= new(); session.Settings.Wallpaper ??= new(); session.Settings.ColorSchemes ??= new();
-            session.Settings.Appearance ??= new(); session.Settings.Window ??= new(); session.Settings.Bindings ??= []; session.Settings.KeyTables ??= new();
+            session.Settings.Cursor ??= new(); session.Settings.Wallpaper ??= new(); session.Settings.ColorSchemes ??= [];
+            session.Settings.Appearance ??= new(); session.Settings.Window ??= new(); session.Settings.Bindings ??= []; session.Settings.KeyTables ??= [];
             try { session.Settings.Appearance.Validate(); } catch (ArgumentException) { session.Settings.Appearance = new(); }
             try { session.Settings.Window.Validate(); } catch (ArgumentException) { session.Settings.Window = new(); }
             if (session.Settings.FontWeight is < 100 or > 900) session.Settings.FontWeight=400;

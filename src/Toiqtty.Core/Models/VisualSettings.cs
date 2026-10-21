@@ -13,7 +13,7 @@ public sealed class VisualSettings
     public double LineHeight { get; set; } = 1.5;
     public double CellWidth { get; set; } = 1;
     public double InactivePaneOpacity { get; set; } = 1;
-    public Dictionary<string, uint> FontFeatures { get; set; } = new();
+    public Dictionary<string, uint> FontFeatures { get; set; } = [];
     public void Validate()
     {
         if (Padding is null || new[] { Padding.Left, Padding.Right, Padding.Top, Padding.Bottom }.Any(v => !double.IsFinite(v) || v is < 0 or > 128)

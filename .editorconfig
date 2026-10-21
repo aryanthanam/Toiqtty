@@ -9,3 +9,18 @@ indent_size = 4
 
 [*.{json,xaml,csproj,slnx,yml}]
 indent_size = 2
+
+[*.cs]
+csharp_style_prefer_primary_constructors = true:suggestion
+csharp_prefer_system_threading_lock = true:suggestion
+dotnet_diagnostic.IDE0005.severity = suggestion
+# Keep explicit disposal scopes and copy operations visible during lifetime reviews.
+csharp_prefer_simple_using_statement = false
+dotnet_diagnostic.IDE0305.severity = none
+# Shared domain namespaces and WinUI partial types deliberately span folders/projects.
+dotnet_diagnostic.IDE0130.severity = none
+
+[src/Toiqtty/**.cs]
+# WinUI design-time analysis can lack generated XAML/WinRT references.
+# Preserve imports here; validate their types through the actual WinUI build.
+dotnet_diagnostic.IDE0005.severity = none

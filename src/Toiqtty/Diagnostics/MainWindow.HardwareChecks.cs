@@ -8,7 +8,7 @@ namespace Toiqtty;
 
 public sealed partial class MainWindow
 {
-    private readonly Dictionary<string, ComboBox> _hardwareResults = new();
+    private readonly Dictionary<string, ComboBox> _hardwareResults = [];
     private readonly List<object> _hardwareEvents = [];
     private readonly DispatcherTimer _hardwareTimer = new() { Interval = TimeSpan.FromSeconds(2) };
     private Workspace? _hardwareWorkspace;
@@ -134,7 +134,7 @@ public sealed partial class MainWindow
             };
             string path = Path.Combine(SessionStore.Folder, "hardware-check.json");
             string temporary = path + ".tmp"; File.WriteAllText(temporary, JsonSerializer.Serialize(report, new JsonSerializerOptions { WriteIndented = true })); File.Move(temporary, path, true);
-            if (_hardwareSummary is not null) _hardwareSummary.Text = $"{results.Values.Count(value => value == "Pass")}/7 passed. Report: {path}";
+            _hardwareSummary?.Text = $"{results.Values.Count(value => value == "Pass")}/7 passed. Report: {path}";
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { System.Diagnostics.Debug.WriteLine(ex); }
     }
