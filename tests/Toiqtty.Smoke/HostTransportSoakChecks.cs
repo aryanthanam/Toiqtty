@@ -76,7 +76,7 @@ internal static class HostTransportSoakChecks
             File.WriteAllText(reportPath, JsonSerializer.Serialize(new { passed = false, elapsedSeconds = timer.Elapsed.TotalSeconds,
                 folder, snapshots, reconnects, samples, captureFailures=sessions.Select(s=>s.CaptureFailure).ToArray(), error = ex.ToString() }, new JsonSerializerOptions { WriteIndented = true })); throw;
         }
-        finally { foreach (var session in sessions) session.Detach(); host.Shutdown(); }
+        finally { foreach (var session in sessions) session.Detach(); host.ShutdownForTest(); }
 
         void Attach(ushort columns = 100, ushort rows = 30)
         {

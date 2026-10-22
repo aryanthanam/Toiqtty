@@ -81,6 +81,6 @@ internal static class ScrollingChecks
             foreach(var item in report.RootElement.GetProperty("checks").EnumerateArray()) check(true,item.GetString()!);
             Console.WriteLine("Scrolling WinUI evidence: "+folder);
         }
-        finally { try { SessionHostClient.TryConnect(folder)?.Shutdown(); } catch(IOException) { } }
+        finally { try { SessionHostClient.TryConnect(folder)?.ShutdownForTest(); } catch(IOException) { } }
     }
 }

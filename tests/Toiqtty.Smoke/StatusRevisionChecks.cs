@@ -51,6 +51,6 @@ internal static class StatusRevisionChecks
             check(reset.StatusRevision > previousRevision && reset.State?.Status?.Commands.Count == 0, "Terminal reset advances status identity rather than reusing a pre-reset baseline");
             Console.WriteLine("Status revision evidence: " + folder);
         }
-        finally { await session.CloseAsync(); try { client.Shutdown(); } catch (IOException) { } }
+        finally { await session.CloseAsync(); try { client.ShutdownForTest(); } catch (IOException) { } }
     }
 }

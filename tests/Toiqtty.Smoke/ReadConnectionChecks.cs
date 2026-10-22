@@ -71,7 +71,7 @@ internal static class ReadConnectionChecks
         {
             lease?.Dispose(); foreach (var pipe in held) pipe.Dispose();
             foreach (string id in ids) try { await client.CallAsync(new() { Operation = "close", Pane = id }); } catch (IOException) { }
-            try { client.Shutdown(); } catch (IOException) { }
+            try { client.ShutdownForTest(); } catch (IOException) { }
         }
         await StaleConnection(false, check); await StaleConnection(true, check);
     }

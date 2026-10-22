@@ -73,7 +73,7 @@ internal static class ArchitectureChecks
             }
             Console.WriteLine("Architecture host evidence: " + folder);
         }
-        finally { release.Set(); await session.DetachAsync(); try { client.Shutdown(); } catch (IOException) { } }
+        finally { release.Set(); await session.DetachAsync(); try { client.ShutdownForTest(); } catch (IOException) { } }
     }
 
     internal static async Task Run(Action<bool, string> check)

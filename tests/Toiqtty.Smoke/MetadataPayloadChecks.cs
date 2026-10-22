@@ -88,7 +88,7 @@ internal static class MetadataPayloadChecks
                 seconds = timer.Elapsed.TotalSeconds,
                 meaning = "Real ConPTY CMD shells emit supported OSC133 command history. No user sessions, desktop input or global configuration changes."
             }, new JsonSerializerOptions { WriteIndented = true }));
-            try { client.Shutdown(); } catch (IOException) { }
+            try { client.ShutdownForTest(); } catch (IOException) { }
             await owner.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(45));
             Console.WriteLine("Metadata payload evidence: " + folder);
         }

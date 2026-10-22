@@ -126,6 +126,6 @@ internal static class NavigationChecks
             check(SessionHostClient.TryConnect(folder) is null, "closing the isolated moved sessions ends their host cleanly");
             Console.WriteLine("Navigation WinUI evidence: " + folder);
         }
-        finally { try { SessionHostClient.TryConnect(folder)?.Shutdown(); } catch (IOException) { } }
+        finally { try { SessionHostClient.TryConnect(folder)?.ShutdownForTest(); } catch (IOException) { } }
     }
 }

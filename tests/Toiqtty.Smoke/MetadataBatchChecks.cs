@@ -150,7 +150,7 @@ internal static class MetadataBatchChecks
         finally
         {
             foreach(var session in sessions) session.Detach(); reattached?.Detach();
-            try { client.Shutdown(); } catch(IOException) { }
+            try { client.ShutdownForTest(); } catch(IOException) { }
         }
     }
 }

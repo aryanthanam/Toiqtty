@@ -40,7 +40,7 @@ if (args.Length == 2 && args[0] is "--stop-performance-host" or "--stop-enduranc
     string folder = Path.GetFullPath(args[1]);
     if (!folder.StartsWith(Path.GetFullPath("artifacts") + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)
         || !Path.GetFileName(folder).StartsWith(args[0] == "--stop-endurance-host" ? "endurance-" : "performance-", StringComparison.Ordinal)) throw new ArgumentException("Only the requested isolated test hosts may be stopped.");
-    Toiqtty.Hosting.SessionHostClient.TryConnect(folder)?.Shutdown(); return;
+    Toiqtty.Hosting.SessionHostClient.TryConnect(folder)?.ShutdownForTest(); return;
 }
 void Check(bool condition, string description)
 {
@@ -248,6 +248,7 @@ FrameDeltaChecks.Run(Check);
 ProtocolChecks.Run(Check);
 ImageMediumChecks.Run(Check);
 HostProtocolChecks.Run(Check);
+HostV2Wire.Run(Check);
 KeyboardLayoutChecks.Run(Check);
 await ProtocolChecks.Transport(Check);
 await ImageMediumChecks.Transport(Check);

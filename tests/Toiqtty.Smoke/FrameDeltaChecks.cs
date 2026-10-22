@@ -80,7 +80,7 @@ internal static class FrameDeltaChecks
             check(latest!.ChangedRows.Count == 25, "A geometry change with the same cell count fully initializes the new row layout");
             Console.WriteLine("Row handoff evidence: " + folder);
         }
-        finally { await session.CloseAsync(); try { client.Shutdown(); } catch (IOException) { } }
+        finally { await session.CloseAsync(); try { client.ShutdownForTest(); } catch (IOException) { } }
     }
     public static void Run(Action<bool, string> check)
     {

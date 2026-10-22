@@ -85,7 +85,7 @@ internal static class OutputWatchChecks
         finally
         {
             host.RemoveOutputListener(pane, listener); host.RemoveOutputListener(other, otherListener);
-            host.Shutdown();
+            host.ShutdownForTest();
         }
         Console.WriteLine("Output-watch evidence: " + folder);
     }

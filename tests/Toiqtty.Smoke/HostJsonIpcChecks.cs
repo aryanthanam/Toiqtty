@@ -60,6 +60,6 @@ internal static class HostJsonIpcChecks
             }, new JsonSerializerOptions { WriteIndented = true }));
             Console.WriteLine(output);
         }
-        finally { await client.CallAsync(new() { Operation = "close", Pane = pane }); client.Shutdown(); }
+        finally { await client.CallAsync(new() { Operation = "close", Pane = pane }); client.ShutdownForTest(); }
     }
 }

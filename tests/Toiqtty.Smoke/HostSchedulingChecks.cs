@@ -28,7 +28,7 @@ internal static class HostSchedulingChecks
             File.WriteAllText(Path.Combine(folder,"result.json"),JsonSerializer.Serialize(new { passed=true,connections=1024,transportAcceptRetries=retries,host=identity },new JsonSerializerOptions { WriteIndented=true }));
             Console.WriteLine("Host accept storm evidence: "+folder);
         }
-        finally { try { client.Shutdown(); } catch(IOException) { } }
+        finally { try { client.ShutdownForTest(); } catch(IOException) { } }
     }
     internal static async Task Run(string hostExecutable,Action<bool,string> check)
     {
@@ -98,7 +98,7 @@ internal static class HostSchedulingChecks
             Pass(stale.Layout!.SelectedWorkspace==workspace.Id && stale.Layout.Workspaces.Single().ActiveTabId==workspace.Tabs[1].Id && stale.Panes.Length==2,
                 "Stale navigation cannot select removed identities, create panes or stop existing shells");
             workspace.ActiveTabId=workspace.Tabs[0].Id; var pending=client.SaveNavigationAsync(layout);
-            workspace.Tabs.RemoveAt(0); workspace.ActiveTabId=workspace.Tabs[0].Id; client.Save(layout); await pending;
+            workspace.Tabs.RemoveAt(0); workspace.ActiveTabId=workspace.Tabs[0].Id; client.SaveForTest(layout); await pending;
             var structural=await client.CallAsync(new());
             Pass(structural.Panes.SequenceEqual([b]) && structural.Layout!.Workspaces.Single().Tabs.Count==1
                 && structural.Layout.Workspaces.Single().ActiveTabId==workspace.Tabs[0].Id,
@@ -106,6 +106,6 @@ internal static class HostSchedulingChecks
             File.WriteAllText(Path.Combine(folder,"result.json"),JsonSerializer.Serialize(new { passed=true,checks },new JsonSerializerOptions { WriteIndented=true }));
             Console.WriteLine("Host scheduling evidence: "+folder);
         }
-        finally { try { client.Shutdown(); } catch(IOException) { } }
+        finally { try { client.ShutdownForTest(); } catch(IOException) { } }
     }
 }

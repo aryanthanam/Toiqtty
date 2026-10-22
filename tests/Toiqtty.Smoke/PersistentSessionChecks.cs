@@ -94,12 +94,12 @@ internal static class PersistentSessionChecks
             var before=Capture(first); byte[] pixels=before.Graphics.Single(g=>g.ImageId==901).Image.Pixels;
             Pass(pixels.SequenceEqual(new byte[] {255,0,0,255}),"session transport retains exact Ghostty image pixels and placements");
             Pass(Text(first).Contains("café 中🙂"),"session snapshots preserve Unicode and wide-cell text across the process boundary");
-            var full=client.Call(new() { Operation="capture",Pane=pane,Numbers=[-1] });
-            var cached=client.Call(new() { Operation="capture",Pane=pane,Numbers=[-1],Images=[before.Graphics.Single(g=>g.ImageId==901).Image.Generation] });
+            var full=client.CallForTest(new() { Operation="capture",Pane=pane,Numbers=[-1] });
+            var cached=client.CallForTest(new() { Operation="capture",Pane=pane,Numbers=[-1],Images=[before.Graphics.Single(g=>g.ImageId==901).Image.Generation] });
             Pass(cached.BinaryLength<full.BinaryLength,"cached image generations omit repeated pixel transfers");
             Line(first,"animate");
             Line(first,"background");
-            first.Detach(); first=null; client.Detach(); await Task.Delay(1200);
+            first.Detach(); first=null; client.DetachForTest(); await Task.Delay(1200);
             var reconnected=SessionHostClient.TryConnect(folder)!;
             Pass(reconnected is not null && reconnected.Identity==client.Identity && reconnected.ProcessId==client.ProcessId,"detaching the frontend keeps the same host alive");
             second=new(reconnected!,pane,"invalid-command-must-not-run",Environment.CurrentDirectory,new AppSettings()); second.Resize(80,20,8,20); second.AttachView();
@@ -129,8 +129,10 @@ internal static class PersistentSessionChecks
             Pass(!ready || (reshaped!.Frame.Columns==100 && reshaped.Frame.Rows==16),"equal-area resizes never expose a stale frame with the previous row geometry");
             second.ReadSnapshot(cells);
             bool rejected=false;
-            try { reconnected!.Call(new() { Protocol=999,Operation="ping" }); } catch (IOException) { rejected=true; }
+            try { reconnected!.CallForTest(new() { Protocol=999,Operation="ping" }); } catch (IOException) { rejected=true; }
             Pass(rejected && SessionHostClient.TryConnect(folder) is not null,"incompatible IPC requests are rejected without ending live shells");
+            await HostV2Wire.RunHost(folder,Pass);
+            Pass(SessionHostClient.TryConnect(folder) is not null && !second.HasExited,"raw protocol-2 requests leave the live host and its shell intact");
             using var owner=Process.GetProcessById(client.ProcessId);
             second.Dispose(); second=null; await owner.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(12));
             Pass(true,"closing the last shell stops the background host");
@@ -146,7 +148,7 @@ internal static class PersistentSessionChecks
         finally
         {
             first?.Dispose(); second?.Dispose();
-            try { SessionHostClient.TryConnect(folder)?.Shutdown(); } catch (IOException) { }
+            try { SessionHostClient.TryConnect(folder)?.ShutdownForTest(); } catch (IOException) { }
         }
     }
     public static async Task RunWindows(string appExecutable,Action<bool,string> check,bool crash=false)
@@ -191,6 +193,6 @@ internal static class PersistentSessionChecks
             check(SessionHostClient.TryConnect(folder) is null,"closing the last session through WinUI shuts down its background host");
             Console.WriteLine("Persistent WinUI evidence: "+folder);
         }
-        finally { try { SessionHostClient.TryConnect(folder)?.Shutdown(); } catch (IOException) { } }
+        finally { try { SessionHostClient.TryConnect(folder)?.ShutdownForTest(); } catch (IOException) { } }
     }
 }

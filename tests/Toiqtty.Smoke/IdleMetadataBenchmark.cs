@@ -65,7 +65,7 @@ internal static class IdleMetadataBenchmark
         {
             foreach(var session in sessions) session.Detach();
             try {await Task.WhenAll(sessions.Select(s=>s.ClosedForCheck)).WaitAsync(TimeSpan.FromSeconds(15));}
-            finally {try{client.Shutdown();}catch(IOException){}}
+            finally {try{client.ShutdownForTest();}catch(IOException){}}
         }
         void Healthy()
         {

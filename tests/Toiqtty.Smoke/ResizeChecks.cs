@@ -53,6 +53,6 @@ internal static class ResizeChecks
             }
             Console.WriteLine(phase+" WinUI evidence: "+folder);
         }
-        finally { try { SessionHostClient.TryConnect(folder)?.Shutdown(); } catch(IOException) { } }
+        finally { try { SessionHostClient.TryConnect(folder)?.ShutdownForTest(); } catch(IOException) { } }
     }
 }
