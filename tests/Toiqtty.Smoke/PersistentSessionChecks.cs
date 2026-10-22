@@ -19,7 +19,7 @@ internal static class PersistentSessionChecks
         {
             await pipe.WaitForConnectionAsync(timeout.Token);
             var request = await HostProtocol.ReadJson<HostRequest>(pipe,timeout.Token);
-            await HostProtocol.WriteJson(pipe,new HostReply { Protocol=1,Host="legacy",Error="Incompatible session-host protocol." },timeout.Token);
+            await HostProtocol.WriteJson(pipe,new HostReply { Protocol=2,Host="legacy",Error="Incompatible session-host protocol." },timeout.Token);
             return request.Operation;
         });
         var start = new ProcessStartInfo(appExecutable) { UseShellExecute=false,WorkingDirectory=Environment.CurrentDirectory,WindowStyle=ProcessWindowStyle.Hidden };
@@ -94,8 +94,8 @@ internal static class PersistentSessionChecks
             var before=Capture(first); byte[] pixels=before.Graphics.Single(g=>g.ImageId==901).Image.Pixels;
             Pass(pixels.SequenceEqual(new byte[] {255,0,0,255}),"session transport retains exact Ghostty image pixels and placements");
             Pass(Text(first).Contains("café 中🙂"),"session snapshots preserve Unicode and wide-cell text across the process boundary");
-            var full=client.CallForTest(new() { Operation="capture",Pane=pane,Numbers=[-1] });
-            var cached=client.CallForTest(new() { Operation="capture",Pane=pane,Numbers=[-1],Images=[before.Graphics.Single(g=>g.ImageId==901).Image.Generation] });
+            var full=client.CallForTest(HostRequests.Capture(pane));
+            var cached=client.CallForTest(HostRequests.Capture(pane,images:[before.Graphics.Single(g=>g.ImageId==901).Image.Generation]));
             Pass(cached.BinaryLength<full.BinaryLength,"cached image generations omit repeated pixel transfers");
             Line(first,"animate");
             Line(first,"background");
@@ -129,7 +129,7 @@ internal static class PersistentSessionChecks
             Pass(!ready || (reshaped!.Frame.Columns==100 && reshaped.Frame.Rows==16),"equal-area resizes never expose a stale frame with the previous row geometry");
             second.ReadSnapshot(cells);
             bool rejected=false;
-            try { reconnected!.CallForTest(new() { Protocol=999,Operation="ping" }); } catch (HostRejectedException ex) { rejected=ex.Code==HostErrorCode.ProtocolMismatch; }
+            try { var future=HostRequests.Ping(); future.Protocol=999; reconnected!.CallForTest(future); } catch (HostRejectedException ex) { rejected=ex.Code==HostErrorCode.ProtocolMismatch; }
             Pass(rejected && SessionHostClient.TryConnect(folder) is not null,"incompatible IPC requests are rejected with ProtocolMismatch without ending live shells");
             HostErrorCode lastCode=HostErrorCode.None;
             async Task<string?> Answer(HostRequest request)
@@ -141,11 +141,11 @@ internal static class PersistentSessionChecks
             }
             var nullWorkspace=new SavedSession { Workspaces=[null!] };
             var nullTab=new SavedSession { Workspaces=[new Workspace { Tabs=[null!] }] };
-            string? syncError=await Answer(new() { Operation="sync",Layout=nullWorkspace }); var syncCode=lastCode;
-            string? createError=await Answer(new() { Operation="create",Pane=Guid.NewGuid().ToString("N"),Text="cmd.exe",Directory=Environment.CurrentDirectory,Layout=nullTab }); var createCode=lastCode;
-            string? missingError=await Answer(new() { Operation="state",Pane="missing-"+Guid.NewGuid().ToString("N") }); var missingCode=lastCode;
+            string? syncError=await Answer(HostRequests.Sync(nullWorkspace)); var syncCode=lastCode;
+            string? createError=await Answer(HostRequests.Create(Guid.NewGuid().ToString("N"),"cmd.exe",Environment.CurrentDirectory,null,nullTab)); var createCode=lastCode;
+            string? missingError=await Answer(HostRequests.Copy("missing-"+Guid.NewGuid().ToString("N"))); var missingCode=lastCode;
             string? unknownError=await Answer(new() { Operation="no-such-op",Pane=pane }); var unknownCode=lastCode;
-            string? limitError=await Answer(new() { Operation="create",Pane=Guid.NewGuid().ToString("N"),Text="",Directory=Environment.CurrentDirectory }); var limitCode=lastCode;
+            string? limitError=await Answer(HostRequests.Create(Guid.NewGuid().ToString("N"),"",Environment.CurrentDirectory,null)); var limitCode=lastCode;
             Pass(missingError=="This shell session no longer exists." && missingCode==HostErrorCode.SessionMissing && unknownError=="Unknown session operation." && unknownCode==HostErrorCode.UnknownOperation
                 && limitError=="Shell creation exceeds the session limits." && limitCode==HostErrorCode.LimitExceeded,"host error replies carry structured codes beside their unchanged messages");
             Pass(syncError?.StartsWith("Invalid session")==true && createError?.StartsWith("Invalid session")==true && syncCode==HostErrorCode.InvalidRequest && createCode==HostErrorCode.InvalidRequest && !second.HasExited
@@ -153,21 +153,22 @@ internal static class PersistentSessionChecks
             Pass(GhosttyTerminal.Saturate(0)==0 && GhosttyTerminal.Saturate(int.MaxValue)==int.MaxValue && GhosttyTerminal.Saturate((nuint)int.MaxValue+1)==int.MaxValue
                 && GhosttyTerminal.Saturate(nuint.MaxValue)==int.MaxValue && second.Find("PERSIST_MARK",0).Count>0,"find saturates match counts beyond int instead of failing the request");
             second.Find("",0); second.Select(-1,-1);
+            await RoundTrips(reconnected!,pane,Pass);
             using (var framed=new MemoryStream())
             {
                 bool overflow=false;
                 try { await HostProtocol.WriteJson(framed,new HostReply { Text=new string('x',HostProtocol.MaxJsonBytes+1) },CancellationToken.None); }
                 catch (HostMessageTooLargeException) { overflow=true; }
                 long written=framed.Length;
-                foreach (string operation in new[] { "copy","states" }) await HostProtocol.WriteJson(framed,HostProtocol.OversizedReply(operation,"host",1),CancellationToken.None);
+                for (int i=0;i<2;i++) await HostProtocol.WriteJson(framed,HostProtocol.OversizedReply("host",1),CancellationToken.None);
                 framed.Position=written;
                 var copy=await HostProtocol.ReadJson<HostReply>(framed,CancellationToken.None); var states=await HostProtocol.ReadJson<HostReply>(framed,CancellationToken.None);
-                Pass(overflow && written==0 && copy.Error==HostProtocol.ReplyTooLarge && states.Error==HostProtocol.MetadataBatchTooLarge && copy.Host=="host"
+                Pass(overflow && written==0 && copy.Error==HostProtocol.ReplyTooLarge && states.Error==HostProtocol.ReplyTooLarge && copy.Host=="host"
                     && copy.ErrorCode==HostErrorCode.ReplyTooLarge && states.ErrorCode==HostErrorCode.ReplyTooLarge,
-                    "an oversized reply for any operation is replaced by a framed error before any header is sent; states keeps its batch-split text");
+                    "an oversized reply for any operation is replaced by a framed, coded error before any header is sent");
             }
             await HostV2Wire.RunHost(folder,Pass);
-            Pass(SessionHostClient.TryConnect(folder) is not null && !second.HasExited,"raw protocol-2 requests leave the live host and its shell intact");
+            Pass(SessionHostClient.TryConnect(folder) is not null && !second.HasExited,"raw protocol-2 requests, shutdown included, leave the live host and its shell intact");
             using var owner=Process.GetProcessById(client.ProcessId);
             second.Dispose(); second=null; await owner.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(12));
             Pass(true,"closing the last shell stops the background host");
@@ -185,6 +186,87 @@ internal static class PersistentSessionChecks
             first?.Dispose(); second?.Dispose();
             try { SessionHostClient.TryConnect(folder)?.ShutdownForTest(); } catch (IOException) { }
         }
+    }
+    // Every protocol-3 operation once against the live host, on a disposable cmd pane,
+    // plus the payload faults. Sync and shutdown are covered by the scheduling and
+    // lifecycle checks; clipboard is skipped so the test never reads the user's clipboard.
+    private static async Task RoundTrips(SessionHostClient client,string owned,Action<bool,string> pass)
+    {
+        string probe=Guid.NewGuid().ToString("N"),missing="missing-"+Guid.NewGuid().ToString("N");
+        var replies=new Dictionary<string,HostReply>(); var failures=new List<string>();
+        async Task<HostReply?> Call(string label,HostRequest request)
+        {
+            try { var reply=await client.CallAsync(request,TimeSpan.FromSeconds(10)); replies[label]=reply; return reply; }
+            catch (IOException ex) { failures.Add(label+": "+ex.Message); return null; }
+        }
+        var created=await Call("create",HostRequests.Create(probe,"cmd.exe /d /q /k",Environment.CurrentDirectory,new AppSettings(),columns:120,rows:40));
+        var reattached=await Call("create-existing",HostRequests.Create(probe,"invalid-command-must-not-run",Environment.CurrentDirectory,new AppSettings()));
+        await Call("ping",HostRequests.Ping());
+        await Call("states",HostRequests.States(new() { [probe]=-1 }));
+        await Call("watch",HostRequests.Watch(new() { [probe]=-1 }));
+        await Call("attach",HostRequests.Attach([new AppSettings()],[new(probe,0),new(owned,-1),new(missing,-1)]));
+        await Call("navigate",HostRequests.Navigate(new(null,[])));
+        await Call("detach",HostRequests.Detach());
+        var deadline=Stopwatch.StartNew(); HostReply? capture;
+        // 120x40 exceeds the default 3000-cell buffer: the first capture runs before any resize.
+        // Capture never waits on a busy parser; retry until a frame is available.
+        while ((capture=await Call("capture",HostRequests.Capture(probe))) is { BinaryLength:0 } && deadline.Elapsed.TotalSeconds<5) await Task.Delay(20);
+        await Call("resize",HostRequests.Resize(probe,120,40,8,18));
+        await Call("key",HostRequests.Key(probe,65,0,"a"));
+        await Call("key-release",HostRequests.Key(probe,65,0,"a",TerminalKeyAction.Release));
+        await Call("paste",HostRequests.Paste(probe,"echo ROUND_TRIP"));
+        await Call("send-text",HostRequests.SendText(probe,"\r"));
+        await Call("paste-checked",HostRequests.PasteChecked(probe,"rem"));
+        await Call("scroll",HostRequests.Scroll(probe,-1));
+        await Call("scroll-to",HostRequests.ScrollTo(probe,0));
+        await Call("focus",HostRequests.Focus(probe,true));
+        await Call("select",HostRequests.Select(probe,0,4));
+        await Call("copy",HostRequests.Copy(probe));
+        var copied=await Call("copy-or-key",HostRequests.CopyOrKey(probe,67,2,"c",TerminalKeyAction.Press,99,0));
+        var empty=await Call("copy-or-key-empty",HostRequests.CopyOrKey(probe,67,2,"c",TerminalKeyAction.Press,99,0));
+        await Call("gesture",HostRequests.Gesture(probe,0,1.5f,0.5f,false));
+        await Call("mouse",HostRequests.Mouse(probe,0,1,0,1.5f,0.5f));
+        await Call("drop",HostRequests.DropQuery(probe,2,0,0,1,null));
+        await Call("drop-async",HostRequests.DropCommit(probe,0,0,1,TimeSpan.FromMilliseconds(1),new Dictionary<string,byte[]> { ["text/plain"]=[104,105] }));
+        await Call("hyperlink",HostRequests.Hyperlink(probe,0,0));
+        await Call("find",HostRequests.Find(probe,"ROUND_TRIP",0));
+        await Call("settings",HostRequests.Settings(probe,new AppSettings()));
+        foreach (var failure in failures) Console.Error.WriteLine("round trip "+failure);
+        HostReply R(string label)=>replies.GetValueOrDefault(label) ?? new() { Error="missing" };
+        pass(failures.Count==0 && created is { Created:true,State:not null } && reattached is { Created:false,State:not null }
+            && R("ping").Panes.Contains(probe) && R("states").States?.ContainsKey(probe)==true && R("watch").OutputRevisions?.ContainsKey(probe)==true && R("watch").OutputRevision>0
+            && R("attach").States?.Keys.Order().SequenceEqual(new[] { probe,owned }.Order())==true && R("attach").Missing?.SequenceEqual([missing])==true
+            && capture is { BinaryLength:>0,StatusRevision:not null } && R("resize").State is not null && R("key").State is not null && R("settings").State is not null
+            && copied?.Copied==(copied?.Text.Length>0) && copied?.State is not null && empty is { Copied:false,Text.Length:0 }
+            && R("gesture").Value is not null && R("mouse").Value is not null && R("drop").Value is not null && R("drop-async").Value is not null && R("find").Find is not null,
+            "every protocol-3 operation round-trips against a live host with its typed result");
+        pass(created is { Created:true } && capture is { BinaryLength:>0 } && !failures.Any(f=>f.StartsWith("capture:")),"a pane created at 120x40, above the default cell buffer, captures before its first resize");
+        HostErrorCode Code(string label,HostRequest request)
+        {
+            try { client.CallForTest(request); return HostErrorCode.None; }
+            catch (HostRejectedException ex) { return ex.Code; }
+            catch (IOException) { Console.Error.WriteLine("fault EOF: "+label); return HostErrorCode.Disconnected; }
+        }
+        var badKey=HostRequests.Key(probe,65,0); badKey.Key=badKey.Key! with { Action=(TerminalKeyAction)7 };
+        var bare=HostRequests.Key(probe,65,0); bare.Key=null;
+        pass(Code("action",badKey)==HostErrorCode.InvalidRequest && Code("resize",HostRequests.Resize(probe,5000,30,8,18))==HostErrorCode.InvalidRequest
+            && Code("bare",bare)==HostErrorCode.InvalidRequest && Code("create-size",HostRequests.Create(Guid.NewGuid().ToString("N"),"cmd.exe",Environment.CurrentDirectory,null,columns:1,rows:1))==HostErrorCode.InvalidRequest
+            && Code("missing",HostRequests.Copy(missing))==HostErrorCode.SessionMissing && Code("watch",HostRequests.Watch(new()))==HostErrorCode.InvalidRequest,
+            "invalid key actions, out-of-range sizes, absent payloads and empty watches are InvalidRequest; an absent pane is SessionMissing");
+        string malformed;
+        using (var timeout=new CancellationTokenSource(TimeSpan.FromSeconds(5)))
+        await using (var pipe=new System.IO.Pipes.NamedPipeClientStream(".",HostProtocol.PipeName(client.Folder),System.IO.Pipes.PipeDirection.InOut,System.IO.Pipes.PipeOptions.Asynchronous|System.IO.Pipes.PipeOptions.CurrentUserOnly))
+        {
+            await pipe.ConnectAsync(timeout.Token);
+            byte[] payload=System.Text.Encoding.UTF8.GetBytes("{\"Protocol\":3,\"Host\":\""+client.Identity+"\",\"Operation\":\"key\",\"Pane\":\""+probe+"\",\"Key\":{\"Key\":-1}}");
+            byte[] frame=new byte[payload.Length+4]; System.Buffers.Binary.BinaryPrimitives.WriteInt32LittleEndian(frame,payload.Length); payload.CopyTo(frame,4);
+            await pipe.WriteAsync(frame,timeout.Token);
+            try { var reply=await HostProtocol.ReadJson<HostReply>(pipe,timeout.Token); malformed=reply.ErrorCode.ToString(); }
+            catch (IOException ex) { malformed="EOF: "+ex.Message; }
+        }
+        pass(malformed==nameof(HostErrorCode.InvalidRequest),"a payload of the wrong JSON type gets an InvalidRequest reply instead of a closed pipe");
+        await Call("close",HostRequests.Close(probe));
+        pass(failures.Count==0 && !(await client.CallAsync(HostRequests.Ping())).Panes.Contains(probe),"close ends the probe shell and leaves the owned pane running");
     }
     public static async Task RunWindows(string appExecutable,Action<bool,string> check,bool crash=false)
     {

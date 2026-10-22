@@ -37,12 +37,12 @@ public sealed class TerminalSession : ITerminalSession, IAsyncDisposable
     public event Action? OutputChanged;
     public bool MouseTracking => Volatile.Read(ref _mouseTracking);
 
-    public TerminalSession(string command, string directory, Models.AppSettings? settings = null)
+    public TerminalSession(string command, string directory, Models.AppSettings? settings = null, ushort columns = 100, ushort rows = 30)
     {
         _publishedStatus = _status.Snapshot();
         Directory = WorkingDirectory = _startDirectory = directory;
         LocalDirectory = directory; _command = command;
-        _terminal = new GhosttyTerminal { Clipboard = new WindowsClipboard(), AllowClipboardRead = settings?.AllowClipboardRead ?? false, AllowClipboardWrite = settings?.AllowClipboardWrite ?? true };
+        _terminal = new GhosttyTerminal(columns, rows) { Clipboard = new WindowsClipboard(), AllowClipboardRead = settings?.AllowClipboardRead ?? false, AllowClipboardWrite = settings?.AllowClipboardWrite ?? true };
         _terminal.EnableIncrementalRendering();
         try
         {
@@ -54,7 +54,7 @@ public sealed class TerminalSession : ITerminalSession, IAsyncDisposable
             string token = Convert.ToHexString(System.Security.Cryptography.RandomNumberGenerator.GetBytes(16));
             // Integrated shells authenticate their OSC 7; other shells keep unauthenticated tracking.
             _directoryToken = prepared == command ? null : token;
-            _process = new ConPtyProcess(prepared, directory, 100, 30, token);
+            _process = new ConPtyProcess(prepared, directory, columns, rows, token);
         }
         catch { _terminal.Dispose(); throw; }
         _terminal.Response += WriteInput;
@@ -298,6 +298,23 @@ public sealed class TerminalSession : ITerminalSession, IAsyncDisposable
         }
     }
     public string CopySelection() { lock (_gate) { return _disposed ? "" : _terminal.CopySelection(); } }
+    /// <summary>Ctrl+C under one parser-gate acquisition: copy the selection, or send the
+    /// key when nothing is selected, then clear the selection either way.</summary>
+    public string CopyOrKey(uint key, uint modifiers, string text, TerminalKeyAction action, uint? unshiftedCodepoint, uint consumedModifiers)
+    {
+        lock (_gate)
+        {
+            if (_disposed) return "";
+            string copied = _terminal.CopySelection();
+            if (copied.Length == 0 && !HasExited)
+            {
+                if (action != TerminalKeyAction.Release) _terminal.Scroll(0);
+                WriteInput(_terminal.EncodeKey(key, modifiers, text, action, unshiftedCodepoint, consumedModifiers));
+            }
+            _terminal.Select(-1, -1); Interlocked.Increment(ref _version);
+            return copied;
+        }
+    }
     public (int Count, int Index) Find(string text, int direction)
     {
         lock (_gate) { if (_disposed) return (0, 0); var result = _terminal.Find(text, direction); Interlocked.Increment(ref _version); return result; }

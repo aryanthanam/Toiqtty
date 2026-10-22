@@ -12,7 +12,7 @@ internal static class HostSchedulingChecks
         string pane=Guid.NewGuid().ToString("N");
         try
         {
-            await client.CallAsync(new() { Operation="create",Pane=pane,Text=$"\"{Environment.ProcessPath}\" --persistent-shell-client",Directory=Environment.CurrentDirectory,Settings=new() });
+            await client.CallAsync(HostRequests.Create(pane,$"\"{Environment.ProcessPath}\" --persistent-shell-client",Environment.CurrentDirectory,new()));
             string identity=client.Identity; long retries=0;
             for(int round=0;round<16;round++)
             {
@@ -21,7 +21,7 @@ internal static class HostSchedulingChecks
                     using var stop=new CancellationTokenSource(1000);
                     try { await pipe.ConnectAsync(stop.Token); } catch(Exception ex) when(ex is IOException or OperationCanceledException) { }
                 }));
-                var reply=await client.CallAsync(new()); retries=reply.TransportAcceptRetries;
+                var reply=await client.CallAsync(HostRequests.Ping()); retries=reply.TransportAcceptRetries;
                 if(reply.Host!=identity || !reply.Panes.Contains(pane)) throw new IOException("The accept storm lost the original host or shell.");
             }
             check(true,"One thousand twenty-four clients disconnecting around pipe acceptance preserve the original host and shell");
@@ -42,12 +42,12 @@ internal static class HostSchedulingChecks
         string command=$"\"{Environment.ProcessPath}\" --persistent-shell-client";
         async Task Line(string pane,string text)
         {
-            await client.CallAsync(new() { Operation="paste",Pane=pane,Text=text,Numbers=[0] });
-            await client.CallAsync(new() { Operation="key",Pane=pane,Numbers=[13,0,1,-1,0] });
+            await client.CallAsync(HostRequests.Paste(pane,text));
+            await client.CallAsync(HostRequests.Key(pane,13,0));
         }
         async Task<string> Text(string pane)
         {
-            var reply=await client.CallAsync(new() { Operation="capture",Pane=pane,Numbers=[-1] });
+            var reply=await client.CallAsync(HostRequests.Capture(pane));
             // Capture is intentionally nonblocking while the terminal parser
             // owns its snapshot lock. WaitText retries an unavailable frame.
             if(reply.BinaryLength==0) return "";
@@ -58,38 +58,36 @@ internal static class HostSchedulingChecks
             var timer=Stopwatch.StartNew();
             while(!(await Text(pane)).Contains(marker)) { if(timer.Elapsed.TotalSeconds>10) throw new TimeoutException(marker); await Task.Delay(10); }
         }
-        HostRequest Watch(string[] panes,Dictionary<string,long> revisions,long global)=>new() { Operation="watch",WatchPanes=panes,WatchRevisions=revisions,Numbers=[global] };
+        HostRequest Watch(Dictionary<string,long> revisions)=>HostRequests.Watch(revisions);
         try
         {
-            foreach(var pane in new[] { a,b }) await client.CallAsync(new() { Operation="create",Pane=pane,Text=command,Directory=Environment.CurrentDirectory,Settings=new(),Layout=layout });
+            foreach(var pane in new[] { a,b }) await client.CallAsync(HostRequests.Create(pane,command,Environment.CurrentDirectory,new(),layout));
             await WaitText(a,"PERSIST_READY"); await WaitText(b,"PERSIST_READY");
-            var advertised=(await client.CallAsync(new())).Capabilities;
-            Pass(advertised.Contains("pane-output-watch") && advertised.Contains("navigation-save"),"The host advertises per-pane watches and navigation-only saves");
-            var initial=await client.CallAsync(Watch([a,b],new() { [a]=-1,[b]=-1 },-1));
+            var initial=await client.CallAsync(Watch(new() { [a]=-1,[b]=-1 }));
             var seen=initial.OutputRevisions!;
-            Pass(initial.Panes.Length==2 && seen.Count==2,"Initial watches return independent output revisions for both panes");
+            Pass(initial.Panes.Length==2 && seen.Count==2 && initial.OutputRevision>=seen.Values.Max(),"Initial watches return independent output revisions for both panes and the global revision");
             await Line(a,"mark"); await WaitText(a,"PERSIST_MARK=1");
             var clock=Stopwatch.StartNew();
-            var idle=await client.CallAsync(Watch([b],new() { [b]=seen[b] },initial.Numbers[0]));
+            var idle=await client.CallAsync(Watch(new() { [b]=seen[b] }));
             Pass(idle.Panes.Length==0 && clock.ElapsedMilliseconds>=150,"Output in an excluded busy pane does not wake the idle-pane watch");
-            var rejoined=await client.CallAsync(Watch([a],new() { [a]=seen[a] },idle.Numbers[0]));
+            var rejoined=await client.CallAsync(Watch(new() { [a]=seen[a] }));
             Pass(rejoined.Panes.SequenceEqual([a]) && rejoined.OutputRevisions![a]>seen[a],
                 "Rejoining a pane observes its pending output even after the global revision advanced past it");
             await Line(b,"mark"); await WaitText(b,"PERSIST_MARK=1");
-            var updated=await client.CallAsync(Watch([b],new() { [b]=seen[b] },idle.Numbers[0]));
+            var updated=await client.CallAsync(Watch(new() { [b]=seen[b] }));
             Pass(updated.Panes.SequenceEqual([b]),"The watched idle pane wakes when its own output changes");
             for(int i=0;i<80;i++)
             {
                 using var stop=new CancellationTokenSource(10);
-                try { await client.CallAsync(Watch([b],new() { [b]=updated.OutputRevisions![b] },updated.Numbers[0]),cancellation:stop.Token); }
+                try { await client.CallAsync(Watch(new() { [b]=updated.OutputRevisions![b] }),cancellation:stop.Token); }
                 catch(Exception ex) when(ex is OperationCanceledException or IOException) { }
             }
-            clock.Restart(); var live=await client.CallAsync(new());
+            clock.Restart(); var live=await client.CallAsync(HostRequests.Ping());
             Pass(clock.ElapsedMilliseconds<500 && live.Panes.Length==2,"Eighty canceled watches release host connections promptly without ending shells");
             var writes=new List<Task>();
             for(int i=0;i<100;i++) { workspace.ActiveTabId=workspace.Tabs[i%2].Id; writes.Add(client.SaveNavigationAsync(layout)); }
             await Task.WhenAll(writes);
-            var saved=await client.CallAsync(new());
+            var saved=await client.CallAsync(HostRequests.Ping());
             Pass(saved.Layout!.Workspaces.Single().ActiveTabId==workspace.Tabs[1].Id && saved.Panes.Length==2,
                 "Rapid coalesced navigation persists the latest tab without replacing shell ownership");
             Pass(saved.Layout.Workspaces.Single().AllPanes().All(pane=>pane.Directory==Environment.CurrentDirectory),
@@ -97,21 +95,21 @@ internal static class HostSchedulingChecks
             // Small syncs reach the layout lock almost at once; each then holds it
             // through a write and fsync. Once one finished, the rest are queued.
             var syncs=new Task<HostReply>[24];
-            for(int i=0;i<syncs.Length;i++) syncs[i]=client.CallAsync(new() { Operation="sync",Layout=layout },TimeSpan.FromSeconds(60));
+            for(int i=0;i<syncs.Length;i++) syncs[i]=client.CallAsync(HostRequests.Sync(layout),TimeSpan.FromSeconds(60));
             await Task.WhenAny(syncs);
             clock.Restart();
-            var reattached=await client.CallAsync(new() { Operation="create",Pane=a,Text="invalid-command-must-not-run",Directory=Environment.CurrentDirectory,Settings=new() },TimeSpan.FromSeconds(60));
+            var reattached=await client.CallAsync(HostRequests.Create(a,"invalid-command-must-not-run",Environment.CurrentDirectory,new()),TimeSpan.FromSeconds(60));
             long reattachMs=clock.ElapsedMilliseconds; int pendingSyncs=syncs.Count(t=>!t.IsCompleted);
             await Task.WhenAll(syncs); long queueMs=clock.ElapsedMilliseconds;
             Console.WriteLine($"Reattach create {reattachMs} ms with {pendingSyncs} syncs pending; sync queue drained after {queueMs} ms");
-            Pass(reattached.State is { HasExited: false } && pendingSyncs>=syncs.Length/2 && reattachMs<queueMs,"A reattach create returns without waiting behind in-flight layout syncs and their fsyncs");
-            await client.CallAsync(new() { Operation="navigate",Navigation=new("missing",[new(workspace.Id,"removed-tab",new() { [workspace.Tabs[0].Id]="removed-pane" })]) });
-            var stale=await client.CallAsync(new());
+            Pass(reattached.State is { HasExited: false } && reattached.Created==false && pendingSyncs>=syncs.Length/2 && reattachMs<queueMs,"A reattach create returns without waiting behind in-flight layout syncs and their fsyncs");
+            await client.CallAsync(HostRequests.Navigate(new("missing",[new(workspace.Id,"removed-tab",new() { [workspace.Tabs[0].Id]="removed-pane" })])));
+            var stale=await client.CallAsync(HostRequests.Ping());
             Pass(stale.Layout!.SelectedWorkspace==workspace.Id && stale.Layout.Workspaces.Single().ActiveTabId==workspace.Tabs[1].Id && stale.Panes.Length==2,
                 "Stale navigation cannot select removed identities, create panes or stop existing shells");
             workspace.ActiveTabId=workspace.Tabs[0].Id; var pending=client.SaveNavigationAsync(layout);
             workspace.Tabs.RemoveAt(0); workspace.ActiveTabId=workspace.Tabs[0].Id; client.SaveForTest(layout); await pending;
-            var structural=await client.CallAsync(new());
+            var structural=await client.CallAsync(HostRequests.Ping());
             Pass(structural.Panes.SequenceEqual([b]) && structural.Layout!.Workspaces.Single().Tabs.Count==1
                 && structural.Layout.Workspaces.Single().ActiveTabId==workspace.Tabs[0].Id,
                 "A structural save supersedes pending navigation without resurrecting a removed tab");

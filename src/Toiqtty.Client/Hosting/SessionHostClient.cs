@@ -24,13 +24,6 @@ public sealed partial class SessionHostClient
     public int ProcessId { get; private set; }
     public SavedSession? Layout { get; private set; }
     public string[] Panes { get; private set; } = [];
-    /// <summary>Every version-2 capability this client consumes. A host lacking any
-    /// of them is treated as a different version rather than served by fallbacks.</summary>
-    internal static readonly string[] RequiredCapabilities =
-    [
-        "output-watch", "pane-output-watch", "navigation-save", HostProtocol.MetadataBatchCapability, HostProtocol.ReusableReadCapability,
-        HostProtocol.StatusRevisionCapability, "resize-clears-selection", "row-deltas", "style-runs-v1", "pane-themes", "appearance-v2", "literal-input"
-    ];
     // Set after repeated watch failures; visible panes then poll on short timers.
     private volatile bool _outputWatchDegraded;
     internal bool OutputWatchDegraded => _outputWatchDegraded;
@@ -113,12 +106,8 @@ public sealed partial class SessionHostClient
                         // Every interest carries its own seen revision, so the host
                         // never needs the global revision fallback.
                         using var requestStop = CancellationTokenSource.CreateLinkedTokenSource(stop);
-                        var pending = CallCoreAsync(new()
-                        {
-                            Operation = "watch",
-                            WatchPanes = interests,
-                            WatchRevisions = interests.ToDictionary(id => id, id => seen.GetValueOrDefault(id, -1))
-                        }, TimeSpan.FromSeconds(3), requestStop.Token, null,
+                        var pending = CallCoreAsync(HostRequests.Watch(interests.ToDictionary(id => id, id => seen.GetValueOrDefault(id, -1))),
+                            TimeSpan.FromSeconds(3), requestStop.Token, null,
                             readConnection: DisableReusableReadsForCheck ? null : readConnection);
                         bool changed = false;
                         while (!pending.IsCompleted)
@@ -286,14 +275,9 @@ public sealed partial class SessionHostClient
         finally { child?.Dispose(); }
         throw new IOException("The session host did not start. See host-error.log in the toiqtty data directory.");
     }
-    private void Accept(HostReply reply)
-    {
-        // An older version-2 host keeps its shells; the version window explains
-        // how to stop it instead of this client carrying per-feature fallbacks.
-        foreach (string capability in RequiredCapabilities)
-            if (Array.IndexOf(reply.Capabilities, capability) < 0) throw new SessionHostVersionException();
-        Identity = reply.Host; ProcessId = reply.ProcessId; Layout = reply.Layout; Panes = reply.Panes;
-    }
+    // Any other protocol version already failed in ExchangeAsync; the version window
+    // explains how to stop that host instead of this client carrying fallbacks.
+    private void Accept(HostReply reply) { Identity = reply.Host; ProcessId = reply.ProcessId; Layout = reply.Layout; Panes = reply.Panes; }
     internal string[] OutputInterestsForCheck() => OutputInterests();
     public HostReply Call(HostRequest request, TimeSpan? timeout = null)
     {
@@ -327,7 +311,8 @@ public sealed partial class SessionHostClient
         var reply = await HostProtocol.ReadJson<HostReply>(pipe, cancellation).ConfigureAwait(false);
         if (reply.Protocol != HostProtocol.Version) throw new SessionHostVersionException();
         if (Identity.Length > 0 && reply.Host != Identity) throw new HostTransportException(HostErrorCode.HostChanged, "The session host changed; input was not replayed.");
-        if (reply.Error is not null) throw new HostRejectedException(HostProtocol.ErrorCodeOf(reply), reply.Error);
+        // Protocol-3 hosts code every error; an uncoded one is a host fault.
+        if (reply.Error is not null) throw new HostRejectedException(reply.ErrorCode == HostErrorCode.None ? HostErrorCode.Internal : reply.ErrorCode, reply.Error);
         if (reply.BinaryLength is < 0 or > HostProtocol.MaxSnapshotBytes) throw new IOException("Invalid snapshot length.");
         if (reply.BinaryLength > 0)
         {
@@ -352,18 +337,14 @@ public sealed partial class SessionHostClient
         await _layoutSaveGate.WaitAsync().ConfigureAwait(false);
         List<TaskCompletionSource> pending;
         lock (_navigationGate) { _pendingNavigation = null; pending = _navigationCompletions; _navigationCompletions = []; }
-        try { await CallAsync(new() { Operation = "sync", Layout = layout, LayoutEpoch = _layoutEpoch, LayoutRevision = revision }).ConfigureAwait(false); foreach (var completion in pending) completion.TrySetResult(); }
+        try { await CallAsync(HostRequests.Sync(layout, _layoutEpoch, revision)).ConfigureAwait(false); foreach (var completion in pending) completion.TrySetResult(); }
         catch (Exception ex) { foreach (var completion in pending) completion.TrySetException(ex); throw; }
         finally { _layoutSaveGate.Release(); }
     }
     public Task SaveNavigationAsync(SavedSession layout)
     {
-        var request = new HostRequest
-        {
-            Operation = "navigate",
-            Navigation = new(layout.SelectedWorkspace, layout.Workspaces.Select(w =>
-            new HostWorkspaceNavigation(w.Id, w.ActiveTabId, w.Tabs.ToDictionary(t => t.Id, t => t.FocusedPaneId))).ToArray())
-        };
+        var request = HostRequests.Navigate(new(layout.SelectedWorkspace, layout.Workspaces.Select(w =>
+            new HostWorkspaceNavigation(w.Id, w.ActiveTabId, w.Tabs.ToDictionary(t => t.Id, t => t.FocusedPaneId))).ToArray()));
         var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         lock (_navigationGate)
         {
@@ -393,8 +374,8 @@ public sealed partial class SessionHostClient
             finally { _layoutSaveGate.Release(); }
         }
     }
-    public void Detach() => Call(new() { Operation = "detach" });
-    public void Shutdown() => Call(new() { Operation = "shutdown" });
+    public void Detach() => Call(HostRequests.Detach());
+    public void Shutdown() => Call(HostRequests.Shutdown());
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool WaitNamedPipeW(string name, uint timeout);

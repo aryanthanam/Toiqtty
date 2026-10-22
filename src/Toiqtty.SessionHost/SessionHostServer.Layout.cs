@@ -75,7 +75,7 @@ public sealed partial class SessionHostServer
     private static bool CreatedAfter(Entry entry, HostRequest sync)
         => sync.LayoutEpoch is not null && entry.CreatedEpoch == sync.LayoutEpoch && entry.CreatedRevision > sync.LayoutRevision;
 
-    private async Task<HostReply> CreateAsync(HostRequest request)
+    private async Task<HostReply> CreateAsync(HostRequest request, CreateArgs create)
     {
         if (request.Layout is not null) ValidateLayout(request.Layout);
         // A reattach writes no layout: answer it without queueing behind syncs,
@@ -89,19 +89,23 @@ public sealed partial class SessionHostServer
             lock (_gate)
             {
                 _sessions.TryGetValue(request.Pane, out entry);
-                if (entry is null && (_sessions.Count >= 256 || request.Text.Length is < 1 or > 32768 || request.Directory.Length > 32768))
+                if (entry is null && (_sessions.Count >= 256 || create.Command.Length is < 1 or > 32768 || create.Directory.Length > 32768))
                     throw new SessionHostException(HostErrorCode.LimitExceeded, "Shell creation exceeds the session limits.");
                 if (entry is null) _creating++;
             }
             if (entry is not null) return Reattach(entry, request);
             try
             {
+                // 0 keeps the default size; the first resize supplies cell pixel metrics.
+                ushort columns = create.Columns == 0 ? (ushort)100 : (ushort)create.Columns, rows = create.Rows == 0 ? (ushort)30 : (ushort)create.Rows;
                 TerminalSession session;
-                try { session = new(request.Text, request.Directory, request.Settings); }
+                try { session = new(create.Command, create.Directory, request.Settings, columns, rows); }
                 // Only the expected spawn failures; anything else stays Internal and is logged.
                 catch (Exception ex) when (ex is (IOException and not SessionHostException) or InvalidOperationException or UnauthorizedAccessException or System.ComponentModel.Win32Exception)
                 { throw new SessionHostException(HostErrorCode.ShellStartFailed, ex.Message, ex); }
-                entry = new(session) { CreatedEpoch = request.LayoutEpoch, CreatedRevision = request.LayoutRevision };
+                entry = new(session) { CreatedEpoch = request.LayoutEpoch, CreatedRevision = request.LayoutRevision, Columns = columns, Rows = rows };
+                // Capture reads cols*rows cells; the default buffer only fits 100x30.
+                if (columns * rows != entry.Cells.Length) entry.Cells = new(columns * rows);
                 var observed = entry;
                 entry.Session.Attention += () => { Interlocked.Increment(ref observed.Attention); Volatile.Write(ref observed.PendingAttention, 1); };
                 entry.Session.OutputChanged += () => OutputChanged(observed);
@@ -117,7 +121,7 @@ public sealed partial class SessionHostServer
                 }
                 catch { Remove(request.Pane); throw; }
             }
-            return new() { State = State(entry) };
+            return new() { State = State(entry), Created = true };
         }
         finally { _layoutWrites.Release(); }
     }
@@ -125,7 +129,7 @@ public sealed partial class SessionHostServer
     private HostReply Reattach(Entry entry, HostRequest request)
     {
         if (request.Settings is not null) entry.Session.ApplySettings(request.Settings);
-        return new() { State = State(entry) };
+        return new() { State = State(entry), Created = false };
     }
 
     private async Task PersistDirectoriesAsync()

@@ -44,14 +44,12 @@ public sealed partial class SessionHostServer(string folder) : IAsyncDisposable
     private long _outputRevision;
     private long _transportAcceptRetries;
     private readonly Lock _outputGate = new();
-    private TaskCompletionSource? _outputPulse;
     private void OutputChanged(Entry entry)
     {
         lock (_outputGate)
         {
             entry.OutputRevision = ++_outputRevision;
             entry.OutputPulse?.TrySetResult(); entry.OutputPulse = null;
-            _outputPulse?.TrySetResult(); _outputPulse = null;
         }
     }
     public async Task Run()
@@ -148,19 +146,30 @@ public sealed partial class SessionHostServer(string folder) : IAsyncDisposable
                 do
                 {
                     deadline.CancelAfter(TimeSpan.FromSeconds(25));
-                    var request = await HostProtocol.ReadJson<HostRequest>(pipe, deadline.Token);
+                    HostRequest request;
+                    try { request = await HostProtocol.ReadJson<HostRequest>(pipe, deadline.Token); }
+                    // A complete frame whose payload does not fit the typed envelope is
+                    // answered rather than dropped; the frame was read whole, so the stream
+                    // stays framed. Payload ranges are checked later, per operation.
+                    catch (IOException ex) when (ex.InnerException is System.Text.Json.JsonException)
+                    {
+                        await HostProtocol.WriteJson(pipe, new HostReply { Host = _identity, ProcessId = Environment.ProcessId, Error = "Invalid session request.", ErrorCode = HostErrorCode.InvalidRequest }, deadline.Token);
+                        break;
+                    }
                     HostReply reply;
                     try
                     {
+                        // Version and identity come before any payload decode, so a request
+                        // from another protocol always gets the mismatch reply.
                         if (request.Protocol != HostProtocol.Version) throw new SessionHostException(HostErrorCode.ProtocolMismatch, "Incompatible session-host protocol. Stop existing sessions before upgrading the host.");
-                        if (request.Numbers is null || request.Images is null || request.Pane is null || request.Text is null || request.Directory is null) throw new ArgumentException("Invalid session request.");
+                        if (request.Operation is null || request.Pane is null || request.Text is null) throw new ArgumentException("Invalid session request.");
                         if (request.Operation != "ping" && request.Host != _identity) throw new SessionHostException(HostErrorCode.HostChanged, "The session host changed. Reconnect explicitly; input was not sent.");
                         if (request.Operation == "shutdown")
                         {
                             lock (_gate) { _shutdownPending = true; Interlocked.Increment(ref _shutdownReplies); }
                             shutdownReply = true;
                         }
-                        if (request.Operation == "watch" && request.WatchPanes is not null)
+                        if (request.Operation == "watch")
                         {
                             using var watchStop = CancellationTokenSource.CreateLinkedTokenSource(deadline.Token);
                             var disconnected = ObserveWatchDisconnect(pipe, watchStop);
@@ -187,7 +196,7 @@ public sealed partial class SessionHostServer(string folder) : IAsyncDisposable
                         // WriteJson checks its limit before sending any header. A small,
                         // explicit error keeps the client framed; for states it lets a
                         // read-only client split the batch without losing unrelated panes.
-                        reply = HostProtocol.OversizedReply(request.Operation, _identity, Environment.ProcessId);
+                        reply = HostProtocol.OversizedReply(_identity, Environment.ProcessId);
                         await HostProtocol.WriteJson(pipe, reply, deadline.Token);
                     }
                     if (reply.Binary.Length > 0) await pipe.WriteAsync(reply.Binary, deadline.Token);
@@ -226,153 +235,6 @@ public sealed partial class SessionHostServer(string folder) : IAsyncDisposable
     {
         var s = entry.Session;
         return new(s.Version, s.HasExited, s.ExitCode, s.Title, s.StatusSummary, s.Directory, s.WorkingDirectory, s.LocalDirectory, s.Performance, s.Status, Interlocked.Read(ref entry.Attention), Volatile.Read(ref entry.PendingAttention) != 0) { MouseTracking = s.MouseTracking };
-    }
-    private async Task<HostReply> Dispatch(HostRequest r, CancellationToken watchCancellation)
-    {
-        if (r.Operation == "ping")
-        {
-            lock (_gate) return new() { Layout = SavedSessionSnapshot.Capture(_layout), Panes = _sessions.Keys.ToArray(), TransportAcceptRetries = Interlocked.Read(ref _transportAcceptRetries), Capabilities = ["output-watch", "pane-output-watch", "navigation-save", HostProtocol.MetadataBatchCapability, HostProtocol.ReusableReadCapability, HostProtocol.StatusRevisionCapability, "resize-clears-selection", "input-modes", "row-deltas", "style-runs-v1", "pane-themes", "appearance-v2", "literal-input"] };
-        }
-        if (r.Operation == "states")
-        {
-            var versions = r.StateVersions ?? throw new ArgumentException("State versions are required.");
-            if (versions.Count is 0 or > HostProtocol.MaxMetadataPanes || versions.Keys.Any(id => string.IsNullOrEmpty(id) || id.Length > 128))
-                throw new ArgumentException("Invalid metadata interests.");
-            (string Id, int Seen, Entry? Entry)[] entries;
-            lock (_gate) entries = versions.Select(pair => (pair.Key, pair.Value, _sessions.GetValueOrDefault(pair.Key))).ToArray();
-            var states = new Dictionary<string, ShellState>(); var missing = new List<string>();
-            foreach (var item in entries)
-            {
-                if (item.Entry is null) { missing.Add(item.Id); continue; }
-                if (item.Entry.Session.Version != item.Seen) states.Add(item.Id, State(item.Entry));
-            }
-            return new() { States = states, Panes = missing.ToArray() };
-        }
-        if (r.Operation == "watch")
-        {
-            long seen = r.Numbers.FirstOrDefault(-1);
-            if (r.WatchPanes is { } interests)
-            {
-                if (interests.Length is 0 or > 256 || interests.Any(id => string.IsNullOrEmpty(id) || id.Length > 128))
-                    throw new ArgumentException("Invalid output watch interests.");
-                if (r.WatchRevisions is { } revisions && (revisions.Count > 256 || revisions.Values.Any(value => value < -1)))
-                    throw new ArgumentException("Invalid output watch revisions.");
-                long Seen(string pane) => r.WatchRevisions?.GetValueOrDefault(pane, -1) ?? seen;
-                Task pulseForPanes;
-                lock (_gate) lock (_outputGate)
-                {
-                    var entries = interests.Distinct().Where(_sessions.ContainsKey).Select(id => (Id: id, Entry: _sessions[id])).ToArray();
-                    pulseForPanes = entries.Any(pair => pair.Entry.OutputRevision > Seen(pair.Id)) ? Task.CompletedTask
-                        : entries.Length == 0 ? Task.Delay(250, watchCancellation)
-                        : Task.WhenAny(entries.Select(pair => (pair.Entry.OutputPulse ??= new(TaskCreationOptions.RunContinuationsAsynchronously)).Task)
-                            .Append(Task.Delay(250, watchCancellation)));
-                }
-                try { await pulseForPanes.WaitAsync(TimeSpan.FromMilliseconds(250), watchCancellation).ConfigureAwait(false); } catch (TimeoutException) { }
-                watchCancellation.ThrowIfCancellationRequested();
-                lock (_gate) lock (_outputGate)
-                {
-                    var changed = interests.Distinct().Where(id => _sessions.TryGetValue(id, out var entry) && entry.OutputRevision > Seen(id)).ToArray();
-                    return new() { Numbers = [_outputRevision], Panes = changed, OutputRevisions = changed.ToDictionary(id => id, id => _sessions[id].OutputRevision) };
-                }
-            }
-            Task pulse;
-            lock (_outputGate) pulse = _outputRevision <= seen ? (_outputPulse ??= new(TaskCreationOptions.RunContinuationsAsynchronously)).Task : Task.CompletedTask;
-            try { await pulse.WaitAsync(TimeSpan.FromSeconds(1), _stop.Token).ConfigureAwait(false); } catch (TimeoutException) { }
-            lock (_gate) lock (_outputGate) return new()
-            {
-                Numbers = [_outputRevision],
-                Panes = _sessions.Where(pair => pair.Value.OutputRevision > seen).Select(pair => pair.Key).ToArray()
-            };
-        }
-        if (r.Operation == "navigate") return await NavigateAsync(r);
-        if (r.Operation == "sync") return await SyncAsync(r);
-        if (r.Operation == "shutdown")
-        {
-            await _layoutWrites.WaitAsync(_stop.Token);
-            try
-            {
-                string[] ids;
-                lock (_gate) { ids = _sessions.Keys.ToArray(); _created = true; _emptySince = Environment.TickCount64 - 2000; }
-                foreach (string id in ids) Remove(id);
-            }
-            finally { _layoutWrites.Release(); }
-            return new();
-        }
-        if (r.Operation == "detach")
-        {
-            Entry[] entries; lock (_gate) entries = _sessions.Values.ToArray();
-            foreach (var entry in entries) { entry.Session.Focus(false); entry.Session.Drop(2); }
-            return new();
-        }
-        if (r.Pane.Length is < 1 or > 128) throw new ArgumentException("Invalid pane identity.");
-        if (r.Operation == "create") return await CreateAsync(r);
-        if (r.Operation == "close")
-        {
-            await _layoutWrites.WaitAsync(_stop.Token);
-            try { Remove(r.Pane); return new(); }
-            finally { _layoutWrites.Release(); }
-        }
-        Entry e; lock (_gate) e = _sessions.GetValueOrDefault(r.Pane) ?? throw new PaneNotFoundException();
-        var s = e.Session;
-        long N(int index, long fallback = 0) => r.Numbers.Length > index ? r.Numbers[index] : fallback;
-        switch (r.Operation)
-        {
-            case "state": return new() { State = State(e) };
-            case "capture":
-                lock (e.CaptureGate)
-                {
-                    if (e.Closed) throw new SessionExitedException("This shell session has closed.");
-                    if (r.KnownStatusRevision is < -1) throw new ArgumentException("Invalid terminal status revision.");
-                    int version = s.Version;
-                    if (N(0, -1) == version && N(1, -1) == e.FrameRevision && Environment.TickCount64 < e.AnimationDue) return CaptureStatus(r, new() { State = State(e) });
-                    bool delta = r.AllowFrameDelta && N(0, -1) >= 0 && N(1, -1) == e.FrameRevision && e.CapturedVersion >= 0
-                        && e.CapturedColumns == e.Columns && e.CapturedRows == e.Rows;
-                    long baseline = e.FrameRevision;
-                    if (!s.TryReadSnapshot(e.Cells, out var snapshot)) return CaptureStatus(r, new() { State = State(e) });
-                    delta = delta && snapshot!.Frame.Columns == e.CapturedColumns && snapshot.Frame.Rows == e.CapturedRows && snapshot.ChangedRows.Count < snapshot.Frame.Rows;
-                    Captured(e, snapshot!, version);
-                    var known = r.Images.ToHashSet();
-                    return CaptureStatus(r, new()
-                    {
-                        State = State(e),
-                        CapturedVersion = version,
-                        FrameRevision = e.FrameRevision,
-                        DeltaBaseRevision = delta ? baseline : null,
-                        Scrollbar = snapshot!.Scrollbar,
-                        Binary = r.AllowStyleRuns ? HostSnapshotCodec.EncodeUtf8Runs(snapshot, e.Cells, known, delta) : HostSnapshotCodec.EncodeUtf8(snapshot, e.Cells, known, delta)
-                    });
-                }
-            case "resize":
-                if (N(0) is < 2 or > 1000 || N(1) is < 1 or > 500 || N(2) is < 1 or > 1024 || N(3) is < 1 or > 1024) throw new ArgumentException("Invalid terminal size.");
-                lock (e.CaptureGate)
-                {
-                    if (e.Closed) throw new SessionExitedException("This shell session has closed.");
-                    ushort columns = (ushort)N(0), rows = (ushort)N(1);
-                    var replacement = e.Cells.Length == columns * rows ? e.Cells : new Utf8TerminalBuffer(columns * rows);
-                    s.Resize(columns, rows, (uint)N(2), (uint)N(3)); s.Select(-1, -1);
-                    e.Columns = columns; e.Rows = rows; e.Cells = replacement;
-                }
-                break;
-            case "key": s.Key((uint)N(0), (uint)N(1), r.Text, (TerminalKeyAction)N(2, 1), N(3, -1) < 0 ? null : (uint)N(3), (uint)N(4)); break;
-            case "paste": s.Paste(r.Text, N(0) != 0); break;
-            case "send-text": s.SendText(r.Text); break;
-            case "paste-checked": await s.PasteAsync(r.Text); break;
-            case "clipboard": s.PasteClipboard(); break;
-            case "scroll": s.Scroll((int)N(0)); break;
-            case "scroll-to": s.ScrollTo((ulong)Math.Max(0, N(0))); break;
-            case "focus": s.Focus(N(0) != 0); if (N(0) != 0) Volatile.Write(ref e.PendingAttention, 0); break;
-            case "select": s.Select((int)N(0), (int)N(1)); break;
-            case "gesture": return new() { Numbers = [s.SelectionGesture((int)N(0), N(1) / 1000f, N(2) / 1000f, N(3) != 0)] };
-            case "drop": return new() { Numbers = [s.Drop((int)N(0), (int)N(1), (int)N(2), r.Items, (uint)N(3, 1))] };
-            case "drop-async": return new() { Numbers = [await s.DropAsync((int)N(0), (int)N(1), r.Items ?? [], (uint)N(2, 1), TimeSpan.FromMilliseconds(Math.Clamp(N(3, 15000), 1, 20000)))] };
-            case "copy": return new() { Text = s.CopySelection() };
-            case "hyperlink": return new() { Text = s.Hyperlink((ushort)N(0), (ushort)N(1)) };
-            case "find": var found = s.Find(r.Text, (int)N(0)); return new() { Numbers = [found.Count, found.Index] };
-            case "mouse": return new() { Numbers = [s.Mouse((int)N(0), (int)N(1), (uint)N(2), N(3) / 1000f, N(4) / 1000f) ? 1 : 0] };
-            case "settings": s.ApplySettings(r.Settings ?? throw new ArgumentException("Settings are required.")); break;
-            default: throw new SessionHostException(HostErrorCode.UnknownOperation, "Unknown session operation.");
-        }
-        return new() { State = State(e) };
     }
     private static void ValidateLayout(SavedSession layout)
     {
@@ -457,16 +319,6 @@ public sealed partial class SessionHostServer(string folder) : IAsyncDisposable
             }
         }
         catch (OperationCanceledException) when (_stop.IsCancellationRequested) { }
-    }
-    private static HostReply CaptureStatus(HostRequest request, HostReply reply)
-    {
-        if (request.KnownStatusRevision is not { } known || reply.State is not { } state) return reply;
-        var status = state.Status ?? throw new InvalidOperationException("The owned shell status is incomplete.");
-        reply.StatusRevision = status.Revision;
-        // Only an explicit, negotiated baseline can omit the immutable lists.
-        // Legacy requests continue receiving a complete ShellState.
-        if (known == status.Revision) reply.State = state with { Status = null };
-        return reply;
     }
     public async ValueTask DisposeAsync()
     {

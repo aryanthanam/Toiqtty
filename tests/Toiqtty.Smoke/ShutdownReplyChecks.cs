@@ -16,7 +16,7 @@ internal static class ShutdownReplyChecks
             {
                 for (int i = 0; i < 4; i++) shells.Add(new RemoteTerminalSession(host, Guid.NewGuid().ToString("N"), "cmd.exe /Q /K", Environment.CurrentDirectory, new AppSettings()));
                 // Captures contend with output/state cleanup during shutdown.
-                var capture = host.CallAsync(new() { Operation = "capture", Pane = host.PingForTest().Panes[0], Numbers = [-1] });
+                var capture = host.CallAsync(HostRequests.Capture(host.PingForTest().Panes[0]));
                 host.ShutdownForTest();
                 check(true, "shutdown round " + (iteration + 1) + " receives a complete acknowledgement before the host cancels connections");
                 try { await capture; } catch (IOException) { }

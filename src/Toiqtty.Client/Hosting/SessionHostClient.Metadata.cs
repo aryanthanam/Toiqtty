@@ -65,7 +65,7 @@ public sealed partial class SessionHostClient
         try
         {
             Interlocked.Increment(ref MetadataBatchesForCheck); Interlocked.Add(ref MetadataPanesForCheck,versions.Count);
-            var reply=await CallAsync(new() { Operation="states",StateVersions=versions }).ConfigureAwait(false);
+            var reply=await CallAsync(HostRequests.States(versions)).ConfigureAwait(false);
             if(reply.States is null) throw new IOException("The host omitted its batched metadata response.");
             foreach(var pane in versions.Keys)
             foreach(var request in pending[pane])

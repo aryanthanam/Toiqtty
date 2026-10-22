@@ -23,13 +23,13 @@ internal static class OutputWatchChecks
         }
         async Task Ping(string token)
         {
-            await host.CallAsync(new() { Operation = "paste", Pane = pane, Text = "ping " + token });
-            await host.CallAsync(new() { Operation = "key", Pane = pane, Numbers = [13, 0] });
+            await host.CallAsync(HostRequests.Paste(pane, "ping " + token));
+            await host.CallAsync(HostRequests.Key(pane, 13, 0));
         }
         try
         {
             string command = $"\"{Environment.ProcessPath}\" --performance-client";
-            await host.CallAsync(new() { Operation = "create", Pane = pane, Text = command, Directory = Environment.CurrentDirectory, Settings = new AppSettings() });
+            await host.CallAsync(HostRequests.Create(pane, command, Environment.CurrentDirectory, new AppSettings()));
             host.AddOutputListener(pane, listener, () => Volatile.Read(ref demand) != 0);
             await Task.Delay(100);
             check(notifications == 0, "An output subscriber without demand stays asleep");
@@ -62,7 +62,7 @@ internal static class OutputWatchChecks
             host.AddOutputListener(pane, listener, () => true);
             int restarted = Volatile.Read(ref notifications); await Ping("restart"); await Wait(() => Volatile.Read(ref notifications) > restarted);
             check(true, "Replacing the final subscriber leaves no abandoned waiter that can steal its notification");
-            await host.CallAsync(new() { Operation = "create", Pane = other, Text = command, Directory = Environment.CurrentDirectory, Settings = new AppSettings() });
+            await host.CallAsync(HostRequests.Create(other, command, Environment.CurrentDirectory, new AppSettings()));
             host.AddOutputListener(other, otherListener, () => true); await Wait(() => Volatile.Read(ref otherNotifications) > 0);
             check(true, "A newly interested pane interrupts an older watch and receives its first output");
             host.RemoveOutputListener(pane, listener);
@@ -119,8 +119,8 @@ internal static class OutputWatchChecks
             };
             Volatile.Write(ref intercept, 1); session.WakeCaptureForCheck(); await held.Task.WaitAsync(TimeSpan.FromSeconds(5));
             client.AddOutputListener(pane, watch, () => true);
-            await client.CallAsync(new() { Operation = "paste", Pane = pane, Text = "ping RACE_WAKE" });
-            await client.CallAsync(new() { Operation = "key", Pane = pane, Numbers = [13, 0] });
+            await client.CallAsync(HostRequests.Paste(pane, "ping RACE_WAKE"));
+            await client.CallAsync(HostRequests.Key(pane, 13, 0));
             await noticed.Task.WaitAsync(TimeSpan.FromSeconds(5));
             // The only wake is the output watch. Input bypasses this remote
             // owner's input queue, and the held reply contains no new frame.

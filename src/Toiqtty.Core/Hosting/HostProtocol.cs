@@ -3,6 +3,7 @@ using System.Buffers;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Text.Json.Serialization.Metadata;
 using Toiqtty.Models;
 using Toiqtty.Terminal;
@@ -11,10 +12,10 @@ namespace Toiqtty.Hosting;
 
 internal sealed class HostMessageTooLargeException() : IOException("Session message exceeds the size limit.");
 
-/// <summary>Structured host error, carried beside the human-readable Error text. Written
-/// as a string and omitted when None, so a version-2 peer without it ignores the field.
-/// Disconnected is client-side only: the transport failed and no reply was read.</summary>
-[System.Text.Json.Serialization.JsonConverter(typeof(HostErrorCodeConverter))]
+/// <summary>Structured host error, carried beside the human-readable Error text. Every
+/// protocol-3 error reply sets it; it is a string, omitted when None, which a version-2
+/// peer ignores. Disconnected is client-side only: the transport failed and no reply was read.</summary>
+[JsonConverter(typeof(HostErrorCodeConverter))]
 public enum HostErrorCode
 {
     None, ProtocolMismatch, HostChanged, InvalidRequest, UnknownOperation, SessionMissing, SessionExited, InputBusy, LimitExceeded,
@@ -22,8 +23,8 @@ public enum HostErrorCode
 }
 
 /// <summary>Tolerant string form: a code this build does not know (a newer peer) reads as
-/// None, so callers fall back to the message instead of failing the whole reply.</summary>
-public sealed class HostErrorCodeConverter : System.Text.Json.Serialization.JsonConverter<HostErrorCode>
+/// None (the client classifies it Internal) instead of failing the whole reply.</summary>
+public sealed class HostErrorCodeConverter : JsonConverter<HostErrorCode>
 {
     public override HostErrorCode Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
     {
@@ -44,41 +45,43 @@ public sealed class PaneNotFoundException() : SessionHostException(HostErrorCode
 public sealed class SessionExitedException(string message) : SessionHostException(HostErrorCode.SessionExited, message);
 public sealed class InputBusyException(string message) : SessionHostException(HostErrorCode.InputBusy, message);
 
+/// <summary>Flat request envelope. Protocol, Host and Operation are read first; each
+/// operation then sets only its own typed payload (HostOperations.cs). Names shared with
+/// protocol 2 keep their JSON types so either version's bytes parse as the other's.</summary>
 public sealed class HostRequest
 {
     public int Protocol { get; set; } = HostProtocol.Version;
     public string Host { get; set; } = "";
     public string Operation { get; set; } = "ping";
     public string Pane { get; set; } = "";
+    // Key text, paste/send-text content and the find needle.
     public string Text { get; set; } = "";
-    public string Directory { get; set; } = "";
-    public long[] Numbers { get; set; } = [];
-    public ulong[] Images { get; set; } = [];
-    public AppSettings? Settings { get; set; }
-    public SavedSession? Layout { get; set; }
-    public Dictionary<string, byte[]>? Items { get; set; }
-    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
-    public bool AllowFrameDelta { get; set; }
-    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
-    public bool AllowStyleRuns { get; set; }
-    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
-    public bool ReuseReadConnection { get; set; }
-    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
-    public long? KnownStatusRevision { get; set; }
-    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
-    public string[]? WatchPanes { get; set; }
-    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
-    public Dictionary<string, long>? WatchRevisions { get; set; }
-    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
-    public HostNavigation? Navigation { get; set; }
-    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
-    public Dictionary<string, int>? StateVersions { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public AppSettings? Settings { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public SavedSession? Layout { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)] public bool ReuseReadConnection { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public HostNavigation? Navigation { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public Dictionary<string, int>? StateVersions { get; set; }
     // Orders "create" against "sync" from the same frontend: a layout snapshot
     // never removes a shell that frontend created after taking the snapshot.
-    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
-    public string? LayoutEpoch { get; set; }
-    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
-    public long LayoutRevision { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public string? LayoutEpoch { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)] public long LayoutRevision { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public KeyArgs? Key { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public ResizeArgs? Resize { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public GestureArgs? Gesture { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public MouseArgs? Mouse { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public ScrollArgs? Scroll { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public ScrollToArgs? ScrollTo { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public SelectArgs? Select { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public FocusArgs? Focus { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public PasteArgs? Paste { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public FindArgs? Find { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public CellArgs? Cell { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public DropQueryArgs? DropQuery { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public DropCommitArgs? DropCommit { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public CaptureArgs? Capture { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public WatchArgs? Watch { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public CreateArgs? Create { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public AttachArgs? Attach { get; set; }
 }
 
 public sealed record HostNavigation(string? SelectedWorkspace, HostWorkspaceNavigation[] Workspaces);
@@ -90,75 +93,64 @@ public sealed class HostReply
     public string Host { get; set; } = "";
     public int ProcessId { get; set; }
     public string? Error { get; set; }
-    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
     public HostErrorCode ErrorCode { get; set; }
     public string Text { get; set; } = "";
-    public long[] Numbers { get; set; } = [];
     public ShellState? State { get; set; }
     public SavedSession? Layout { get; set; }
     public string[] Panes { get; set; } = [];
     public int CapturedVersion { get; set; } = -1;
     public long FrameRevision { get; set; }
-    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public long? DeltaBaseRevision { get; set; }
-    // Optional metadata preserves compatibility with older version-2 hosts/clients.
     public TerminalScrollState? Scrollbar { get; set; }
     public int BinaryLength { get; set; }
-    public string[] Capabilities { get; set; } = [];
-    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public Dictionary<string, long>? OutputRevisions { get; set; }
-    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    // The host's global output revision when a watch completes.
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)] public long OutputRevision { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public Dictionary<string, ShellState>? States { get; set; }
-    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
+    // Typed results: gesture/mouse/drop values, find counts, copy-or-key's outcome,
+    // whether create spawned a shell, and attach's absent panes.
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public long? Value { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public FindResult? Find { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public bool? Copied { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public bool? Created { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public string[]? Missing { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
     public long TransportAcceptRetries { get; set; }
-    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
     public bool KeepAlive { get; set; }
-    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public long? StatusRevision { get; set; }
-    [System.Text.Json.Serialization.JsonIgnore] internal int JsonPayloadLength { get; set; }
-    [System.Text.Json.Serialization.JsonIgnore] public byte[] Binary { get; set; } = [];
+    [JsonIgnore] internal int JsonPayloadLength { get; set; }
+    [JsonIgnore] public byte[] Binary { get; set; } = [];
 }
 
 public sealed record ShellState(int Version, bool HasExited, int ExitCode, string Title, string StatusSummary,
     string Directory, string WorkingDirectory, string? LocalDirectory, TerminalPerformance Performance,
     TerminalStatusSnapshot? Status, long Attention, bool PendingAttention)
 {
-    public bool? MouseTracking { get; init; }
+    // Always written by protocol-3 hosts; a version-2 reader's bool? accepts it.
+    public bool MouseTracking { get; init; }
 }
 
 public static class HostProtocol
 {
     internal static bool LegacyJsonForCheck = Environment.GetEnvironmentVariable("TOIQTTY_PERFORMANCE_JSON") == "legacy";
-    // Version 2 preserves browser leaves/settings when the host saves layouts.
-    public const int Version = 2;
+    // Version 3 replaces positional Numbers with typed per-operation payloads and
+    // results, and requires an ErrorCode on every error reply. Version 2 preserved
+    // browser leaves/settings when the host saves layouts.
+    public const int Version = 3;
     public const int MaxJsonBytes = 16 * 1024 * 1024;
     public const int MaxSnapshotBytes = 96 * 1024 * 1024;
     public const int MaxMetadataPanes = 256;
-    public const string MetadataBatchCapability = "metadata-batch-v2";
-    public const string ReusableReadCapability = "reusable-read-v1";
-    public const string StatusRevisionCapability = "status-revisions-v1";
-    public const string MetadataBatchTooLarge = "Metadata batch response exceeds the message size limit.";
     public const string ReplyTooLarge = "Session host reply exceeds the message size limit.";
     /// <summary>The small error a host sends in place of a reply over a frame limit. The
     /// limit is checked before any header is written, so the stream stays framed.</summary>
-    internal static HostReply OversizedReply(string operation, string host, int processId)
-        => new() { Host = host, ProcessId = processId, Error = operation == "states" ? MetadataBatchTooLarge : ReplyTooLarge, ErrorCode = HostErrorCode.ReplyTooLarge };
-    /// <summary>The reply's code, or for a host that predates codes the code its fixed
-    /// message implies. The only place that still reads version-2 error text.</summary>
-    public static HostErrorCode ErrorCodeOf(HostReply reply) => reply.ErrorCode != HostErrorCode.None ? reply.ErrorCode : reply.Error switch
-    {
-        null => HostErrorCode.None,
-        MetadataBatchTooLarge or ReplyTooLarge => HostErrorCode.ReplyTooLarge,
-        "This shell session no longer exists." => HostErrorCode.SessionMissing,
-        "This shell session has closed." => HostErrorCode.SessionExited,
-        "Unknown session operation." => HostErrorCode.UnknownOperation,
-        "Shell creation exceeds the session limits." => HostErrorCode.LimitExceeded,
-        { } error when error.StartsWith("Input busy", StringComparison.Ordinal) || error.StartsWith("Terminal input is busy", StringComparison.Ordinal) => HostErrorCode.InputBusy,
-        { } error when error.StartsWith("The terminal has exited", StringComparison.Ordinal) => HostErrorCode.SessionExited,
-        { } error when error.StartsWith("Incompatible session-host protocol", StringComparison.Ordinal) => HostErrorCode.ProtocolMismatch,
-        { } error when error.StartsWith("The session host changed", StringComparison.Ordinal) => HostErrorCode.HostChanged,
-        _ => HostErrorCode.None
-    };
+    internal static HostReply OversizedReply(string host, int processId)
+        => new() { Host = host, ProcessId = processId, Error = ReplyTooLarge, ErrorCode = HostErrorCode.ReplyTooLarge };
     public static string PipeName(string folder) => "Toiqtty-Sessions-" + Convert.ToHexString(SHA256.HashData(
         Encoding.UTF8.GetBytes(Path.GetFullPath(folder).TrimEnd(Path.DirectorySeparatorChar).ToUpperInvariant())))[..24];
     public static async Task WriteJson<T>(Stream stream, T value, CancellationToken token)

@@ -10,8 +10,8 @@ internal static class HostTestCalls
         try { return client.CallAsync(request, timeout).GetAwaiter().GetResult(); }
         catch (OperationCanceledException ex) { throw new IOException("Session host request timed out. Input was not retried.", ex); }
     }
-    public static HostReply PingForTest(this SessionHostClient client) => client.CallForTest(new());
-    public static void ShutdownForTest(this SessionHostClient client) => client.CallForTest(new() { Operation = "shutdown" });
-    public static void DetachForTest(this SessionHostClient client) => client.CallForTest(new() { Operation = "detach" });
+    public static HostReply PingForTest(this SessionHostClient client) => client.CallForTest(HostRequests.Ping());
+    public static void ShutdownForTest(this SessionHostClient client) => client.CallForTest(HostRequests.Shutdown());
+    public static void DetachForTest(this SessionHostClient client) => client.CallForTest(HostRequests.Detach());
     public static void SaveForTest(this SessionHostClient client, SavedSession layout) => client.SaveAsync(layout).GetAwaiter().GetResult();
 }

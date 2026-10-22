@@ -9,7 +9,7 @@ internal static class HostJsonIpcChecks
     {
         string folder = Path.GetFullPath("artifacts/json-ipc-" + Guid.NewGuid().ToString("N"));
         var client = SessionHostClient.ConnectOrStart(folder, executable); string pane = Guid.NewGuid().ToString("N");
-        await client.CallAsync(new() { Operation = "create", Pane = pane, Text = $"\"{Environment.ProcessPath}\" --persistent-shell-client", Directory = Environment.CurrentDirectory });
+        await client.CallAsync(HostRequests.Create(pane, $"\"{Environment.ProcessPath}\" --persistent-shell-client", Environment.CurrentDirectory, null));
         using var host = Process.GetProcessById(client.ProcessId); using var current = Process.GetCurrentProcess();
         using var lease = client.AcquireCaptureReads();
         try
@@ -17,7 +17,7 @@ internal static class HostJsonIpcChecks
             HostReply baseline; var deadline = DateTime.UtcNow.AddSeconds(8);
             do
             {
-                baseline = await client.CaptureAsync(new() { Operation = "capture", Pane = pane, Numbers = [-1], AllowStyleRuns = true }, [], CancellationToken.None, lease);
+                baseline = await client.CaptureAsync(HostRequests.Capture(pane), [], CancellationToken.None, lease);
                 if (baseline.BinaryLength > 0)
                 {
                     var (Snapshot, Cells) = HostSnapshotCodec.Decode(baseline.Binary, [], payloadLength: baseline.BinaryLength);
@@ -29,7 +29,7 @@ internal static class HostJsonIpcChecks
             var samples = new List<object>(); const int workers = 8, iterations = 1000;
             async Task Worker(int count)
             {
-                var request = new HostRequest { Operation = "capture", Pane = pane, Numbers = [baseline.CapturedVersion, baseline.FrameRevision] };
+                var request = HostRequests.Capture(pane, baseline.CapturedVersion, baseline.FrameRevision);
                 for (int i = 0; i < count; i++)
                 {
                     var reply = await client.CaptureAsync(request, [], CancellationToken.None, lease);
@@ -60,6 +60,6 @@ internal static class HostJsonIpcChecks
             }, new JsonSerializerOptions { WriteIndented = true }));
             Console.WriteLine(output);
         }
-        finally { await client.CallAsync(new() { Operation = "close", Pane = pane }); client.ShutdownForTest(); }
+        finally { await client.CallAsync(HostRequests.Close(pane)); client.ShutdownForTest(); }
     }
 }

@@ -33,8 +33,6 @@ internal static class MetadataBatchChecks
         }
         try
         {
-            Pass(SessionHostClient.RequiredCapabilities.All((await client.CallAsync(new())).Capabilities.Contains),
-                "The host advertises every consumed capability, including batched hidden-pane metadata");
             await Wait(()=>sessions.All(session=>session.Performance.BytesRead>0));
             sessions[0].Select(0,5); bool hadSelection=sessions[0].CopySelection().Length>0;
             sessions[0].Resize(99,30,9,18); bool cleared=sessions[0].CopySelection().Length==0;
@@ -53,16 +51,16 @@ internal static class MetadataBatchChecks
             // Frontend caches and ConPTY resize output can still advance after
             // the RPC completes. Establish the host's own version baseline.
             var versions=ids.ToDictionary(id=>id,_=>-1);
-            var baseline=await client.CallAsync(new() { Operation="states",StateVersions=versions });
+            var baseline=await client.CallAsync(HostRequests.States(versions));
             Pass(baseline.States is { Count:16 } && baseline.Panes.Length==0,"The initial metadata batch reports every requested pane");
             foreach(var pair in baseline.States!) versions[pair.Key]=pair.Value.Version;
             // Force a real version change so draining changed replies is
             // exercised even when startup output has already settled locally.
-            await client.CallAsync(new() { Operation="select",Pane=ids[1],Numbers=[-1,-1] });
+            await client.CallAsync(HostRequests.Select(ids[1],-1,-1));
             bool observedChange=false; var settling=Stopwatch.StartNew(); HostReply unchanged;
             while(true)
             {
-                unchanged=await client.CallAsync(new() { Operation="states",StateVersions=versions });
+                unchanged=await client.CallAsync(HostRequests.States(versions));
                 if(unchanged.States is null || unchanged.Panes.Length!=0) throw new IOException("The metadata baseline lost a pane.");
                 foreach(var pair in unchanged.States)
                 {
@@ -79,7 +77,7 @@ internal static class MetadataBatchChecks
             Pass(observedChange,"A changed pane advances its version in batched metadata");
             Pass(unchanged.States is { Count:0 } && unchanged.Panes.Length==0,"An unchanged metadata batch sends no repeated shell-state payloads");
             string missing=Guid.NewGuid().ToString("N"); versions.Add(missing,-1);
-            var absent=await client.CallAsync(new() { Operation="states",StateVersions=versions }); versions.Remove(missing);
+            var absent=await client.CallAsync(HostRequests.States(versions)); versions.Remove(missing);
             Pass(absent.Panes.SequenceEqual([missing]),"Batched metadata distinguishes a missing pane from an unchanged pane");
             long batches=client.MetadataBatchesForCheck,panes=client.MetadataPanesForCheck;
             await Task.Delay(1300);
@@ -119,7 +117,7 @@ internal static class MetadataBatchChecks
                     "Canceling eighty queued metadata readers releases them without sending an unnecessary host batch");
             }
             bool invalid=false;
-            try { await client.CallAsync(new() { Operation="states",StateVersions=Enumerable.Range(0,257).ToDictionary(i=>"pane"+i,_=>-1) }); }
+            try { await client.CallAsync(HostRequests.States(Enumerable.Range(0,257).ToDictionary(i=>"pane"+i,_=>-1))); }
             catch(IOException) { invalid=true; }
             Pass(invalid && (await client.CallAsync(new())).Panes.Length==16,"Oversized metadata batches are rejected without changing any shell ownership");
             var churn=new RemoteTerminalSession(client,ids[0],command,Environment.CurrentDirectory,new AppSettings());

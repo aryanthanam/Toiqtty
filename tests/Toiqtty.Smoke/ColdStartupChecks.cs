@@ -33,7 +33,7 @@ internal static class ColdStartupChecks
             var host=SessionHostClient.TryConnect(folder);
             if(host is null) return;
             using var process=Process.GetProcessById(host.ProcessId);
-            await host.CallAsync(new() { Operation="shutdown" });
+            await host.CallAsync(HostRequests.Shutdown());
             await process.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(15));
         }
         async Task<JsonElement> Launch(string phase,string expected="PERSIST_READY")

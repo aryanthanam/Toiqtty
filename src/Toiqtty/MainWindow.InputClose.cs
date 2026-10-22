@@ -41,7 +41,7 @@ public sealed partial class MainWindow
                 if(_persistent)
                 {
                     await SessionLifetimeCoordinator.DetachAsync(_saved.Workspaces.SelectMany(w=>w.AllPanes()));
-                    try { if(_host is not null) await _host.CallAsync(new() { Operation="detach" }); }
+                    try { if(_host is not null) await _host.CallAsync(HostRequests.Detach()); }
                     catch(Exception ex) when(ex is IOException or OperationCanceledException) { System.Diagnostics.Debug.WriteLine(ex); }
                 }
             }

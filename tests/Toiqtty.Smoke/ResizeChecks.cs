@@ -39,7 +39,7 @@ internal static class ResizeChecks
                 bool delivered=false; string lastText=""; var deadline=Stopwatch.StartNew();
                 while(deadline.Elapsed<TimeSpan.FromSeconds(10))
                 {
-                    var reply=await host.CallAsync(new() { Operation="capture",Pane=pane,Numbers=[-1] });
+                    var reply=await host.CallAsync(HostRequests.Capture(pane));
                     if(reply.Binary.Length>0)
                     {
                         var (_,cells)=HostSnapshotCodec.Decode(reply.Binary,[]);

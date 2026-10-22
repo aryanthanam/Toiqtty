@@ -85,7 +85,6 @@ internal static class InteractionChecks
         string paneId=Guid.NewGuid().ToString("N");
         using var shell=new RemoteTerminalSession(host,paneId,ShellDefaults.Command+" -NoProfile",Environment.CurrentDirectory,new());
         shell.AttachView();
-        check((await host.CallAsync(new())).Capabilities.Contains("literal-input"),"Session hosts advertise literal input support");
         string marker="RAW_"+Guid.NewGuid().ToString("N"); shell.SendText("Write-Output ('"+marker[..20]+"'+'"+marker[20..]+"')\r");
         var cells=new Toiqtty.Terminal.TerminalCell[3000]; var deadline=DateTime.UtcNow.AddSeconds(10); bool found=false;
         while(!found && DateTime.UtcNow<deadline)

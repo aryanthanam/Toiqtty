@@ -22,15 +22,14 @@ internal static class MetadataPayloadChecks
         var timer = Stopwatch.StartNew();
         try
         {
-            check((await client.CallAsync(new())).Capabilities.Contains(HostProtocol.MetadataBatchCapability), "The host advertises byte-aware metadata batching");
             for (int i = 0; i < 96; i++)
             {
                 string pane = Guid.NewGuid().ToString("N");
-                await client.CallAsync(new() { Operation = "create", Pane = pane, Text = $"cmd.exe /Q /D /K type \"{history}\"", Directory = folder });
+                await client.CallAsync(HostRequests.Create(pane, $"cmd.exe /Q /D /K type \"{history}\"", folder, null));
                 var ready = Stopwatch.StartNew(); ShellState? state;
                 do
                 {
-                    state = (await client.CallAsync(new() { Operation = "state", Pane = pane })).State;
+                    state = (await client.CallAsync(HostRequests.States(new() { [pane] = -1 }))).States?.GetValueOrDefault(pane);
                     if (state?.Status?.Commands.Count == 100) break;
                     if (ready.Elapsed.TotalSeconds > 10) throw new TimeoutException("The real terminal did not capture its bounded command history.");
                     await Task.Delay(20);
@@ -47,12 +46,8 @@ internal static class MetadataPayloadChecks
             catch (IOException) { }
             successful = reads.Count(task => task.IsCompletedSuccessfully && task.Result?.Status?.Commands.Count == 100);
             check(successful == states.Count, "Batched hidden metadata delivers every valid large history without disconnecting unrelated panes");
-            var unchanged = await client.CallAsync(new()
-            {
-                Operation = "states",
-                StateVersions = states.Keys.Select((pane, i) => (pane, i))
-                .ToDictionary(pair => pair.pane, pair => reads[pair.i].Result!.Version)
-            });
+            var unchanged = await client.CallAsync(HostRequests.States(states.Keys.Select((pane, i) => (pane, i))
+                .ToDictionary(pair => pair.pane, pair => reads[pair.i].Result!.Version)));
             check(unchanged.States is { Count: 0 }, "Unchanged large histories omit their payload after a successful split");
             using (var cancel = new CancellationTokenSource())
             {

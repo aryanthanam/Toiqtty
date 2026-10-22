@@ -17,19 +17,18 @@ internal static class StatusRevisionChecks
             { session.TryReadSnapshot(cells, out _); if (timer.Elapsed.TotalSeconds > 8) throw new TimeoutException("Status revisions did not settle."); await Task.Delay(5); }
         }
         async Task Send(string text) { await session.PasteAsync(text); session.Key(13, 0); await session.InputDrained; }
-        HostRequest Request(long? known) => new() { Operation = "capture", Pane = pane, Numbers = [-1], KnownStatusRevision = known, AllowStyleRuns = true };
+        HostRequest Request(long known) => HostRequests.Capture(pane, knownStatusRevision: known);
         try
         {
             session.AttachView(); await Wait(() => session.Status.Progress == 75);
-            check((await client.CallAsync(new())).Capabilities.Contains(HostProtocol.StatusRevisionCapability), "The host advertises immutable status revisions independently of frame encoding");
             await Send("history"); await Wait(() => session.Status.Commands.Count == 100);
             var full = await client.CallAsync(Request(-1)); long revision = full.StatusRevision ?? throw new Exception("Status revision missing.");
             var reused = await client.CallAsync(Request(revision));
             check(full.State?.Status?.Commands.Count == 100 && reused.State is { Status: null } && reused.StatusRevision == revision,
                 "A matching explicit baseline omits unchanged command history while carrying its revision");
             check(full.JsonPayloadLength > reused.JsonPayloadLength * 10, "A warmed 100-command capture avoids more than 90 percent of repeated JSON metadata");
-            var legacy = await client.CallAsync(Request(null));
-            check(legacy.State?.Status?.Commands.Count == 100 && legacy.StatusRevision is null, "Legacy capture requests retain complete status lists and unchanged wire semantics");
+            var stale = await client.CallAsync(Request(revision - 1));
+            check(stale.State?.Status?.Commands.Count == 100 && stale.StatusRevision == revision, "A capture without the current status baseline receives the complete status lists and its revision");
             long before = session.ReusedStatusesForCheck;
             for (int i = 1; i <= 3; i++) { await Send("text"); await Wait(() => string.Concat(cells.Select(cell => cell.GetText())).Contains("STATUS_TEXT_" + i)); }
             check(session.ReusedStatusesForCheck > before && session.Status.Commands.Count == 100 && session.Status.Progress == 75,

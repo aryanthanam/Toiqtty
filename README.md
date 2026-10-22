@@ -226,7 +226,7 @@ toiq reload
 
 Use session IDs or exact unique names; ambiguous names fail. `--data-dir DIRECTORY` targets an isolated toiqtty instance. `sessions` lists sessions/tabs/panes and can read a detached host's layout without starting anything. `launch` explicitly opens the window. Other commands require an open window and reject workspace mutations while a dialog or drag is active.
 
-`toiq send-text --pane ID --text TEXT` sends literal UTF-8, including control characters, without adding Enter. `toiq paste --pane ID --text TEXT` uses Ghostty's paste handling. Omit `--pane` to target the selected pane, or use `--session` to target a session's selected pane. Both report input admission, not command completion. Literal input requires the corresponding host capability. The CLI does not automatically stop or upgrade an existing host.
+`toiq send-text --pane ID --text TEXT` sends literal UTF-8, including control characters, without adding Enter. `toiq paste --pane ID --text TEXT` uses Ghostty's paste handling. Omit `--pane` to target the selected pane, or use `--session` to target a session's selected pane. Both report input admission, not command completion. The CLI does not automatically stop or upgrade an existing host.
 
 The local control pipe is restricted to the current Windows user, versioned and size/deadline bounded. UI mutations use the same action/layout methods as keyboard controls. JSON output goes to stdout; errors go to stderr with exit code 1. Requests are never retried after an ambiguous failure. Dialog-opening actions require the window's normal controls. Remote transport and multiple attached windows remain separate work.
 

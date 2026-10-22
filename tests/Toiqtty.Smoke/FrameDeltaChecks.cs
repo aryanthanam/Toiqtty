@@ -43,7 +43,7 @@ internal static class FrameDeltaChecks
             await Wait(() => ReadFast() && latest!.ChangedRows.Count == 0);
             check(latest!.ChangedRows.Count == 0, "Reading an unchanged tracked frame copies no rows");
             long fullBefore = session.FullFramesForCheck;
-            await client.CallAsync(new() { Operation = "capture", Pane = pane, Numbers = [-1] });
+            await client.CallAsync(HostRequests.Capture(pane));
             session.Focus(true);
             await Wait(() => ReadFast() && session.FullFramesForCheck > fullBefore);
             check(latest!.ChangedRows.Count == 0, "An unchanged full-frame replacement updates metadata without repainting all text rows");

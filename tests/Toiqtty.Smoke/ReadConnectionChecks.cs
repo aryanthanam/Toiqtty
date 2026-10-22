@@ -13,12 +13,10 @@ internal static class ReadConnectionChecks
         SessionHostClient.CaptureReadLease? lease = null;
         try
         {
-            check(SessionHostClient.RequiredCapabilities.All((await client.CallAsync(new())).Capabilities.Contains),
-                "The host advertises every capability the client requires, including reusable read connections");
             var markers = new Dictionary<string, string>();
             foreach (string id in ids)
             {
-                await client.CallAsync(new() { Operation = "create", Pane = id, Text = $"\"{Environment.ProcessPath}\" --persistent-shell-client", Directory = Environment.CurrentDirectory });
+                await client.CallAsync(HostRequests.Create(id, $"\"{Environment.ProcessPath}\" --persistent-shell-client", Environment.CurrentDirectory, null));
                 var until = DateTime.UtcNow.AddSeconds(8);
                 while (true)
                 {
@@ -38,7 +36,7 @@ internal static class ReadConnectionChecks
             check(client.ReadConnectionsOpenedForCheck is > 0 and <= 8 && client.ReadConnectionsReusedForCheck >= 32,
                 "Capture traffic reuses at most eight authenticated connections");
             bool rejected = false;
-            try { await client.CaptureAsync(new() { Operation = "paste", Pane = ids[0], Text = "mark\r" }, [], CancellationToken.None, lease); } catch (ArgumentException) { rejected = true; }
+            try { await client.CaptureAsync(HostRequests.Paste(ids[0], "mark\r"), [], CancellationToken.None, lease); } catch (ArgumentException) { rejected = true; }
             check(rejected && !Text(await client.CallAsync(Request(ids[0]))).Contains("PERSIST_MARK="), "The read pool rejects input requests before sending or retrying them");
             lease.Dispose(); lease.Dispose(); lease = null;
             check(!client.HasCapturePoolForCheck, "The last capture lease retires its pool and idle pipe handles");
@@ -53,7 +51,7 @@ internal static class ReadConnectionChecks
                 if (reply.KeepAlive) held.Add(pipe); else pipe.Dispose();
             }
             check(held.Count == 16, "The host caps retained read connections globally and declines excess keep-alive requests");
-            await client.CallAsync(new() { Operation = "paste", Pane = ids[0], Text = "mark\r" }, TimeSpan.FromSeconds(3));
+            await client.CallAsync(HostRequests.Paste(ids[0], "mark\r"), TimeSpan.FromSeconds(3));
             var deadline = DateTime.UtcNow.AddSeconds(5); bool observed = false;
             while (DateTime.UtcNow < deadline)
             {
@@ -71,13 +69,13 @@ internal static class ReadConnectionChecks
         finally
         {
             lease?.Dispose(); foreach (var pipe in held) pipe.Dispose();
-            foreach (string id in ids) try { await client.CallAsync(new() { Operation = "close", Pane = id }); } catch (IOException) { }
+            foreach (string id in ids) try { await client.CallAsync(HostRequests.Close(id)); } catch (IOException) { }
             try { client.ShutdownForTest(); } catch (IOException) { }
         }
         await StaleConnection(false, check); await StaleConnection(true, check);
-        await EphemeralReads(check); await MissingCapability(check);
+        await EphemeralReads(check); await VersionTwoHost(check);
     }
-    private static HostRequest Request(string pane) => new() { Operation = "capture", Pane = pane, Numbers = [-1], AllowStyleRuns = true };
+    private static HostRequest Request(string pane) => HostRequests.Capture(pane);
     private static string Text(HostReply reply)
     {
         if (reply.BinaryLength == 0) return "";
@@ -105,25 +103,25 @@ internal static class ReadConnectionChecks
         listening.Task.Wait(token);
         return (folder, server);
     }
-    private static async Task MissingCapability(Action<bool, string> check)
+    private static async Task VersionTwoHost(Action<bool, string> check)
     {
         using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(10));
-        var partial = SessionHostClient.RequiredCapabilities.Where(name => name != "literal-input").ToArray();
-        var (folder, server) = Fixture("read-partial-", 1, (_, _) => new() { Host = "partial", Capabilities = partial }, deadline.Token);
+        // A protocol-2 host refuses the protocol-3 ping with its own mismatch reply.
+        var (folder, server) = Fixture("read-v2-", 1, (_, _) => new() { Protocol = 2, Host = "v2", Error = "Incompatible session-host protocol. Stop existing sessions before upgrading the host." }, deadline.Token);
         bool upgrade = false;
         try { SessionHostClient.TryConnect(folder); } catch (SessionHostVersionException) { upgrade = true; }
         await server;
-        check(upgrade, "A version-2 host lacking any consumed capability leads to the version window instead of client fallbacks");
+        check(upgrade, "A protocol-2 host leads to the version window instead of client fallbacks");
     }
     private static async Task EphemeralReads(Action<bool, string> check)
     {
         using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(10));
         string identity = Guid.NewGuid().ToString("N"); bool reuseRequested = true;
-        // Ping, then two captures whose keep-alive the full-capability host denies.
+        // Ping, then two captures whose keep-alive the host denies.
         var (folder, server) = Fixture("read-ephemeral-", 3, (index, request) =>
         {
             if (index > 0) reuseRequested &= request.Operation == "capture" && request.ReuseReadConnection;
-            return new() { Host = identity, Capabilities = SessionHostClient.RequiredCapabilities, Text = "read" + index };
+            return new() { Host = identity, Text = "read" + index };
         }, deadline.Token);
         var client = SessionHostClient.TryConnect(folder) ?? throw new Exception("Fixture did not answer ping.");
         using var lease = client.AcquireCaptureReads() ?? throw new Exception("Capture pool not acquired.");
@@ -144,7 +142,6 @@ internal static class ReadConnectionChecks
             return new()
             {
                 Host = index == 2 && replaceIdentity ? "replaced" : identity,
-                Capabilities = SessionHostClient.RequiredCapabilities,
                 KeepAlive = index > 0,
                 Text = index == 1 ? "first" : "reconnected"
             };

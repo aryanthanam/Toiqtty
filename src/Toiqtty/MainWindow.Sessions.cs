@@ -226,7 +226,7 @@ public sealed partial class MainWindow
         Save();
         await ObserveSave(_sessionPersistence.FlushAsync());
         await SessionLifetimeCoordinator.DetachAsync(_saved.Workspaces.SelectMany(w=>w.AllPanes()));
-        try { if(_host is not null) await _host.CallAsync(new() { Operation="shutdown" }); } catch (Exception ex) when (ex is IOException or OperationCanceledException) { SetStatusMessage(ex.Message, problem: true); return; }
+        try { if(_host is not null) await _host.CallAsync(HostRequests.Shutdown()); } catch (Exception ex) when (ex is IOException or OperationCanceledException) { SetStatusMessage(ex.Message, problem: true); return; }
         _host=null;
         Close();
     }

@@ -9,17 +9,32 @@ internal static class HostJsonChecks
 {
     private static HostRequest Request() => new()
     {
+        // Not a valid single-operation request: it exercises every typed payload at once.
         Operation = "capture",
         Host = "fixture",
         Pane = "pane",
-        Numbers = [7, 18],
-        Images = [1, 4],
-        AllowFrameDelta = true,
-        AllowStyleRuns = true,
+        Text = "café 中🙂",
+        Capture = new(7, 18, 5, [1, 4]),
         ReuseReadConnection = true,
-        WatchPanes = ["pane"],
-        WatchRevisions = new() { { "pane", 8 } },
-        Items = new() { { "text/plain", [0, 1, 255] } },
+        Watch = new(new() { { "pane", 8 } }),
+        Key = new(65, 2, TerminalKeyAction.Repeat, 97, 1),
+        Resize = new(100, 30, 9, 19),
+        Gesture = new(1, 1500, -2250, true),
+        Mouse = new(0, 1, 4, 1500, 2250),
+        Scroll = new(-3),
+        ScrollTo = new(ulong.MaxValue),
+        Select = new(-1, 4),
+        Focus = new(true),
+        Paste = new(true),
+        Find = new(-1),
+        Cell = new(4, 2),
+        DropQuery = new(1, 10, 20, 3, new() { { "text/plain", [0, 1, 255] } }),
+        DropCommit = new(10, 20, 3, 15000, new() { { "text/uri-list", [104, 105] } }),
+        Create = new("cmd.exe", "C:/work", 120, 40),
+        Attach = new([new() { FontFamily = "Consolas" }], [new("pane", 0), new("other", -1)]),
+        StateVersions = new() { { "pane", 3 } },
+        LayoutEpoch = "epoch",
+        LayoutRevision = 9,
         Settings = new() { FontFamily = "Consolas", Bindings = [new() { Key = "Ctrl+A", Action = new() { Kind = "sequence", Steps = [new() { Kind = "paste", Value = "café 中🙂" }, new() { Value = "newTab" }] } }] },
         Layout = new() { Workspaces = [new() { Name = "Unicode 中🙂" }] },
         Navigation = new("workspace", [new("workspace", "tab", new() { { "tab", "pane" } })])
@@ -36,23 +51,29 @@ internal static class HostJsonChecks
             ProcessId = 1,
             State = state,
             States = new() { { "pane", state } },
-            Numbers = [4],
             OutputRevisions = new() { { "pane", 5 } },
+            OutputRevision = 5,
+            Value = -4,
+            Find = new(3, 1),
+            Copied = true,
+            Created = false,
+            Missing = ["gone"],
+            StatusRevision = 9,
+            TransportAcceptRetries = 2,
             CapturedVersion = 4,
             FrameRevision = 7,
             DeltaBaseRevision = 6,
             Scrollbar = new(100, 2, 30),
             KeepAlive = true,
-            Capabilities = [HostProtocol.ReusableReadCapability],
             Layout = Request().Layout
         };
     }
     internal static async Task Run(Action<bool, string> check)
     {
         Compare(new HostRequest(), HostJsonContext.Default.HostRequest, "Default request");
-        Compare(Request(), HostJsonContext.Default.HostRequest, "Settings, recursive action bindings, Unicode layout, navigation and binary items");
+        Compare(Request(), HostJsonContext.Default.HostRequest, "Every typed payload, settings, recursive action bindings, Unicode layout, navigation and binary items");
         Compare(new HostReply(), HostJsonContext.Default.HostReply, "Default reply");
-        Compare(Reply(), HostJsonContext.Default.HostReply, "Shell metadata, command timestamps, arrays, nullable fields and capabilities");
+        Compare(Reply(), HostJsonContext.Default.HostReply, "Shell metadata, command timestamps, arrays, nullable fields and typed results");
         Compare(new HostReply { Error = "Invalid <request> & \"input\"", Binary = [1, 2, 3] }, HostJsonContext.Default.HostReply, "Errors and excluded binary snapshot storage");
         Compare(Request().Settings!, ConfigurationJsonContext.Default.AppSettings, "Configuration settings with recursive actions");
         Compare(Request().Layout!, ConfigurationJsonContext.Default.SavedSession, "Persisted sessions and pane layout");

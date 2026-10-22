@@ -22,7 +22,7 @@ public sealed class RemoteTerminalSession : ITerminalSession
     private readonly SemaphoreSlim _pollWake = new(0, 1);
     private readonly OrderedHostInput _input;
     private readonly SessionHostClient.CaptureReadLease? _captureReads;
-    private readonly HashSet<long> _copiedKeys = [];
+    private readonly HashSet<uint> _copiedKeys = [];
     private long _interactiveUntil;
     private long _urgentPresentationUntil;
     internal bool IsInteractiveForPresentation => System.Diagnostics.Stopwatch.GetTimestamp() < Interlocked.Read(ref _urgentPresentationUntil);
@@ -60,7 +60,7 @@ public sealed class RemoteTerminalSession : ITerminalSession
     }
     internal long CapturesForCheck;
     internal Action? HiddenMetadataQueuedForCheck { get; set; }
-    internal Task<HostReply> CaptureDiagnosticsForCheck() => _client.CallAsync(Request("capture", [-1]));
+    internal Task<HostReply> CaptureDiagnosticsForCheck() { lock (_gate) return _client.CallAsync(HostRequests.Capture(_pane, knownStatusRevision: _captureStatusRevision)); }
     internal long DeltaFramesForCheck, FullFramesForCheck, FrameBytesForCheck;
     internal long FrameMetadataBytesForCheck, FullStatusesForCheck, ReusedStatusesForCheck;
     public event Action? FrameAvailable;
@@ -106,7 +106,7 @@ public sealed class RemoteTerminalSession : ITerminalSession
     {
         _client = client; _pane = pane;
         _input = new(SendQueuedRequest);
-        _state = client.Call(new() { Operation = "create", Pane = pane, Text = command, Directory = directory, Settings = settings, Layout = layout, LayoutEpoch = client.LayoutEpoch, LayoutRevision = client.NextLayoutRevision() }).State
+        _state = client.Call(HostRequests.Create(pane, command, directory, settings, layout, client.LayoutEpoch, client.NextLayoutRevision())).State
             ?? throw new IOException("The session host did not return shell state.");
         var initialStatus = _state.Status ?? throw new IOException("The session host returned incomplete shell status.");
         _attention = _state.Attention; _notice = initialStatus.Notices.LastOrDefault()?.Time ?? default;
@@ -146,43 +146,18 @@ public sealed class RemoteTerminalSession : ITerminalSession
     private void WakeCapture() { _client.OutputDemandChanged(); try { _pollWake.Release(); } catch (SemaphoreFullException) { } }
     internal void WakeCaptureForCheck() => WakeCapture();
     private void HostOutputChanged(string pane) { if (Volatile.Read(ref _viewers) > 0 && Volatile.Read(ref _frameAwaitingRead) == 0 && (pane == _pane || pane.Length == 0)) WakeCapture(); }
-    private HostRequest Request(string operation, long[]? numbers = null, string text = "")
-    {
-        var request = new HostRequest
-        {
-            Operation = operation,
-            Pane = _pane,
-            Numbers = numbers ?? [],
-            Text = text
-        };
-        if (operation == "capture")
-        {
-            request.AllowStyleRuns = true;
-            lock (_gate) request.KnownStatusRevision = _captureStatusRevision;
-        }
-        return request;
-    }
     private async Task<HostReply> SendQueuedRequest(HostRequest request)
     {
         if (LatencyStageForCheck is not null) TraceLatency("input-send-" + request.Operation);
         HostReply reply;
-        if (request.Operation == "copy-key")
-        {
-            reply = await _client.CallAsync(Request("copy")).ConfigureAwait(false);
-            if (reply.Text.Length == 0)
-            {
-                _copiedKeys.Remove(request.Numbers[0]);
-                reply = await _client.CallAsync(Request("key", request.Numbers, request.Text)).ConfigureAwait(false);
-            }
-            else _copiedKeys.Add(request.Numbers[0]);
-            var cleared = await _client.CallAsync(Request("select", [-1, -1])).ConfigureAwait(false);
-            reply.State = cleared.State;
-        }
-        else if (request.Operation == "key" && request.Numbers[2] == 0 && _copiedKeys.Remove(request.Numbers[0])) reply = new();
+        // The release of a key whose press copied a selection is never sent, so the
+        // application sees neither half of that Ctrl+C. Every other request is one call.
+        if (request.Key is { Action: TerminalKeyAction.Release } released && request.Operation == "key" && _copiedKeys.Remove(released.Key)) reply = new();
         else
         {
-            if (request.Operation == "key" && request.Numbers[2] != 0) _copiedKeys.Remove(request.Numbers[0]);
+            if (request.Key is { Action: not TerminalKeyAction.Release } pressed) _copiedKeys.Remove(pressed.Key);
             reply = await _client.CallAsync(request).ConfigureAwait(false);
+            if (reply.Copied == true) _copiedKeys.Add(request.Key!.Key);
         }
         if (LatencyStageForCheck is not null) TraceLatency("input-ack-" + request.Operation);
         Accept(reply);
@@ -193,11 +168,11 @@ public sealed class RemoteTerminalSession : ITerminalSession
     internal async Task<string> CopyOrKeyAsync(uint key, uint modifiers, string text, TerminalKeyAction action, uint unshifted, uint consumed)
     {
         MarkInteractive();
-        var reply = await _input.Enqueue(Request("copy-key", [key, modifiers, (long)action, unshifted, consumed], text)).ConfigureAwait(false);
+        var reply = await _input.Enqueue(HostRequests.CopyOrKey(_pane, key, modifiers, text, action, unshifted, consumed)).ConfigureAwait(false);
         ObserveInputReply(reply); return reply.Text;
     }
     public async Task<string> CopySelectionAsync()
-    { var reply = await _input.Enqueue(Request("copy")).ConfigureAwait(false); ObserveInputReply(reply); return reply.Text; }
+    { var reply = await _input.Enqueue(HostRequests.Copy(_pane)).ConfigureAwait(false); ObserveInputReply(reply); return reply.Text; }
     private void Accept(HostReply reply)
     {
         if (reply.State is not { } state) return;
@@ -267,7 +242,7 @@ public sealed class RemoteTerminalSession : ITerminalSession
             }
             else if (previousFrame is { } oldFrame && oldFrame.Columns == _snapshot.Frame.Columns && oldFrame.Rows == _snapshot.Frame.Rows)
             {
-                // Older hosts and recovery captures send complete grids. Compare
+                // Recovery and baseline-less captures send complete grids. Compare
                 // those here, off the UI thread, so a cursor-only full reply does
                 // not force every retained text row to be repainted.
                 int columns = (int)_snapshot.Frame.Columns;
@@ -320,9 +295,9 @@ public sealed class RemoteTerminalSession : ITerminalSession
                     }
                     else
                     {
-                        var request = Request("capture", [_captured, Interlocked.Read(ref _frameRevision)]);
-                        request.AllowFrameDelta = _captured >= 0;
-                        lock (_gate) request.Images = _images.Keys.ToArray();
+                        // The host sends a row delta only when this baseline is its last capture.
+                        HostRequest request;
+                        lock (_gate) request = HostRequests.Capture(_pane, _captured, _frameRevision, _captureStatusRevision, _images.Count == 0 ? null : _images.Keys.ToArray());
                         await _captureRequests.WaitAsync(_stop.Token).ConfigureAwait(false);
                         try
                         {
@@ -384,7 +359,7 @@ public sealed class RemoteTerminalSession : ITerminalSession
     private async Task ObserveQueuedInput(Task<HostReply> request)
     { ObserveInputReply(await request.ConfigureAwait(false)); }
     public async Task<string> HyperlinkAsync(ushort column, ushort row)
-    { try { return (await _client.CallAsync(Request("hyperlink", [column, row]), cancellation: _stop.Token).ConfigureAwait(false)).Text; } catch (Exception ex) when (ex is IOException or OperationCanceledException) { return ""; } }
+    { try { return (await _client.CallAsync(HostRequests.Hyperlink(_pane, column, row), cancellation: _stop.Token).ConfigureAwait(false)).Text; } catch (Exception ex) when (ex is IOException or OperationCanceledException) { return ""; } }
     public TerminalFrame ReadFrame(TerminalCell[] cells) => ReadSnapshot(cells).Frame;
     public TerminalSnapshot ReadSnapshot(TerminalCell[] cells)
     {
@@ -394,7 +369,7 @@ public sealed class RemoteTerminalSession : ITerminalSession
         try
         {
             ObjectDisposedException.ThrowIf(Volatile.Read(ref _closed) != 0, this);
-            var request = Request("capture", [-1]); lock (_gate) request.Images = _images.Keys.ToArray();
+            HostRequest request; lock (_gate) request = HostRequests.Capture(_pane, knownStatusRevision: _captureStatusRevision, images: _images.Count == 0 ? null : _images.Keys.ToArray());
             Cache(_client.Call(request));
             if (!TryReadSnapshot(cells, out var snapshot)) throw new IOException("Terminal snapshot is not ready.");
             return snapshot!;
@@ -437,9 +412,9 @@ public sealed class RemoteTerminalSession : ITerminalSession
         finally { Monitor.Exit(_gate); }
     }
     public void ApplySettings(AppSettings settings)
-    { var request = Request("settings"); request.Settings = System.Text.Json.JsonSerializer.Deserialize<AppSettings>(System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(settings)); QueueInput(request); }
+    { QueueInput(HostRequests.Settings(_pane, System.Text.Json.JsonSerializer.Deserialize<AppSettings>(System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(settings))!)); }
     public void Resize(ushort columns, ushort rows, uint width, uint height)
-    { _columns = columns; _rows = rows; _cellPixelWidth = width; _cellPixelHeight = height; Send(Request("resize", [columns, rows, width, height])); }
+    { _columns = columns; _rows = rows; _cellPixelWidth = width; _cellPixelHeight = height; Send(HostRequests.Resize(_pane, columns, rows, (int)width, (int)height)); }
     internal void QueueResize(ushort columns, ushort rows, uint width, uint height)
     {
         lock (_resizeGate)
@@ -469,7 +444,7 @@ public sealed class RemoteTerminalSession : ITerminalSession
                 // Never synchronously wait on an STA layout callback: the CLR's
                 // COM wait pumps pointer messages back into WinUI layout.
                 Interlocked.Increment(ref ResizeRequestsSent);
-                var reply = await _input.Enqueue(Request("resize", [size.Columns, size.Rows, size.Width, size.Height])).ConfigureAwait(false);
+                var reply = await _input.Enqueue(HostRequests.Resize(_pane, size.Columns, size.Rows, (int)size.Width, (int)size.Height)).ConfigureAwait(false);
                 ObserveInputReply(reply); WakeCapture();
             }
         }
@@ -481,65 +456,61 @@ public sealed class RemoteTerminalSession : ITerminalSession
         }
     }
     public void Key(uint key, uint modifiers, string text = "", TerminalKeyAction action = TerminalKeyAction.Press, uint? unshiftedCodepoint = null, uint consumedModifiers = 0)
-        => QueueInput(Request("key", [key, modifiers, (long)action, unshiftedCodepoint is { } code ? code : -1, consumedModifiers], text));
-    public void Paste(string text, bool clipboard = false) => QueueInput(Request("paste", [clipboard ? 1 : 0], text));
+        => QueueInput(HostRequests.Key(_pane, key, modifiers, text, action, unshiftedCodepoint, consumedModifiers));
+    public void Paste(string text, bool clipboard = false) => QueueInput(HostRequests.Paste(_pane, text, clipboard));
     public void SendText(string text)
     {
         if (System.Text.Encoding.UTF8.GetByteCount(text) > 65536) throw new ArgumentException("Literal input exceeds 64 KiB.");
-        QueueInput(Request("send-text", text: text));
+        QueueInput(HostRequests.SendText(_pane, text));
     }
     public Task SendTextAsync(string text)
     {
         if (System.Text.Encoding.UTF8.GetByteCount(text) > 65536) throw new ArgumentException("Literal input exceeds 64 KiB.");
-        return AdmitText(Request("send-text", text: text));
+        return AdmitText(HostRequests.SendText(_pane, text));
     }
-    public Task PasteAsync(string text) => AdmitText(Request("paste-checked", [0], text));
+    public Task PasteAsync(string text) => AdmitText(HostRequests.PasteChecked(_pane, text));
     private async Task AdmitText(HostRequest request)
     {
         var reply = await _input.Enqueue(request).ConfigureAwait(false); ObserveInputReply(reply);
         if (reply.Error is not null) throw new SessionHostException(reply.ErrorCode, reply.Error);
     }
-    public void PasteClipboard() => QueueInput(Request("clipboard"));
-    public void Scroll(int delta) => QueueInput(Request("scroll", [delta]));
-    public void ScrollTo(ulong row) => QueueInput(Request("scroll-to", [(long)Math.Min(row, (ulong)long.MaxValue)]));
-    public void Focus(bool focused) => QueueInput(Request("focus", [focused ? 1 : 0]));
-    public void Select(int start, int end) => QueueInput(Request("select", [start, end]));
+    public void PasteClipboard() => QueueInput(HostRequests.Clipboard(_pane));
+    public void Scroll(int delta) => QueueInput(HostRequests.Scroll(_pane, delta));
+    public void ScrollTo(ulong row) => QueueInput(HostRequests.ScrollTo(_pane, row));
+    public void Focus(bool focused) => QueueInput(HostRequests.Focus(_pane, focused));
+    public void Select(int start, int end) => QueueInput(HostRequests.Select(_pane, start, end));
     public int SelectionGesture(int action, float x, float y, bool rectangle = false)
-    => (int)Send(Request("gesture", [action, (long)(x * 1000), (long)(y * 1000), rectangle ? 1 : 0])).Numbers.FirstOrDefault();
+    => (int)(Send(HostRequests.Gesture(_pane, action, x, y, rectangle)).Value ?? 0);
     public void QueueSelectionGesture(int action, float x, float y, bool rectangle = false)
-    => QueueInput(Request("gesture", [action, (long)(x * 1000), (long)(y * 1000), rectangle ? 1 : 0]));
+    => QueueInput(HostRequests.Gesture(_pane, action, x, y, rectangle));
     public int Drop(int action, int x = 0, int y = 0, IReadOnlyDictionary<string, byte[]>? items = null, uint operations = 1)
-    {
-        var request = Request("drop", [action, x, y, operations]); request.Items = items?.ToDictionary();
-        return (int)Send(request).Numbers.FirstOrDefault();
-    }
+        => (int)(Send(HostRequests.DropQuery(_pane, action, x, y, operations, items)).Value ?? 0);
     public async Task<int> DropAsync(int x, int y, IReadOnlyDictionary<string, byte[]> items, uint operations = 1, TimeSpan? timeout = null)
     {
         await _input.Drain.ConfigureAwait(false);
-        var request = Request("drop-async", [x, y, operations, (long)(timeout ?? TimeSpan.FromSeconds(15)).TotalMilliseconds]); request.Items = items.ToDictionary();
-        try { return (int)(await _client.CallAsync(request, TimeSpan.FromSeconds(23), _stop.Token)).Numbers.FirstOrDefault(); }
+        var request = HostRequests.DropCommit(_pane, x, y, operations, timeout ?? TimeSpan.FromSeconds(15), items);
+        try { return (int)((await _client.CallAsync(request, TimeSpan.FromSeconds(23), _stop.Token)).Value ?? 0); }
         catch (Exception ex) when (ex is IOException or OperationCanceledException) { return 0; }
     }
-    public string CopySelection() => Send(Request("copy")).Text;
+    public string CopySelection() => Send(HostRequests.Copy(_pane)).Text;
     public async Task<int> QueryDropAsync(int action, int x = 0, int y = 0, IReadOnlyDictionary<string, byte[]>? items = null, uint operations = 1)
     {
-        var reply = await _input.Enqueue(new HostRequest { Operation = "drop", Pane = _pane, Numbers = [action, x, y, operations], Items = items?.ToDictionary() }).ConfigureAwait(false);
-        ObserveInputReply(reply); return (int)reply.Numbers.FirstOrDefault();
+        var reply = await _input.Enqueue(HostRequests.DropQuery(_pane, action, x, y, operations, items)).ConfigureAwait(false);
+        ObserveInputReply(reply); return (int)(reply.Value ?? 0);
     }
     public async Task<(int Count, int Index)> FindAsync(string text, int direction)
     {
-        var reply = await _input.Enqueue(Request("find", [direction], text)).ConfigureAwait(false);
-        ObserveInputReply(reply); var values = reply.Numbers;
-        return values.Length == 2 ? ((int)values[0], (int)values[1]) : (0, 0);
+        var reply = await _input.Enqueue(HostRequests.Find(_pane, text, direction)).ConfigureAwait(false);
+        ObserveInputReply(reply); return reply.Find is { } found ? (found.Count, found.Index) : (0, 0);
     }
-    public string Hyperlink(ushort column, ushort row) => Send(Request("hyperlink", [column, row])).Text;
+    public string Hyperlink(ushort column, ushort row) => Send(HostRequests.Hyperlink(_pane, column, row)).Text;
     public (int Count, int Index) Find(string text, int direction)
-    { var values = Send(Request("find", [direction], text)).Numbers; return values.Length == 2 ? ((int)values[0], (int)values[1]) : (0, 0); }
+    { var found = Send(HostRequests.Find(_pane, text, direction)).Find; return found is null ? (0, 0) : (found.Count, found.Index); }
     public bool Mouse(int action, int button, uint modifiers, float x, float y)
     {
-        // Every required-capability host reports mouse tracking with its state.
-        if (_state.MouseTracking != true) return false;
-        QueueInput(Request("mouse", [action, button, modifiers, (long)(x * 1000), (long)(y * 1000)]));
+        // Hosts report mouse tracking with every shell state.
+        if (!_state.MouseTracking) return false;
+        QueueInput(HostRequests.Mouse(_pane, action, button, modifiers, x, y));
         return true;
     }
     public void Detach() => BeginClose(false);
@@ -575,6 +546,6 @@ public sealed class RemoteTerminalSession : ITerminalSession
             }
             finally { _captureRequests.Release(); _captureReads?.Dispose(); }
         }
-        if (close) try { await _client.CallAsync(Request("close")).ConfigureAwait(false); } catch (Exception ex) when (ex is IOException or OperationCanceledException) { }
+        if (close) try { await _client.CallAsync(HostRequests.Close(_pane)).ConfigureAwait(false); } catch (Exception ex) when (ex is IOException or OperationCanceledException) { }
     }
 }

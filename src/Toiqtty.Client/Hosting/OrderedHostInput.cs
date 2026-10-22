@@ -9,7 +9,7 @@ internal sealed class OrderedHostInput(Func<HostRequest,Task<HostReply>> send)
     private sealed record Entry(HostRequest Request,int Bytes,TaskCompletionSource<HostReply> Completion);
     private readonly Lock _gate =new();
     private readonly Queue<Entry> _queue=[];
-    private readonly HashSet<long> _pressed=[];
+    private readonly HashSet<uint> _pressed=[];
     private int _count,_bytes;
     private bool _running,_completed,_failed;
     private TaskCompletionSource _drained=Ready();
@@ -19,20 +19,21 @@ internal sealed class OrderedHostInput(Func<HostRequest,Task<HostReply>> send)
     internal Task Drain { get { lock(_gate) return _drained.Task; } }
     internal Task<HostReply> Enqueue(HostRequest request)
     {
-        long cost=128L+Encoding.UTF8.GetByteCount(request.Text)+request.Numbers.LongLength*8+request.Images.LongLength*8;
-        if(request.Items is not null) foreach(var item in request.Items) cost+=Encoding.UTF8.GetByteCount(item.Key)+item.Value.LongLength;
-        if(request.Settings is not null) cost+=System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(request.Settings).LongLength;
-        if(request.Layout is not null) cost+=System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(request.Layout).LongLength;
+        long cost=128L+Encoding.UTF8.GetByteCount(request.Text);
+        if((request.DropQuery?.Items ?? request.DropCommit?.Items) is { } items) foreach(var item in items) cost+=Encoding.UTF8.GetByteCount(item.Key)+item.Value.LongLength;
+        if(request.Settings is not null) cost+=System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(request.Settings,HostJsonContext.Default.AppSettings).LongLength;
+        if(request.Layout is not null) cost+=System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(request.Layout,HostJsonContext.Default.SavedSession).LongLength;
         if(cost>MaxBytes) return Task.FromResult(new HostReply { Error="Input busy · the complete request exceeds the queue limit.",ErrorCode=HostErrorCode.InputBusy });
         int bytes=(int)cost;
         lock(_gate)
         {
             if(_completed || _failed) return Task.FromResult(new HostReply { Error="Input delivery is closed; input was not retried.",ErrorCode=HostErrorCode.Disconnected });
-            bool key=request.Operation is "key" or "copy-key" && request.Numbers.Length>=3 && request.Numbers[0]!=0;
-            long code=key?request.Numbers[0]:0;
-            bool release=key && request.Numbers[2]==0;
+            // Only key and copy-or-key carry KeyArgs.
+            bool key=request.Key is { Key: not 0 };
+            uint code=key?request.Key!.Key:0;
+            bool release=key && request.Key!.Action==Terminal.TerminalKeyAction.Release;
             int held=_pressed.Count+(key && !release && !_pressed.Contains(code)?1:0)-(release && _pressed.Contains(code)?1:0);
-            int focusReserve=request.Operation=="focus" && request.Numbers.FirstOrDefault()==0?0:1;
+            int focusReserve=request.Focus is { Focused: false }?0:1;
             // Each admitted held key reserves a release, plus one final focus
             // loss. A paste is admitted as one complete request or rejected.
             if(_count+1+held+focusReserve>MaxRequests || _bytes+(long)bytes+(held+focusReserve)*256L>MaxBytes)

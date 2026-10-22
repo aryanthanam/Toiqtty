@@ -112,7 +112,7 @@ internal static class BrowserChecks
             {
                 await oldPipe.WaitForConnectionAsync();
                 var request = await HostProtocol.ReadJson<HostRequest>(oldPipe, CancellationToken.None);
-                await HostProtocol.WriteJson(oldPipe, new HostReply { Protocol = 1, Host = "legacy", Error = "Incompatible session-host protocol." }, CancellationToken.None);
+                await HostProtocol.WriteJson(oldPipe, new HostReply { Protocol = 2, Host = "legacy", Error = "Incompatible session-host protocol." }, CancellationToken.None);
                 return request.Operation;
             });
             bool incompatible = false;

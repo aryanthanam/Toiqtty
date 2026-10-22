@@ -249,6 +249,7 @@ ProtocolChecks.Run(Check);
 ImageMediumChecks.Run(Check);
 HostProtocolChecks.Run(Check);
 HostV2Wire.Run(Check);
+await HostV2Wire.RunClient(Check);
 KeyboardLayoutChecks.Run(Check);
 await ProtocolChecks.Transport(Check);
 await ImageMediumChecks.Transport(Check);

@@ -9,7 +9,7 @@ internal sealed class HostSnapshotException(string message, Exception? inner = n
 /// <summary>Lossless full frames and negotiated row deltas; pixels cross once per generation.</summary>
 public static partial class HostSnapshotCodec
 {
-    private const uint DeltaMagic = 0x3144544f; // OTD1, only used with row-delta capability.
+    private const uint DeltaMagic = 0x3144544f; // OTD1, only used for row deltas.
     public static byte[] Encode(TerminalSnapshot snapshot, TerminalCell[] cells, HashSet<ulong> known)
         => EncodeCore(snapshot, cells, known, null);
     public static byte[] EncodeDelta(TerminalSnapshot snapshot, TerminalCell[] cells, HashSet<ulong> known)
