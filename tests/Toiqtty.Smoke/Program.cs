@@ -365,6 +365,15 @@ using (var session = new TerminalSession("powershell.exe -NoLogo -NoProfile", En
         && DateTime.UtcNow < deadline) await Task.Delay(100);
     Check(string.Equals(Path.TrimEndingDirectorySeparator(session.Directory), Path.TrimEndingDirectorySeparator(Path.GetTempPath()), StringComparison.OrdinalIgnoreCase),
         "PowerShell prompt reports live directory changes through OSC 7");
+    Check(string.Equals(Path.TrimEndingDirectorySeparator(session.LocalDirectory ?? ""), Path.TrimEndingDirectorySeparator(Path.GetTempPath()), StringComparison.OrdinalIgnoreCase),
+        "the integration's authenticated OSC 7 survives Ghostty and sets the local directory");
+    session.Paste("[Console]::Write([char]27 + ']7;file:///C:/Windows' + [char]7); Start-Sleep -Seconds 5"); session.Key(13, 0);
+    deadline = DateTime.UtcNow.AddSeconds(15);
+    while (!session.Directory.Equals(@"C:\Windows", StringComparison.OrdinalIgnoreCase) && DateTime.UtcNow < deadline) await Task.Delay(100);
+    // Like a remote location, it clears local tracking: new panes use the configured start folder.
+    Check(session.Directory.Equals(@"C:\Windows", StringComparison.OrdinalIgnoreCase) && session.LocalDirectory is null
+        && !session.WorkingDirectory.Equals(@"C:\Windows", StringComparison.OrdinalIgnoreCase),
+        "an OSC 7 written by a program in the shell is shown but never becomes the local directory");
 }
 await ShellIntegrationChecks.Run(Check);
 await HardeningChecks.Run(Check);

@@ -579,6 +579,10 @@ int ot_frame(OtTerminal* self, OtFrame* frame, OtCell* output, size_t capacity) 
     return (int)total;
 }
 void ot_incremental(OtTerminal* self, int enabled) { self->incremental = enabled != 0; self->force_full = true; }
+void ot_image_files(OtTerminal* self, int enabled) {
+    bool files = enabled != 0;
+    ghostty_terminal_set(self->terminal, GHOSTTY_TERMINAL_OPT_KITTY_IMAGE_MEDIUM_FILE, &files);
+}
 int ot_row_changed(OtTerminal* self, uint32_t row) { return row < self->row_capacity && self->row_changed[row]; }
 int ot_graphics(OtTerminal* self, const OtGraphic** graphics) { *graphics = self->graphics; return (int)self->graphics_count; }
 uint64_t ot_graphics_cache_bytes(OtTerminal* self) {

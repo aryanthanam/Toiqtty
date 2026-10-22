@@ -544,6 +544,7 @@ public sealed partial class MainWindow : Window
         var size = new NumberBox { Header = "Font size", Minimum = 9, Maximum = 32, Value = _saved.Settings.FontSize, SpinButtonPlacementMode = NumberBoxSpinButtonPlacementMode.Inline };
         var clipboardWrite = new ToggleSwitch { Header = "Allow applications to write the clipboard", IsOn = _saved.Settings.AllowClipboardWrite };
         var clipboardRead = new ToggleSwitch { Header = "Allow applications to read the clipboard", IsOn = _saved.Settings.AllowClipboardRead };
+        var imageFiles = new ToggleSwitch { Header = "Allow applications to display local image files", IsOn = _saved.Settings.AllowImageFiles };
         var ligatures = new ToggleSwitch { Header = "Font ligatures", IsOn = _saved.Settings.Ligatures };
         var notifications = new ToggleSwitch { Header = "Desktop notifications for background terminals", IsOn = _saved.Settings.DesktopNotifications };
         var bindings = new TextBox { Header = "Keyboard shortcuts", AcceptsReturn = true, MaxHeight = 180,
@@ -553,12 +554,12 @@ public sealed partial class MainWindow : Window
         var panel = new StackPanel { Spacing = 10, MinWidth = 400 };
         foreach (var (control, property) in new (Control, string)[] { (shell,"Shell"), (directory,"StartDirectory"), (font,"FontFamily"), (size,"FontSize"),
             (ligatures,"Ligatures"), (notifications,"DesktopNotifications"), (clipboardWrite,"AllowClipboardWrite"),
-            (clipboardRead,"AllowClipboardRead"), (bindings,"Keybindings") }) control.IsEnabled = !LuaOwns(property);
+            (clipboardRead,"AllowClipboardRead"), (imageFiles,"AllowImageFiles"), (bindings,"Keybindings") }) control.IsEnabled = !LuaOwns(property);
         panel.Children.Add(new TextBlock { Text="Defaults apply to new shells. Appearance and input settings also apply to current terminals.",FontSize=12,Foreground=Chrome.Brush(Chrome.Secondary),TextWrapping=TextWrapping.Wrap,Margin=new Thickness(0,0,0,4) });
         if (_luaConfig.Overrides.Length>0) panel.Children.Add(new TextBlock { Text="Some settings are managed by your Lua configuration.",FontSize=12,Foreground=Chrome.Brush(Chrome.Accent),TextWrapping=TextWrapping.Wrap });
         Section("Shells and sessions",true,shell,directory);
         Section("Appearance",false,font,size,ligatures);
-        Section("Notifications and clipboard",false,notifications,clipboardWrite,clipboardRead);
+        Section("Notifications and clipboard",false,notifications,clipboardWrite,clipboardRead,imageFiles);
         Section("Keyboard shortcuts",false,bindings);
         Section("Lua configuration",false,LuaSettingsControls());
         panel.Children.Add(error);
@@ -581,6 +582,7 @@ public sealed partial class MainWindow : Window
         _saved.Settings.Shell = shell.Text.Trim(); _saved.Settings.StartDirectory = Environment.ExpandEnvironmentVariables(directory.Text);
         _saved.Settings.FontFamily = font.Text.Trim(); _saved.Settings.FontSize = (float)(double.IsFinite(size.Value) ? Math.Clamp(size.Value, 9, 32) : 14);
         _saved.Settings.AllowClipboardWrite = clipboardWrite.IsOn; _saved.Settings.AllowClipboardRead = clipboardRead.IsOn;
+        _saved.Settings.AllowImageFiles = imageFiles.IsOn;
         _saved.Settings.Ligatures = ligatures.IsOn; _saved.Settings.Keybindings = parsedBindings ?? [];
         _saved.Settings.DesktopNotifications = notifications.IsOn;
         foreach (var workspace in _saved.Workspaces) foreach (var pane in workspace.AllPanes()) pane.Session?.ApplySettings(_saved.Settings.WithTerminalTheme(workspace.Theme));

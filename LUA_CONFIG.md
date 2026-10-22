@@ -43,6 +43,7 @@ Return exactly one table. Conditions, functions, loops, math, strings, tables, b
 | `ligatures` | boolean | Terminal font ligatures |
 | `desktop_notifications` | boolean | Background terminal notifications |
 | `allow_clipboard_read` / `allow_clipboard_write` | boolean | Existing application clipboard policies |
+| `allow_image_files` | boolean | Kitty graphics file transfers (default `true`). Any program, including one on a remote host, can display a local file you can read; set `false` to allow only direct and temp-file images |
 | `keybindings` | table | Existing action names mapped to shortcut strings; `''` disables an action |
 | `status_bar` | table | Optional bottom bar; hidden by default, with configurable content, size and colors |
 | `browser.home_page` | string | HTTP(S) address, search text, or `about:blank` |

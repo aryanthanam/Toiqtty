@@ -17,6 +17,18 @@ internal static class ShellIntegrationChecks
             && TerminalDirectory.Parse("https://site/path", "pwsh.exe") is null
             && TerminalDirectory.Parse("file:///D:/bad%00path", "pwsh.exe") is null, "remote and invalid cwd metadata cannot become a Windows process directory");
         check(TerminalDirectory.Parse("file:///home/me", "wsl.exe -d archlinux")?.LocalPath == @"\\wsl.localhost\archlinux\home\me", "local WSL Linux directories map through the selected distro's filesystem");
+        string token = new('A', 32), other = new('B', 32);
+        check(TerminalDirectory.Parse("file:///D:/repo?toiqtty-cwd=" + token, "pwsh.exe", token)?.LocalPath == "D:\\repo",
+            "an integrated shell's authenticated OSC 7 becomes the local directory");
+        check(TerminalDirectory.Parse("file:///D:/repo", "pwsh.exe", token) == new TerminalDirectory("D:\\repo", null)
+            && TerminalDirectory.Parse("file:///D:/repo?toiqtty-cwd=" + other, "pwsh.exe", token)?.LocalPath is null
+            && TerminalDirectory.Parse("file:///mnt/d/repo", "wsl.exe", token)?.LocalPath is null,
+            "unauthenticated OSC 7 inside an integrated shell, such as from ssh, stays display-only");
+        check(TerminalDirectory.Parse("file:///D:/repo?toiqtty-cwd=" + token, "cmd.exe")?.LocalPath == "D:\\repo",
+            "shells without integration keep unauthenticated directory tracking");
+        var tokenEnvironment = ShellIntegration.CreateEnvironmentBlock(new Dictionary<string, string> { ["WSLENV"] = "USERPROFILE/p", ["TOIQTTY_CWD_TOKEN"] = other }, token).Split('\0');
+        check(tokenEnvironment.Contains("TOIQTTY_CWD_TOKEN=" + token) && tokenEnvironment.Contains("WSLENV=USERPROFILE/p:TOIQTTY_CWD_TOKEN/u"),
+            "each shell receives its own directory token, forwarded into WSL without dropping existing WSLENV entries");
         using var session = new TerminalSession(ShellDefaults.Command + " -NoProfile", Environment.CurrentDirectory);
         async Task<bool> Wait(Func<bool> condition, int seconds = 15)
         {

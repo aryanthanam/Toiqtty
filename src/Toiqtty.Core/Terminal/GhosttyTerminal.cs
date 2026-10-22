@@ -209,6 +209,8 @@ public sealed class GhosttyTerminal : IDisposable
         return frame;
     }
     public void EnableIncrementalRendering(bool enabled = true) { _incremental = enabled; Native.ot_incremental(_handle, enabled ? 1 : 0); }
+    /// <summary>Kitty graphics file transfers let a program, including a remote one, display any local file this user can read.</summary>
+    public void AllowImageFiles(bool enabled) => Native.ot_image_files(_handle, enabled ? 1 : 0);
     public TerminalSnapshot ReadSnapshot(TerminalCell[] cells)
         => ReadSnapshot(ReadFrame(cells));
     internal TerminalSnapshot ReadSnapshot(Utf8TerminalBuffer cells)
@@ -559,6 +561,7 @@ public sealed class GhosttyTerminal : IDisposable
         [DllImport(Library, CallingConvention = CallingConvention.Cdecl)] internal static extern int ot_resize(nint terminal, ushort columns, ushort rows, uint width, uint height);
         [DllImport(Library, CallingConvention = CallingConvention.Cdecl)] internal static unsafe extern int ot_frame(nint terminal, out TerminalFrame frame, Cell* cells, nuint capacity);
         [DllImport(Library, CallingConvention = CallingConvention.Cdecl)] internal static extern void ot_incremental(nint terminal, int enabled);
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)] internal static extern void ot_image_files(nint terminal, int enabled);
         [DllImport(Library, CallingConvention = CallingConvention.Cdecl)] internal static extern int ot_row_changed(nint terminal, uint row);
         [DllImport(Library, CallingConvention = CallingConvention.Cdecl)] internal static extern void ot_clipboard_reply(nint request, int result, ClipboardContent[] contents, nuint count, String[] available, nuint availableCount, int remember);
         [DllImport(Library, CallingConvention = CallingConvention.Cdecl)] internal static extern int ot_clipboard_paste(nint terminal, byte[] text, nuint length, int clipboard);

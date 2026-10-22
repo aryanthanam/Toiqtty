@@ -30,7 +30,7 @@ public sealed class ConPtyProcess : IDisposable
     public Stream Output => _output ?? throw new ObjectDisposedException(nameof(ConPtyProcess));
     public Task<int> ExitTask { get; private set; } = Task.FromResult(-1);
 
-    public ConPtyProcess(string command, string directory, ushort columns, ushort rows)
+    public ConPtyProcess(string command, string directory, ushort columns, ushort rows, string? directoryToken = null)
     {
         NamedPipeClientStream? inputRead = null, outputWrite = null;
         NamedPipeServerStream? inputWrite = null, outputRead = null;
@@ -56,7 +56,7 @@ public sealed class ConPtyProcess : IDisposable
             var startup = new StartupInfoEx { StartupInfo = new StartupInfo { cb = Marshal.SizeOf<StartupInfoEx>(), Flags = 0x100 }, AttributeList = attributes };
             var inherited = Environment.GetEnvironmentVariables().Cast<System.Collections.DictionaryEntry>()
                 .Select(entry => new KeyValuePair<string, string>((string)entry.Key, (string)entry.Value!));
-            environment = Marshal.StringToHGlobalUni(ShellIntegration.CreateEnvironmentBlock(inherited));
+            environment = Marshal.StringToHGlobalUni(ShellIntegration.CreateEnvironmentBlock(inherited, directoryToken));
             Check(CreateProcessW(null, new StringBuilder(command), 0, 0, false, 0x00080000 | 0x00000400,
                 environment, directory, ref startup, out var info));
             inputRead.Dispose(); outputWrite.Dispose();

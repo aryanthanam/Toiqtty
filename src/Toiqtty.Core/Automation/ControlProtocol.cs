@@ -48,7 +48,7 @@ public static class ControlProtocol
     {
         using var pipe = new NamedPipeClientStream(".", PipeName(folder), PipeDirection.InOut, PipeOptions.Asynchronous | PipeOptions.CurrentUserOnly);
         using var connect = CancellationTokenSource.CreateLinkedTokenSource(cancellation); connect.CancelAfter(TimeSpan.FromSeconds(2));
-        try { await pipe.ConnectAsync(connect.Token); }
+        try { await pipe.ConnectAsync(connect.Token); Hosting.PipeServerTrust.Verify(pipe.SafePipeHandle); }
         catch (OperationCanceledException) when (!cancellation.IsCancellationRequested) { throw new IOException("No compatible toiqtty control endpoint is listening. Open toiqtty, then retry the command."); }
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellation); deadline.CancelAfter(TimeSpan.FromSeconds(20));
         await Write(pipe, request, RequestLimit, deadline.Token);
@@ -68,8 +68,9 @@ public sealed class ControlServer : IAsyncDisposable
     {
         while (!_stop.IsCancellationRequested)
         {
+            // A single instance at a time, so every creation can refuse a squatted name.
             using var pipe = new NamedPipeServerStream(ControlProtocol.PipeName(folder), PipeDirection.InOut, 1,
-                PipeTransmissionMode.Byte, PipeOptions.Asynchronous | PipeOptions.CurrentUserOnly);
+                PipeTransmissionMode.Byte, PipeOptions.Asynchronous | PipeOptions.CurrentUserOnly | PipeOptions.FirstPipeInstance);
             try
             {
                 await pipe.WaitForConnectionAsync(_stop.Token).ConfigureAwait(false);

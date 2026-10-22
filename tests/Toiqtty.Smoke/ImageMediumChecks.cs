@@ -57,6 +57,10 @@ internal static class ImageMediumChecks
             string png = Fixture("image.png", Convert.FromBase64String("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg=="));
             Send("a=T,t=f,i=203,f=100,C=1", png);
             check(Pixels(203, 255, 0, 0, 255), "Kitty file-medium PNG transfers use the existing Windows decoder");
+            terminal.AllowImageFiles(false);
+            Send("a=T,t=f,i=214,f=100,C=1", png);
+            check(Rejected(214) && !Pixels(214, 255, 0, 0, 255), "Disabling image files refuses Kitty file-medium transfers");
+            terminal.AllowImageFiles(true);
             string temporary = Fixture("tty-graphics-protocol-image.rgba", [0, 255, 0, 128]);
             Send("a=T,t=t,i=204,f=32,s=1,v=1,C=1", temporary);
             check(Pixels(204, 0, 255, 0, 128) && !File.Exists(temporary), "Kitty temporary-file transfers consume pixels and remove the owned protocol file");

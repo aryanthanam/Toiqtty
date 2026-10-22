@@ -14,6 +14,7 @@ public sealed class TerminalSession : ITerminalSession, IAsyncDisposable
     private bool _mouseTracking;
     private readonly string _startDirectory;
     private readonly string _command;
+    private readonly string? _directoryToken;
     private string _lastPwd = "";
     private long _bytesRead, _parseTicks, _snapshotTicks, _snapshots;
     private long _readBatches;
@@ -48,7 +49,12 @@ public sealed class TerminalSession : ITerminalSession, IAsyncDisposable
             if (settings is not null) _terminal.SetScrollbackLimits(settings.ScrollbackLimitBytes, settings.ScrollbackLimitLines);
             _terminal.SetTheme(settings?.TerminalTheme);
             _terminal.SetCursorDefaults(settings?.Cursor ?? new());
-            _process = new ConPtyProcess(ShellIntegration.PrepareCommand(command), directory, 100, 30);
+            _terminal.AllowImageFiles(settings?.AllowImageFiles ?? true);
+            string prepared = ShellIntegration.PrepareCommand(command);
+            string token = Convert.ToHexString(System.Security.Cryptography.RandomNumberGenerator.GetBytes(16));
+            // Integrated shells authenticate their OSC 7; other shells keep unauthenticated tracking.
+            _directoryToken = prepared == command ? null : token;
+            _process = new ConPtyProcess(prepared, directory, 100, 30, token);
         }
         catch { _terminal.Dispose(); throw; }
         _terminal.Response += WriteInput;
@@ -82,7 +88,7 @@ public sealed class TerminalSession : ITerminalSession, IAsyncDisposable
                     var title = _terminal.Metadata(0);
                     if (!string.IsNullOrWhiteSpace(title)) Title = title;
                     var pwd = _terminal.Metadata(1);
-                    if (pwd != _lastPwd && TerminalDirectory.Parse(pwd, _command) is { } location)
+                    if (pwd != _lastPwd && TerminalDirectory.Parse(pwd, _command, _directoryToken) is { } location)
                     {
                         _lastPwd = pwd;
                         Directory = location.Display; LocalDirectory = location.LocalPath;
@@ -156,6 +162,7 @@ public sealed class TerminalSession : ITerminalSession, IAsyncDisposable
             _terminal.SetCursorDefaults(settings.Cursor);
             _terminal.AllowClipboardRead = settings.AllowClipboardRead;
             _terminal.AllowClipboardWrite = settings.AllowClipboardWrite;
+            _terminal.AllowImageFiles(settings.AllowImageFiles);
             Interlocked.Increment(ref _version);
         }
     }

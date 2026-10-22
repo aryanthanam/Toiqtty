@@ -37,7 +37,7 @@ public static partial class LuaConfigParser
         var values = await state.DoStringAsync(source, "@" + request.Path, cancellation);
         if (values.Length != 1 || values[0].Type != LuaValueType.Table) throw new ArgumentException("The Lua config must return exactly one settings table.");
         var table = values[0].Read<LuaTable>();
-        Keys(table, "config", "shell", "start_directory", "font", "font_size", "font_weight", "restore_sessions", "allow_clipboard_read", "allow_clipboard_write", "ligatures", "desktop_notifications", "keybindings", "browser", "startup", "scrollback_limit_bytes", "scrollback_limit_lines", "scrolling", "status_bar", "color_schemes", "color_scheme", "cursor", "wallpaper", "events", "bindings", "leader", "key_tables", "appearance", "window", "actions");
+        Keys(table, "config", "shell", "start_directory", "font", "font_size", "font_weight", "restore_sessions", "allow_clipboard_read", "allow_clipboard_write", "allow_image_files", "ligatures", "desktop_notifications", "keybindings", "browser", "startup", "scrollback_limit_bytes", "scrollback_limit_lines", "scrolling", "status_bar", "color_schemes", "color_scheme", "cursor", "wallpaper", "events", "bindings", "leader", "key_tables", "appearance", "window", "actions");
         var overrides = new List<string>(); var settings = result.Settings;
         void String(string key, string property, Action<string> set) { if (Present(table, key)) { set(Text(table[key], key)); overrides.Add(property); } }
         void Bool(string key, string property, Action<bool> set) { if (Present(table, key)) { set(Boolean(table[key], key)); overrides.Add(property); } }
@@ -50,6 +50,7 @@ public static partial class LuaConfigParser
         Bool("restore_sessions", "RestoreWorkspaces", value => settings.RestoreWorkspaces = value);
         Bool("allow_clipboard_read", "AllowClipboardRead", value => settings.AllowClipboardRead = value);
         Bool("allow_clipboard_write", "AllowClipboardWrite", value => settings.AllowClipboardWrite = value);
+        Bool("allow_image_files", "AllowImageFiles", value => settings.AllowImageFiles = value);
         Bool("ligatures", "Ligatures", value => settings.Ligatures = value);
         Bool("desktop_notifications", "DesktopNotifications", value => settings.DesktopNotifications = value);
         if (Present(table, "scrollback_limit_bytes")) { settings.ScrollbackLimitBytes = ScrollbackLimit(table["scrollback_limit_bytes"], "scrollback_limit_bytes"); overrides.Add("ScrollbackLimitBytes"); }

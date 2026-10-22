@@ -67,6 +67,7 @@ public sealed partial class SessionHostServer(string folder) : IAsyncDisposable
         string? readyName = Environment.GetEnvironmentVariable("TOIQTTY_HOST_READY_EVENT");
         Environment.SetEnvironmentVariable("TOIQTTY_HOST_READY_EVENT", null);
         Task monitor = MonitorLifetime();
+        bool first = true;
         try
         {
             while (!_stop.IsCancellationRequested)
@@ -75,10 +76,13 @@ public sealed partial class SessionHostServer(string folder) : IAsyncDisposable
                 NamedPipeServerStream pipe;
                 try
                 {
+                    // The first instance must own the name: another process holding it
+                    // would receive every frontend's input. Later instances join it.
                     pipe = new NamedPipeServerStream(HostProtocol.PipeName(_folder), PipeDirection.InOut, 32, PipeTransmissionMode.Byte,
-                        PipeOptions.Asynchronous | PipeOptions.CurrentUserOnly);
+                        PipeOptions.Asynchronous | PipeOptions.CurrentUserOnly | (first ? PipeOptions.FirstPipeInstance : PipeOptions.None));
+                    first = false;
                 }
-                catch (IOException ex)
+                catch (IOException ex) when (!first)
                 {
                     // Transport exhaustion must never end the shells this host owns.
                     _connections.Release(); Interlocked.Increment(ref _transportAcceptRetries); LogFault(ex);

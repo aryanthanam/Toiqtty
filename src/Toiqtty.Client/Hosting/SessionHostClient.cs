@@ -331,7 +331,7 @@ public sealed partial class SessionHostClient
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellation); deadline.CancelAfter(timeout ?? TimeSpan.FromSeconds(5));
         if (captureLease is not null) return await captureLease.SendAsync(request, reuse, deadline.Token).ConfigureAwait(false);
         if (readConnection is not null) return await readConnection.SendAsync(request, reuse, deadline.Token).ConfigureAwait(false);
-        using var pipe = CreatePipe(); await pipe.ConnectAsync(deadline.Token).ConfigureAwait(false);
+        using var pipe = CreatePipe(); await pipe.ConnectAsync(deadline.Token).ConfigureAwait(false); PipeServerTrust.Verify(pipe.SafePipeHandle);
         return await ExchangeAsync(pipe, request, reuse, deadline.Token).ConfigureAwait(false);
     }
     private NamedPipeClientStream CreatePipe() => new(".", _pipeName, PipeDirection.InOut, PipeOptions.Asynchronous | PipeOptions.CurrentUserOnly);

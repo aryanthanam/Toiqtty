@@ -41,7 +41,7 @@ function __toiqtty_zsh_cwd {
             fi ;;
     esac
     host=${host//[^a-zA-Z0-9._-]/_}
-    builtin printf '\033]7;file://%s%s\007' "$host" "$(__toiqtty_zsh_uri "$directory")"
+    builtin printf '\033]7;file://%s%s%s\007' "$host" "$(__toiqtty_zsh_uri "$directory")" "${TOIQTTY_CWD_TOKEN:+?toiqtty-cwd=$TOIQTTY_CWD_TOKEN}"
     return 0
 }
 

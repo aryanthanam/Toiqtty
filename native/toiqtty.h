@@ -73,6 +73,8 @@ OT_API int ot_resize(OtTerminal* terminal, uint16_t columns, uint16_t rows, uint
 OT_API int ot_frame(OtTerminal* terminal, OtFrame* frame, OtCell* cells, size_t capacity);
 // Incremental mode requires the same cell buffer until resize; dirty flags per viewport row.
 OT_API void ot_incremental(OtTerminal* terminal, int enabled);
+// Kitty graphics t=f: whether programs may name local files to display.
+OT_API void ot_image_files(OtTerminal* terminal, int enabled);
 OT_API int ot_row_changed(OtTerminal* terminal, uint32_t row);
 OT_API void ot_clipboard_reply(const OtClipboard* request, int result, const OtClipboardContent* contents, size_t count, const OtString* available, size_t available_count, int remember);
 OT_API int ot_clipboard_paste(OtTerminal* terminal, const uint8_t* text, size_t length, int clipboard);

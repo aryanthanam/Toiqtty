@@ -45,7 +45,8 @@ function global:prompt {
     try {
         $location = $ExecutionContext.SessionState.Path.CurrentFileSystemLocation.Path
         $uri = [Uri]::new($location)
-        [Console]::Write("$escape]7;$($uri.AbsoluteUri)$([char]7)")
+        $token = if ($env:TOIQTTY_CWD_TOKEN -match '^[0-9A-F]{32}$') { "?toiqtty-cwd=$env:TOIQTTY_CWD_TOKEN" } else { '' }
+        [Console]::Write("$escape]7;$($uri.AbsoluteUri)$token$([char]7)")
     } catch { }
     $global:LASTEXITCODE = $savedExitCode
     # Restore the previous success flag for Starship's status module without

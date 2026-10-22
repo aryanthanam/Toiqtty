@@ -58,6 +58,19 @@ internal static class ArchitectureChecks
             Task close = attached.CloseAsync().AsTask();
             check(ReferenceEquals(close, attached.CloseAsync().AsTask()), "Repeated explicit closure shares one teardown completion");
             await close.WaitAsync(TimeSpan.FromSeconds(10));
+            string squatted = Path.GetFullPath("artifacts/architecture-squat-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(squatted);
+            using (var squatter = new System.IO.Pipes.NamedPipeServerStream(HostProtocol.PipeName(squatted), System.IO.Pipes.PipeDirection.InOut, 32,
+                System.IO.Pipes.PipeTransmissionMode.Byte, System.IO.Pipes.PipeOptions.Asynchronous | System.IO.Pipes.PipeOptions.CurrentUserOnly))
+            {
+                var start = new System.Diagnostics.ProcessStartInfo(hostExecutable) { UseShellExecute = false, CreateNoWindow = true };
+                start.ArgumentList.Add("--data-directory"); start.ArgumentList.Add(squatted);
+                using var refused = System.Diagnostics.Process.Start(start)!;
+                bool exited = refused.WaitForExit(10000);
+                if (!exited) refused.Kill();
+                string log = Path.Combine(squatted, "host-error.log");
+                check(exited && refused.ExitCode != 0 && File.Exists(log), "A session host refuses to serve a pipe name another process already owns");
+            }
             Console.WriteLine("Architecture host evidence: " + folder);
         }
         finally { release.Set(); await session.DetachAsync(); try { client.Shutdown(); } catch (IOException) { } }

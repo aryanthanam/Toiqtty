@@ -3,9 +3,18 @@ namespace Toiqtty.Terminal;
 /// <summary>OSC 7 locations are display metadata; remote paths are never local process directories.</summary>
 public sealed record TerminalDirectory(string Display, string? LocalPath)
 {
-    public static TerminalDirectory? Parse(string value, string command)
+    internal const string TokenQuery = "?toiqtty-cwd=";
+
+    /// <param name="requiredToken">For shells running toiqtty's integration: only a location carrying
+    /// this session's token may become a local directory. A program inside the shell, such as ssh,
+    /// can send any OSC 7; without the token its location stays display-only.</param>
+    public static TerminalDirectory? Parse(string value, string command, string? requiredToken = null)
     {
         if (value.Length > 32768 || value.Any(char.IsControl)) return null;
+        string? token = null;
+        int marker = value.LastIndexOf(TokenQuery, StringComparison.Ordinal);
+        if (marker >= 0) { token = value[(marker + TokenQuery.Length)..]; value = value[..marker]; }
+        bool trusted = requiredToken is null || token == requiredToken;
         bool kitty = value.StartsWith("kitty-shell-cwd://", StringComparison.Ordinal);
         if (!kitty && !value.StartsWith("file://", StringComparison.OrdinalIgnoreCase)) return null;
         // Kitty's cwd URI contains the literal (not percent-encoded) path.
@@ -29,10 +38,11 @@ public sealed record TerminalDirectory(string Display, string? LocalPath)
         if (path.Length >= 3 && char.IsAsciiLetter(path[0]) && path[1] == ':' && path[2] is '/' or '\\')
         {
             string windows = path.Replace('/', '\\');
-            return localHost ? new(windows, windows) : new(host + ":" + path, null);
+            return !localHost ? new(host + ":" + path, null) : trusted ? new(windows, windows) : new(windows, null);
         }
         if (!path.StartsWith('/')) return null;
         if (!localHost) return new(host + ":" + path, null);
+        if (!trusted) return new(path, null);
         if (wsl && path.Length >= 7 && path.StartsWith("/mnt/", StringComparison.Ordinal)
             && char.IsAsciiLetter(path[5]) && path[6] == '/')
             return new(path, char.ToUpperInvariant(path[5]) + ":" + path[6..].Replace('/', '\\'));

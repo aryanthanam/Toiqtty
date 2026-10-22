@@ -32,7 +32,7 @@ public sealed class InstanceCoordinator : IDisposable
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(3));
         try
         {
-            await pipe.ConnectAsync(timeout.Token);
+            await pipe.ConnectAsync(timeout.Token); Hosting.PipeServerTrust.Verify(pipe.SafePipeHandle);
             if (workspace.Length == 0 && pane.Length == 0) await pipe.WriteAsync(new byte[] { 1 }, timeout.Token);
             else
             {
@@ -49,7 +49,7 @@ public sealed class InstanceCoordinator : IDisposable
     {
         while (!_stop.IsCancellationRequested)
         {
-            using var pipe = new NamedPipeServerStream(_pipe, PipeDirection.In, 1, PipeTransmissionMode.Byte, PipeOptions.Asynchronous | PipeOptions.CurrentUserOnly);
+            using var pipe = new NamedPipeServerStream(_pipe, PipeDirection.In, 1, PipeTransmissionMode.Byte, PipeOptions.Asynchronous | PipeOptions.CurrentUserOnly | PipeOptions.FirstPipeInstance);
             try
             {
                 await pipe.WaitForConnectionAsync(_stop.Token).ConfigureAwait(false);

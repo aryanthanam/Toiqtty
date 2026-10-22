@@ -55,10 +55,21 @@ public static partial class ShellIntegration
         foreach (char c in text) { result.Append(c); if (c is '\'' or '‘' or '’' or '‚' or '‛') result.Append(c); }
         return result.ToString();
     }
-    public static string CreateEnvironmentBlock(IEnumerable<KeyValuePair<string, string>> inherited)
+    public const string DirectoryTokenVariable = "TOIQTTY_CWD_TOKEN";
+
+    public static string CreateEnvironmentBlock(IEnumerable<KeyValuePair<string, string>> inherited, string? directoryToken = null)
     {
         var values = new SortedDictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         foreach (var entry in inherited) values[entry.Key] = entry.Value;
+        values.Remove(DirectoryTokenVariable);
+        if (directoryToken is not null)
+        {
+            // WSLENV carries the token into WSL for the Bash/Zsh adapters.
+            values[DirectoryTokenVariable] = directoryToken;
+            string wsl = values.GetValueOrDefault("WSLENV", "");
+            if (!wsl.Split(':').Any(item => item.Split('/')[0].Equals(DirectoryTokenVariable, StringComparison.OrdinalIgnoreCase)))
+                values["WSLENV"] = (wsl.Length == 0 ? "" : wsl + ":") + DirectoryTokenVariable + "/u";
+        }
         // A new terminal must advertise its own capabilities before shell startup.
         // In particular, PowerShell caches TERM=dumb as no VT support.
         values["TERM"] = "xterm-256color";

@@ -76,7 +76,7 @@ public sealed partial class SessionHostClient
                 {
                     if (_pipe is null)
                     {
-                        _pipe = client.CreatePipe(); await _pipe.ConnectAsync(cancellation).ConfigureAwait(false);
+                        _pipe = client.CreatePipe(); await _pipe.ConnectAsync(cancellation).ConfigureAwait(false); PipeServerTrust.Verify(_pipe.SafePipeHandle);
                         Interlocked.Increment(ref client.ReadConnectionsOpenedForCheck);
                     }
                     var reply = await client.ExchangeAsync(_pipe, request, reuse, cancellation).ConfigureAwait(false);

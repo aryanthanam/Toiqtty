@@ -17,6 +17,9 @@ public sealed partial class TerminalView
         Drop += DropOnView;
     }
 
+    // Offer Copy only. A terminal program, possibly remote, receives paths rather
+    // than file contents, so a Move it accepted would let the source delete originals.
+    private static uint DropOperations(DragEventArgs e) => (uint)(e.AllowedOperations & DataPackageOperation.Copy);
     private void DragOverOnView(object sender, DragEventArgs e) => UiTasks.Observe(DragOverOnViewAsync(sender, e));
     private async Task DragOverOnViewAsync(object sender, DragEventArgs e)
     {
@@ -27,7 +30,7 @@ public sealed partial class TerminalView
         var deferral = e.GetDeferral();
         var point = e.GetPosition(_canvas);
         var (X, Y) = _geometry.ToNative(point.X, point.Y);
-        uint operations = (uint)e.AllowedOperations & 3;
+        uint operations = DropOperations(e);
         try
         {
             if (await _session.QueryDropAsync(0) == 1)
@@ -36,7 +39,7 @@ public sealed partial class TerminalView
                 await _session.QueryDropAsync(1, (int)X, (int)Y, TerminalDropData.Offer(e.DataView), operations);
                 var accepted = (DataPackageOperation)await _session.QueryDropAsync(4, operations: operations);
                 if (_disposed || generation != _dropGeneration) return;
-                e.AcceptedOperation = _dropAccepted = accepted & e.AllowedOperations;
+                e.AcceptedOperation = _dropAccepted = accepted & (DataPackageOperation)operations;
             }
             else if (e.DataView.Contains(StandardDataFormats.StorageItems) || e.DataView.Contains(StandardDataFormats.Text))
                 e.AcceptedOperation = _dropAccepted = e.AllowedOperations & DataPackageOperation.Copy;
@@ -63,7 +66,7 @@ public sealed partial class TerminalView
         var targetSession = _session;
         var point = e.GetPosition(_canvas);
         var (X, Y) = _geometry.ToNative(point.X, point.Y);
-        uint operations = (uint)e.AllowedOperations & 3;
+        uint operations = DropOperations(e);
         e.AcceptedOperation = DataPackageOperation.None;
         try
         {
