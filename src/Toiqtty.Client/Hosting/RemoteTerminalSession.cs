@@ -115,6 +115,8 @@ public sealed class RemoteTerminalSession : ITerminalSession
         _pollTask = Poll();
     }
     public int Version => Volatile.Read(ref _version);
+    // The constructor's create call has already returned the shell.
+    public Task Ready => Task.CompletedTask;
     public bool HasExited => _state.HasExited;
     public int ExitCode => _state.ExitCode;
     public string Title => _state.Title;
@@ -165,7 +167,7 @@ public sealed class RemoteTerminalSession : ITerminalSession
         // whose old snapshot no longer fits the view's requested cell buffer.
         Volatile.Write(ref _frameAwaitingRead, 0); WakeCapture(); return reply;
     }
-    internal async Task<string> CopyOrKeyAsync(uint key, uint modifiers, string text, TerminalKeyAction action, uint unshifted, uint consumed)
+    public async Task<string> CopyOrKeyAsync(uint key, uint modifiers, string text, TerminalKeyAction action, uint? unshifted, uint consumed)
     {
         MarkInteractive();
         var reply = await _input.Enqueue(HostRequests.CopyOrKey(_pane, key, modifiers, text, action, unshifted, consumed)).ConfigureAwait(false);
@@ -339,12 +341,6 @@ public sealed class RemoteTerminalSession : ITerminalSession
         catch (Exception ex) when (ex is IOException or OperationCanceledException)
         { CaptureFailure = ex.ToString(); if (!_state.HasExited) { _failureCode = HostErrorCode.Disconnected; _failure = "Session host disconnected · reopen toiqtty to reconnect"; } Interlocked.Increment(ref _version); }
     }
-    private HostReply Send(HostRequest request)
-    {
-        if (Volatile.Read(ref _closed) != 0) return new();
-        var reply = _input.Enqueue(request).GetAwaiter().GetResult();
-        ObserveInputReply(reply); return reply;
-    }
     private void ObserveInputReply(HostReply reply)
     { if (reply.Error is { } error) { _failureCode = reply.ErrorCode; _failure = error; Interlocked.Increment(ref _version); FrameAvailable?.Invoke(); } }
     private void QueueInput(HostRequest request)
@@ -362,17 +358,17 @@ public sealed class RemoteTerminalSession : ITerminalSession
     // replaced host version, a malformed reply) is a fault, not a missing link.
     public async Task<string> HyperlinkAsync(ushort column, ushort row)
     { try { return (await _client.CallAsync(HostRequests.Hyperlink(_pane, column, row), cancellation: _stop.Token).ConfigureAwait(false)).Text; } catch (Exception ex) when (ex is HostRejectedException or HostTransportException or OperationCanceledException) { return ""; } }
-    public TerminalFrame ReadFrame(TerminalCell[] cells) => ReadSnapshot(cells).Frame;
-    public TerminalSnapshot ReadSnapshot(TerminalCell[] cells)
+    // Diagnostics only: a full capture after queued input has drained.
+    internal async Task<TerminalSnapshot> ReadSnapshotAsync(TerminalCell[] cells)
     {
         ObjectDisposedException.ThrowIf(Volatile.Read(ref _closed) != 0, this);
-        _input.Drain.GetAwaiter().GetResult();
-        _captureRequests.Wait();
+        await _input.Drain.ConfigureAwait(false);
+        await _captureRequests.WaitAsync().ConfigureAwait(false);
         try
         {
             ObjectDisposedException.ThrowIf(Volatile.Read(ref _closed) != 0, this);
             HostRequest request; lock (_gate) request = HostRequests.Capture(_pane, knownStatusRevision: _captureStatusRevision, images: _images.Count == 0 ? null : _images.Keys.ToArray());
-            Cache(_client.Call(request));
+            Cache(await _client.CallAsync(request).ConfigureAwait(false));
             if (!TryReadSnapshot(cells, out var snapshot)) throw new IOException("Terminal snapshot is not ready.");
             return snapshot!;
         }
@@ -415,9 +411,7 @@ public sealed class RemoteTerminalSession : ITerminalSession
     }
     public void ApplySettings(AppSettings settings)
     { QueueInput(HostRequests.Settings(_pane, System.Text.Json.JsonSerializer.Deserialize<AppSettings>(System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(settings))!)); }
-    public void Resize(ushort columns, ushort rows, uint width, uint height)
-    { _columns = columns; _rows = rows; _cellPixelWidth = width; _cellPixelHeight = height; Send(HostRequests.Resize(_pane, columns, rows, (int)width, (int)height)); }
-    internal void QueueResize(ushort columns, ushort rows, uint width, uint height)
+    public void QueueResize(ushort columns, ushort rows, uint width, uint height)
     {
         lock (_resizeGate)
         {
@@ -460,11 +454,6 @@ public sealed class RemoteTerminalSession : ITerminalSession
     public void Key(uint key, uint modifiers, string text = "", TerminalKeyAction action = TerminalKeyAction.Press, uint? unshiftedCodepoint = null, uint consumedModifiers = 0)
         => QueueInput(HostRequests.Key(_pane, key, modifiers, text, action, unshiftedCodepoint, consumedModifiers));
     public void Paste(string text, bool clipboard = false) => QueueInput(HostRequests.Paste(_pane, text, clipboard));
-    public void SendText(string text)
-    {
-        if (System.Text.Encoding.UTF8.GetByteCount(text) > 65536) throw new ArgumentException("Literal input exceeds 64 KiB.");
-        QueueInput(HostRequests.SendText(_pane, text));
-    }
     public Task SendTextAsync(string text)
     {
         if (System.Text.Encoding.UTF8.GetByteCount(text) > 65536) throw new ArgumentException("Literal input exceeds 64 KiB.");
@@ -481,12 +470,8 @@ public sealed class RemoteTerminalSession : ITerminalSession
     public void ScrollTo(ulong row) => QueueInput(HostRequests.ScrollTo(_pane, row));
     public void Focus(bool focused) => QueueInput(HostRequests.Focus(_pane, focused));
     public void Select(int start, int end) => QueueInput(HostRequests.Select(_pane, start, end));
-    public int SelectionGesture(int action, float x, float y, bool rectangle = false)
-    => (int)(Send(HostRequests.Gesture(_pane, action, x, y, rectangle)).Value ?? 0);
     public void QueueSelectionGesture(int action, float x, float y, bool rectangle = false)
     => QueueInput(HostRequests.Gesture(_pane, action, x, y, rectangle));
-    public int Drop(int action, int x = 0, int y = 0, IReadOnlyDictionary<string, byte[]>? items = null, uint operations = 1)
-        => (int)(Send(HostRequests.DropQuery(_pane, action, x, y, operations, items)).Value ?? 0);
     public async Task<int> DropAsync(int x, int y, IReadOnlyDictionary<string, byte[]> items, uint operations = 1, TimeSpan? timeout = null)
     {
         await _input.Drain.ConfigureAwait(false);
@@ -494,7 +479,6 @@ public sealed class RemoteTerminalSession : ITerminalSession
         try { return (int)((await _client.CallAsync(request, TimeSpan.FromSeconds(23), _stop.Token)).Value ?? 0); }
         catch (Exception ex) when (ex is IOException or OperationCanceledException) { return 0; }
     }
-    public string CopySelection() => Send(HostRequests.Copy(_pane)).Text;
     public async Task<int> QueryDropAsync(int action, int x = 0, int y = 0, IReadOnlyDictionary<string, byte[]>? items = null, uint operations = 1)
     {
         var reply = await _input.Enqueue(HostRequests.DropQuery(_pane, action, x, y, operations, items)).ConfigureAwait(false);
@@ -505,9 +489,6 @@ public sealed class RemoteTerminalSession : ITerminalSession
         var reply = await _input.Enqueue(HostRequests.Find(_pane, text, direction)).ConfigureAwait(false);
         ObserveInputReply(reply); return reply.Find is { } found ? (found.Count, found.Index) : (0, 0);
     }
-    public string Hyperlink(ushort column, ushort row) => Send(HostRequests.Hyperlink(_pane, column, row)).Text;
-    public (int Count, int Index) Find(string text, int direction)
-    { var found = Send(HostRequests.Find(_pane, text, direction)).Find; return found is null ? (0, 0) : (found.Count, found.Index); }
     public bool Mouse(int action, int button, uint modifiers, float x, float y)
     {
         // Hosts report mouse tracking with every shell state.
@@ -534,7 +515,7 @@ public sealed class RemoteTerminalSession : ITerminalSession
         try { await _pollTask.ConfigureAwait(false); }
         finally
         {
-            // Public synchronous captures can overlap detachment. Wait for
+            // Diagnostic snapshot reads can overlap detachment. Wait for
             // their lease before releasing buffers and the transport owner.
             await _captureRequests.WaitAsync().ConfigureAwait(false);
             try

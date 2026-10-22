@@ -591,8 +591,7 @@ public sealed partial class TerminalView : Grid, IDisposable
         _resizeCells = _remote is not null ? TerminalCellPool.Shared.Rent(columns * rows) : new TerminalCell[columns * rows];
         _readCacheRevision = -1;
         _capturedVersion = -1; _capturePending = true; _selecting = false;
-        if (_session is Hosting.RemoteTerminalSession remote) remote.QueueResize(columns, rows, cellWidth, cellHeight);
-        else { _session?.Resize(columns, rows, cellWidth, cellHeight); _session?.Select(-1, -1); }
+        _session?.QueueResize(columns, rows, cellWidth, cellHeight);
         ResizeCommits++; _canvas.Invalidate();
     }
     private void Render(DirectXDrawingSession drawing)
@@ -977,18 +976,13 @@ public sealed partial class TerminalView : Grid, IDisposable
     }
     private bool OpenHyperlink(Point point)
     {
+        if (_session is not { } session) return false;
         int cell = CellAt(point);
-        if (_session is Hosting.RemoteTerminalSession remote)
-        { _ = OpenRemoteHyperlink(remote, (ushort)(cell % GridColumns), (ushort)(cell / GridColumns)); return true; }
-        var target = _session?.Hyperlink((ushort)(cell % GridColumns), (ushort)(cell / GridColumns));
-        if (!Uri.TryCreate(target, UriKind.Absolute, out var uri) || uri.Scheme is not ("http" or "https" or "mailto")) return false;
-        if (uri.Scheme is "http" or "https" && HyperlinkRequested is not null) HyperlinkRequested(uri);
-        else _ = Launcher.LaunchUriAsync(uri);
-        return true;
+        _ = OpenHyperlink(session, (ushort)(cell % GridColumns), (ushort)(cell / GridColumns)); return true;
     }
-    private async Task OpenRemoteHyperlink(Hosting.RemoteTerminalSession remote, ushort column, ushort row)
+    private async Task OpenHyperlink(ITerminalSession session, ushort column, ushort row)
     {
-        string target = await remote.HyperlinkAsync(column, row);
+        string target = await session.HyperlinkAsync(column, row);
         if (_disposed || !Uri.TryCreate(target, UriKind.Absolute, out var uri) || uri.Scheme is not ("http" or "https" or "mailto")) return;
         if (uri.Scheme is "http" or "https" && HyperlinkRequested is not null) HyperlinkRequested(uri);
         else await Launcher.LaunchUriAsync(uri);
@@ -1000,16 +994,9 @@ public sealed partial class TerminalView : Grid, IDisposable
         {
             if (ReportMouse(e, 2)) return;
             int cell = CellAt(e.GetCurrentPoint(_canvas).Position);
-            if (_session is Hosting.RemoteTerminalSession remote)
-            {
-                if (_hoverCell == cell && _hoverVersion == remote.Version) return;
-                _hoverCell = cell;
-                if (!_hoverPending) _ = UpdateRemoteHover(remote);
-                return;
-            }
-            var link = _session?.Hyperlink((ushort)(cell % GridColumns), (ushort)(cell / GridColumns));
-            ProtectedCursor = InputSystemCursor.Create(string.IsNullOrEmpty(link) ? InputSystemCursorShape.IBeam : InputSystemCursorShape.Hand);
-            ToolTipService.SetToolTip(_canvas, string.IsNullOrEmpty(link) ? null : "Ctrl+click · " + link);
+            if (_session is not { } session || (_hoverCell == cell && _hoverVersion == session.Version)) return;
+            _hoverCell = cell;
+            if (!_hoverPending) _ = UpdateHover(session);
             return;
         }
         _dragPosition = e.GetCurrentPoint(_canvas).Position;
@@ -1028,7 +1015,7 @@ public sealed partial class TerminalView : Grid, IDisposable
         var end = new Point((lastColumn + .9) * CellWidth, (row + .5) * CellHeight);
         Gesture(0, start); Gesture(2, end); Gesture(1, end);
     }
-    private async Task UpdateRemoteHover(Hosting.RemoteTerminalSession remote)
+    private async Task UpdateHover(ITerminalSession session)
     {
         _hoverPending = true;
         try
@@ -1037,8 +1024,8 @@ public sealed partial class TerminalView : Grid, IDisposable
             {
                 int cell = _hoverCell;
                 if (cell < 0) return;
-                int version = remote.Version;
-                var link = await remote.HyperlinkAsync((ushort)(cell % GridColumns), (ushort)(cell / GridColumns));
+                int version = session.Version;
+                var link = await session.HyperlinkAsync((ushort)(cell % GridColumns), (ushort)(cell / GridColumns));
                 if (_disposed || _selecting || _middleScroll.Active) return;
                 if (cell != _hoverCell) continue;
                 _hoverVersion = version;
@@ -1117,8 +1104,8 @@ public sealed partial class TerminalView : Grid, IDisposable
         try { var package = new DataPackage(); package.SetText(text); Clipboard.SetContent(package); }
         catch (Exception ex) when (ex is System.Runtime.InteropServices.COMException or InvalidOperationException) { System.Diagnostics.Debug.WriteLine(ex); }
     }
-    private async Task CopyOrInterrupt(Hosting.RemoteTerminalSession remote, PendingKey pending, string text)
-    { SetClipboardText(await remote.CopyOrKeyAsync(pending.Key, pending.Modifiers, text, pending.Action, pending.Unshifted, pending.Consumed)); }
+    private async Task CopyOrInterrupt(ITerminalSession session, PendingKey pending, string text)
+    { SetClipboardText(await session.CopyOrKeyAsync(pending.Key, pending.Modifiers, text, pending.Action, pending.Unshifted, pending.Consumed)); }
     public Task PasteClipboard()
     {
         try
@@ -1153,13 +1140,12 @@ public sealed partial class TerminalView : Grid, IDisposable
         var binding = altGr ? null : Keybindings.Match(_settings, virtualKey, shortcutModifiers);
         if (binding == "copy") { CopySelection(); e.Handled = true; return; }
         if (binding == "paste" || (shift && e.Key == VirtualKey.Insert)) { UiTasks.Observe(PasteClipboard()); e.Handled = true; return; }
-        if (ctrl && !alt && e.Key == VirtualKey.C && _session is Hosting.RemoteTerminalSession remote)
+        if (ctrl && !alt && e.Key == VirtualKey.C && _session is { } session)
         {
             var (Text, Unshifted) = WindowsKeyboard.Translate(virtualKey, e.KeyStatus.ScanCode);
             var copyKey = new PendingKey(key, CurrentModifiers(), e.KeyStatus.WasKeyDown ? TerminalKeyAction.Repeat : TerminalKeyAction.Press, Unshifted, shift ? 1u : 0);
-            _pressedKeys[key] = copyKey; UiTasks.Observe(CopyOrInterrupt(remote, copyKey, Text)); e.Handled = true; return;
+            _pressedKeys[key] = copyKey; UiTasks.Observe(CopyOrInterrupt(session, copyKey, Text)); e.Handled = true; return;
         }
-        if (ctrl && !alt && e.Key == VirtualKey.C && !string.IsNullOrEmpty(_session?.CopySelection())) { CopySelection(); ClearSelection(); _canvas.Invalidate(); e.Handled = true; return; }
         if (binding is "scrollUp" or "scrollDown") { _session?.Scroll(binding == "scrollUp" ? -GridRows : GridRows); e.Handled = true; return; }
         bool modifierKey = virtualKey is 16 or 17 or 18 or 91 or 92;
         bool special = modifierKey || virtualKey is 8 or 9 or 13 or 19 or 20 or 27 or >= 33 and <= 46 or >= 112 and <= 145;

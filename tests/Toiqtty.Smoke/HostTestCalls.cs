@@ -14,4 +14,13 @@ internal static class HostTestCalls
     public static void ShutdownForTest(this SessionHostClient client) => client.CallForTest(HostRequests.Shutdown());
     public static void DetachForTest(this SessionHostClient client) => client.CallForTest(HostRequests.Detach());
     public static void SaveForTest(this SessionHostClient client, SavedSession layout) => client.SaveAsync(layout).GetAwaiter().GetResult();
+    // ITerminalSession is async-only; these block a test thread (never a UI thread) on the same ordered input queue.
+    public static void ResizeForTest(this RemoteTerminalSession session, ushort columns, ushort rows, uint width, uint height)
+    {
+        session.QueueResize(columns, rows, width, height);
+        if (!SpinWait.SpinUntil(() => !session.ResizePending, TimeSpan.FromSeconds(15))) throw new TimeoutException("The queued resize was not acknowledged.");
+    }
+    public static Toiqtty.Terminal.TerminalSnapshot ReadSnapshotForTest(this RemoteTerminalSession session, Toiqtty.Terminal.TerminalCell[] cells) => session.ReadSnapshotAsync(cells).GetAwaiter().GetResult();
+    public static (int Count, int Index) FindForTest(this RemoteTerminalSession session, string text, int direction) => session.FindAsync(text, direction).GetAwaiter().GetResult();
+    public static string CopySelectionForTest(this RemoteTerminalSession session) => session.CopySelectionAsync().GetAwaiter().GetResult();
 }

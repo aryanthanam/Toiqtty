@@ -81,10 +81,10 @@ internal static class PersistentSessionChecks
             Pass(clients.All(c=>c.Identity==client.Identity && c.ProcessId==client.ProcessId),"concurrent launches share one session host per data directory");
             string pane=Guid.NewGuid().ToString("N");
             string command="\""+Environment.ProcessPath+"\" --persistent-shell-client";
-            first=new(client,pane,command,Environment.CurrentDirectory,new AppSettings()); first.Resize(80,20,8,20); first.AttachView();
+            first=new(client,pane,command,Environment.CurrentDirectory,new AppSettings()); first.ResizeForTest(80,20,8,20); first.AttachView();
             var cells=new TerminalCell[1600];
             string Text(RemoteTerminalSession s)=>string.Concat(cells.Select(c=>c.GetText()));
-            TerminalSnapshot Capture(RemoteTerminalSession s)=>s.ReadSnapshot(cells);
+            TerminalSnapshot Capture(RemoteTerminalSession s)=>s.ReadSnapshotForTest(cells);
             await Wait(()=> { Capture(first); return Text(first).Contains("PERSIST_READY PID="); });
             string pid=System.Text.RegularExpressions.Regex.Match(Text(first),@"PERSIST_READY PID=(\d+)").Groups[1].Value;
             Pass(pid.Length>0,"the host starts a real ConPTY process and returns its terminal cells");
@@ -102,7 +102,7 @@ internal static class PersistentSessionChecks
             first.Detach(); first=null; client.DetachForTest(); await Task.Delay(1200);
             var reconnected=SessionHostClient.TryConnect(folder)!;
             Pass(reconnected is not null && reconnected.Identity==client.Identity && reconnected.ProcessId==client.ProcessId,"detaching the frontend keeps the same host alive");
-            second=new(reconnected!,pane,"invalid-command-must-not-run",Environment.CurrentDirectory,new AppSettings()); second.Resize(80,20,8,20); second.AttachView();
+            second=new(reconnected!,pane,"invalid-command-must-not-run",Environment.CurrentDirectory,new AppSettings()); second.ResizeForTest(80,20,8,20); second.AttachView();
             await Wait(()=> { Capture(second); return Text(second).Contains("PERSIST_DETACHED_OUTPUT"); });
             Pass(true,"the host drains output while no window is attached");
             Pass(Capture(second).Graphics.Any(g=>g.ImageId==901 && g.Image.Pixels.SequenceEqual(pixels)),"graphics remain in Ghostty across frontend detach and reconnect");
@@ -111,23 +111,23 @@ internal static class PersistentSessionChecks
             Pass(true,"finite upstream animations complete while the frontend is detached");
             Line(second,"mark"); await Wait(()=> { Capture(second); return Text(second).Contains("PERSIST_MARK=2 PID="+pid); });
             Pass(true,"reconnect preserves the child PID and in-memory shell state instead of restarting it");
-            var found=second.Find("PERSIST_HISTORY_0",0);
-            Pass(found.Count>0 && second.CopySelection().Contains("PERSIST_HISTORY_0"),"scrollback search and selection survive reconnect");
-            second.Find("",0); second.Select(-1,-1); second.Scroll(0);
+            var found=second.FindForTest("PERSIST_HISTORY_0",0);
+            Pass(found.Count>0 && second.CopySelectionForTest().Contains("PERSIST_HISTORY_0"),"scrollback search and selection survive reconnect");
+            second.FindForTest("",0); second.Select(-1,-1); second.Scroll(0);
             var settingsAttach=new RemoteTerminalSession(reconnected!,pane,"invalid-command-must-not-run",Environment.CurrentDirectory,new AppSettings { ScrollbackLimitBytes=0 });
             settingsAttach.Detach();
-            Pass(second.Find("PERSIST_HISTORY_0",0).Count==0,"reattaching applies new scrollback settings over IPC without restarting the shell");
-            second.Find("",0);
+            Pass(second.FindForTest("PERSIST_HISTORY_0",0).Count==0,"reattaching applies new scrollback settings over IPC without restarting the shell");
+            second.FindForTest("",0);
             Line(second,"mark"); await Wait(()=> { Capture(second); return Text(second).Contains("PERSIST_MARK=3 PID="+pid); });
             Pass(true,"changing scrollback limits preserves the child PID and shell state");
             second.ApplySettings(new AppSettings { ScrollbackLimitBytes=null,ScrollbackLimitLines=null });
-            Line(second,"seed"); await Wait(()=>second.Find("PERSIST_HISTORY_0",0).Count>0);
-            Pass(second.Find("PERSIST_HISTORY_0",0).Count>0,"unlimited history survives IPC serialization and retains new output after re-enabling scrollback");
-            second.Find("",0); second.Select(-1,-1); second.Scroll(0);
-            second.Resize(100,16,8,20);
+            Line(second,"seed"); await Wait(()=>second.FindForTest("PERSIST_HISTORY_0",0).Count>0);
+            Pass(second.FindForTest("PERSIST_HISTORY_0",0).Count>0,"unlimited history survives IPC serialization and retains new output after re-enabling scrollback");
+            second.FindForTest("",0); second.Select(-1,-1); second.Scroll(0);
+            second.ResizeForTest(100,16,8,20);
             bool ready=second.TryReadSnapshot(cells,out var reshaped);
             Pass(!ready || (reshaped!.Frame.Columns==100 && reshaped.Frame.Rows==16),"equal-area resizes never expose a stale frame with the previous row geometry");
-            second.ReadSnapshot(cells);
+            second.ReadSnapshotForTest(cells);
             bool rejected=false;
             try { var future=HostRequests.Ping(); future.Protocol=999; reconnected!.CallForTest(future); } catch (HostRejectedException ex) { rejected=ex.Code==HostErrorCode.ProtocolMismatch; }
             Pass(rejected && SessionHostClient.TryConnect(folder) is not null,"incompatible IPC requests are rejected with ProtocolMismatch without ending live shells");
@@ -151,8 +151,8 @@ internal static class PersistentSessionChecks
             Pass(syncError?.StartsWith("Invalid session")==true && createError?.StartsWith("Invalid session")==true && syncCode==HostErrorCode.InvalidRequest && createCode==HostErrorCode.InvalidRequest && !second.HasExited
                 && reconnected!.CallForTest(HostRequests.Ping()).Panes.SequenceEqual([pane]),"malformed layouts with null workspaces or tabs get an error reply, not EOF, and change no shells");
             Pass(GhosttyTerminal.Saturate(0)==0 && GhosttyTerminal.Saturate(int.MaxValue)==int.MaxValue && GhosttyTerminal.Saturate((nuint)int.MaxValue+1)==int.MaxValue
-                && GhosttyTerminal.Saturate(nuint.MaxValue)==int.MaxValue && second.Find("PERSIST_MARK",0).Count>0,"find saturates match counts beyond int instead of failing the request");
-            second.Find("",0); second.Select(-1,-1);
+                && GhosttyTerminal.Saturate(nuint.MaxValue)==int.MaxValue && second.FindForTest("PERSIST_MARK",0).Count>0,"find saturates match counts beyond int instead of failing the request");
+            second.FindForTest("",0); second.Select(-1,-1);
             await RoundTrips(reconnected!,pane,Pass);
             using (var framed=new MemoryStream())
             {

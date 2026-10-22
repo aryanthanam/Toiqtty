@@ -81,6 +81,15 @@ internal static class ArchitectureChecks
         check(typeof(GhosttyTerminal).Assembly.GetName().Name == "Toiqtty.Core"
             && typeof(RemoteTerminalSession).Assembly.GetName().Name == "Toiqtty.Client",
             "Core and client checks exercise the shared production assemblies");
+        // A synchronous value-returning member would block its (UI) caller on a host round trip.
+        // Only cache reads answered from state the client already holds may return a plain value.
+        string[] cached = [nameof(ITerminalSession.TryReadSnapshot), nameof(ITerminalSession.Mouse)];
+        var blocking = typeof(ITerminalSession).GetMethods().Where(m => !m.IsSpecialName && m.Name != nameof(IDisposable.Dispose)
+            && !cached.Contains(m.Name) && m.ReturnType != typeof(void) && m.ReturnType != typeof(Task) && m.ReturnType != typeof(ValueTask)
+            && !(m.ReturnType.IsGenericType && m.ReturnType.GetGenericTypeDefinition() == typeof(Task<>))).Select(m => m.Name).ToArray();
+        var defaulted = typeof(ITerminalSession).GetMethods().Where(m => !m.IsAbstract).Select(m => m.Name).ToArray();
+        string offenders = string.Join(", ", blocking.Concat(defaulted));
+        check(offenders.Length == 0, "ITerminalSession exposes no synchronous IPC-shaped member and no default body" + (offenders.Length == 0 ? "" : ": " + offenders));
         var model = new SavedSession { Workspaces = [] };
         var owner = SessionLayout.AddWorkspace(model, "owner", new PaneNode(), out _)!;
         var keep = owner.Root.Id;

@@ -1,6 +1,9 @@
 namespace Toiqtty.Terminal;
 
 /// <summary>A terminal owned locally by a test, or remotely by the session host.</summary>
+/// <remarks>Members the host answers return a task; void members only queue. Nothing here
+/// may block the caller on IPC (ArchitectureChecks enforces this). In-process sessions
+/// complete their tasks synchronously.</remarks>
 public interface ITerminalSession : IDisposable
 {
     int Version { get; }
@@ -13,37 +16,36 @@ public interface ITerminalSession : IDisposable
     string? LocalDirectory { get; }
     TerminalPerformance Performance { get; }
     TerminalStatusSnapshot Status { get; }
+    /// <summary>Completes once the shell exists; faults when it could not be started.</summary>
+    Task Ready { get; }
     event Action? Attention;
     event Action<TerminalNotice>? Notification;
-    TerminalFrame ReadFrame(TerminalCell[] cells);
-    TerminalSnapshot ReadSnapshot(TerminalCell[] cells);
+    // Reads the cached frame only; never waits for the parser or the host.
     bool TryReadSnapshot(TerminalCell[] cells, out TerminalSnapshot? snapshot);
     void ApplySettings(Models.AppSettings settings);
-    void Resize(ushort columns, ushort rows, uint width, uint height);
+    /// <summary>Resizes and clears the selection; remote sessions coalesce to the latest size.</summary>
+    void QueueResize(ushort columns, ushort rows, uint width, uint height);
     void Key(uint key, uint modifiers, string text = "", TerminalKeyAction action = TerminalKeyAction.Press, uint? unshiftedCodepoint = null, uint consumedModifiers = 0);
     void Paste(string text, bool clipboard = false);
-    void SendText(string text) => throw new NotSupportedException("Literal text sending needs an updated session host.");
-    Task SendTextAsync(string text) { SendText(text); return Task.CompletedTask; }
-    Task PasteAsync(string text) { Paste(text); return Task.CompletedTask; }
     void PasteClipboard();
     void Scroll(int delta);
     void ScrollTo(ulong row);
     void Focus(bool focused);
     void Select(int start, int end);
-    int SelectionGesture(int action, float x, float y, bool rectangle = false);
-    int Drop(int action, int x = 0, int y = 0, IReadOnlyDictionary<string, byte[]>? items = null, uint operations = 1);
-    Task<int> DropAsync(int x, int y, IReadOnlyDictionary<string, byte[]> items, uint operations = 1, TimeSpan? timeout = null);
-    string CopySelection();
-    string Hyperlink(ushort column, ushort row);
-    (int Count, int Index) Find(string text, int direction);
+    void QueueSelectionGesture(int action, float x, float y, bool rectangle = false);
+    // Answers from the published MouseTracking state, then queues the report.
     bool Mouse(int action, int button, uint modifiers, float x, float y);
-    void QueueSelectionGesture(int action,float x,float y,bool rectangle=false) => SelectionGesture(action,x,y,rectangle);
-    Task<string> CopySelectionAsync() => Task.FromResult(CopySelection());
-    Task<string> HyperlinkAsync(ushort column,ushort row) => Task.FromResult(Hyperlink(column,row));
-    Task<(int Count,int Index)> FindAsync(string text,int direction) => Task.FromResult(Find(text,direction));
-    Task<int> QueryDropAsync(int action,int x=0,int y=0,IReadOnlyDictionary<string,byte[]>? items=null,uint operations=1)
-        => Task.FromResult(Drop(action,x,y,items,operations));
-    ValueTask CloseAsync() { Dispose(); return ValueTask.CompletedTask; }
-    // Presentation detachment does not transfer or terminate local ownership.
-    ValueTask DetachAsync() => ValueTask.CompletedTask;
+    Task SendTextAsync(string text);
+    Task PasteAsync(string text);
+    Task<string> CopySelectionAsync();
+    /// <summary>Ctrl+C: copies the selection, or sends the key when nothing is selected. A copied
+    /// key's release is suppressed. Returns the copied text, empty when the key was sent.</summary>
+    Task<string> CopyOrKeyAsync(uint key, uint modifiers, string text, TerminalKeyAction action, uint? unshiftedCodepoint, uint consumedModifiers);
+    Task<string> HyperlinkAsync(ushort column, ushort row);
+    Task<(int Count, int Index)> FindAsync(string text, int direction);
+    Task<int> QueryDropAsync(int action, int x = 0, int y = 0, IReadOnlyDictionary<string, byte[]>? items = null, uint operations = 1);
+    Task<int> DropAsync(int x, int y, IReadOnlyDictionary<string, byte[]> items, uint operations = 1, TimeSpan? timeout = null);
+    ValueTask CloseAsync();
+    // Presentation detachment; local sessions keep their ownership.
+    ValueTask DetachAsync();
 }

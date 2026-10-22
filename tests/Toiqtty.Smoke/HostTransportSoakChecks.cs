@@ -41,7 +41,7 @@ internal static class HostTransportSoakChecks
                 }
                 bool large = cycle % 2 == 0;
                 ushort columns = large ? (ushort)160 : (ushort)100, rows = large ? (ushort)50 : (ushort)30;
-                for (int i = 0; i < 4; i++) { sessions[i].Resize(columns, rows, 10, 20); cells[i] = new TerminalCell[columns * rows]; }
+                for (int i = 0; i < 4; i++) { sessions[i].ResizeForTest(columns, rows, 10, 20); cells[i] = new TerminalCell[columns * rows]; }
                 for (int i = 2; i < 4; i++)
                 {
                     Send(i, "mark"); string pid = pids[i - 2];
@@ -88,7 +88,7 @@ internal static class HostTransportSoakChecks
                 // Rapid view churn must coalesce wakeups without losing the
                 // final attachment or replacing its persistent shell.
                 for (int burst = 0; burst < 100; burst++) { remote.DetachView(); remote.AttachView(); }
-                remote.Resize(columns, rows, 10, 20); sessions.Add(remote);
+                remote.ResizeForTest(columns, rows, 10, 20); sessions.Add(remote);
             }
             for (int i = 0; i < 4; i++) cells[i] = new TerminalCell[columns * rows];
         }

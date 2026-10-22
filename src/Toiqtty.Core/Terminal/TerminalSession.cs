@@ -36,6 +36,11 @@ public sealed class TerminalSession : ITerminalSession, IAsyncDisposable
     public event Action<TerminalNotice>? Notification;
     public event Action? OutputChanged;
     public bool MouseTracking => Volatile.Read(ref _mouseTracking);
+    // The shell starts in the constructor.
+    public Task Ready => Task.CompletedTask;
+    // Keys whose Ctrl+C press copied through CopyOrKeyAsync; their release is not sent.
+    // Host dispatch calls CopyOrKey directly (its client suppresses), so this stays null there.
+    private HashSet<uint>? _copiedKeys;
 
     public TerminalSession(string command, string directory, Models.AppSettings? settings = null, ushort columns = 100, ushort rows = 30)
     {
@@ -183,6 +188,8 @@ public sealed class TerminalSession : ITerminalSession, IAsyncDisposable
         Attention?.Invoke();
     }
     public string Hyperlink(ushort column, ushort row) { lock (_gate) { return _disposed ? "" : _terminal.Hyperlink(column, row); } }
+    public Task<string> HyperlinkAsync(ushort column, ushort row) => Task.FromResult(Hyperlink(column, row));
+    public void QueueResize(ushort columns, ushort rows, uint width, uint height) { Resize(columns, rows, width, height); Select(-1, -1); }
     public void Resize(ushort columns, ushort rows, uint width, uint height)
     {
         lock (_resizeGate)
@@ -205,6 +212,7 @@ public sealed class TerminalSession : ITerminalSession, IAsyncDisposable
         lock (_gate)
         {
             if (_disposed || HasExited) return;
+            if (_copiedKeys is { Count: > 0 } copied && copied.Remove(key) && action == TerminalKeyAction.Release) return;
             if (action != TerminalKeyAction.Release) _terminal.Scroll(0);
             bytes = _terminal.EncodeKey(key, modifiers, text, action, unshiftedCodepoint, consumedModifiers);
             if (action != TerminalKeyAction.Release) Interlocked.Increment(ref _version);
@@ -222,6 +230,7 @@ public sealed class TerminalSession : ITerminalSession, IAsyncDisposable
             Interlocked.Increment(ref _version);
         }
     }
+    public Task SendTextAsync(string text) { SendText(text); return Task.CompletedTask; }
     public Task PasteAsync(string text)
     {
         lock (_gate)
@@ -278,6 +287,9 @@ public sealed class TerminalSession : ITerminalSession, IAsyncDisposable
     {
         lock (_gate) { if (_disposed) return 0; int result = _terminal.SelectionGesture(action, x, y, rectangle); Interlocked.Increment(ref _version); return result; }
     }
+    public void QueueSelectionGesture(int action, float x, float y, bool rectangle = false) => SelectionGesture(action, x, y, rectangle);
+    public Task<int> QueryDropAsync(int action, int x = 0, int y = 0, IReadOnlyDictionary<string, byte[]>? items = null, uint operations = 1)
+        => Task.FromResult(Drop(action, x, y, items, operations));
     public int Drop(int action, int x = 0, int y = 0, IReadOnlyDictionary<string, byte[]>? items = null, uint operations = 1)
     {
         lock (_gate) { return _disposed || HasExited ? 0 : _terminal.Drop(action, x, y, items, operations); }
@@ -298,6 +310,7 @@ public sealed class TerminalSession : ITerminalSession, IAsyncDisposable
         }
     }
     public string CopySelection() { lock (_gate) { return _disposed ? "" : _terminal.CopySelection(); } }
+    public Task<string> CopySelectionAsync() => Task.FromResult(CopySelection());
     /// <summary>Ctrl+C under one parser-gate acquisition: copy the selection, or send the
     /// key when nothing is selected, then clear the selection either way.</summary>
     public string CopyOrKey(uint key, uint modifiers, string text, TerminalKeyAction action, uint? unshiftedCodepoint, uint consumedModifiers)
@@ -315,10 +328,17 @@ public sealed class TerminalSession : ITerminalSession, IAsyncDisposable
             return copied;
         }
     }
+    public Task<string> CopyOrKeyAsync(uint key, uint modifiers, string text, TerminalKeyAction action, uint? unshiftedCodepoint, uint consumedModifiers)
+    {
+        string copied = CopyOrKey(key, modifiers, text, action, unshiftedCodepoint, consumedModifiers);
+        if (copied.Length > 0 && action != TerminalKeyAction.Release) lock (_gate) (_copiedKeys ??= []).Add(key);
+        return Task.FromResult(copied);
+    }
     public (int Count, int Index) Find(string text, int direction)
     {
         lock (_gate) { if (_disposed) return (0, 0); var result = _terminal.Find(text, direction); Interlocked.Increment(ref _version); return result; }
     }
+    public Task<(int Count, int Index)> FindAsync(string text, int direction) => Task.FromResult(Find(text, direction));
     public bool Mouse(int action, int button, uint modifiers, float x, float y)
     {
         byte[]? bytes;
@@ -342,6 +362,7 @@ public sealed class TerminalSession : ITerminalSession, IAsyncDisposable
     }
     public async ValueTask DisposeAsync() { Dispose(); await _reader; await _process.Closed; }
     public ValueTask CloseAsync() => DisposeAsync();
+    public ValueTask DetachAsync() => ValueTask.CompletedTask;
 }
 public sealed record TerminalPerformance(long BytesRead, long ParseTicks, long SnapshotTicks, long Snapshots, long QueuedInputBytes, long PeakQueuedInputBytes)
 {

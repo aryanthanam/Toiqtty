@@ -34,9 +34,9 @@ internal static class MetadataBatchChecks
         try
         {
             await Wait(()=>sessions.All(session=>session.Performance.BytesRead>0));
-            sessions[0].Select(0,5); bool hadSelection=sessions[0].CopySelection().Length>0;
-            sessions[0].Resize(99,30,9,18); bool cleared=sessions[0].CopySelection().Length==0;
-            sessions[0].Resize(100,30,9,18);
+            sessions[0].Select(0,5); bool hadSelection=sessions[0].CopySelectionForTest().Length>0;
+            sessions[0].ResizeForTest(99,30,9,18); bool cleared=sessions[0].CopySelectionForTest().Length==0;
+            sessions[0].ResizeForTest(100,30,9,18);
             Pass(hadSelection && cleared,"Host resizing clears selection without a client-side select request");
             bool demand=true; string subscriber=Guid.NewGuid().ToString("N"); void listener(string _) { }
             client.AddOutputListener(subscriber, listener,()=>demand); var interests=client.OutputInterestsForCheck();
@@ -96,7 +96,7 @@ internal static class MetadataBatchChecks
             sessions[0].DetachView(); client.MetadataIntervalForCheck=400;
             sessions[0].Detach(); await sessions[0].ClosedForCheck;
             bool closedCapture=false;
-            try { sessions[0].ReadSnapshot(cells); } catch(ObjectDisposedException) { closedCapture=true; }
+            try { sessions[0].ReadSnapshotForTest(cells); } catch(ObjectDisposedException) { closedCapture=true; }
             Pass(closedCapture && !sessions[0].TryReadSnapshot(cells,out _),"Detached remote sessions reject new captures after releasing their cell buffers");
             Pass((await client.CallAsync(HostRequests.Ping())).Panes.Contains(ids[0]),"Releasing frontend buffers leaves the original hidden shell owned by the host");
             reattached=new(client,ids[0],command,Environment.CurrentDirectory,new AppSettings()); reattached.AttachView();

@@ -141,7 +141,7 @@ public sealed partial class MainWindow
         check(hostPanes.SetEquals(_host.CallForCheck(Hosting.HostRequests.Ping()).Panes)
             && objects.All(pair => ReferenceEquals(SessionLayout.Find(_saved, pair.Key)!.Value.Pane.Session, pair.Value)),
             "all shell session objects and host pane IDs remain unchanged after moves and reordering");
-        check(shell.Find("MOVE_HISTORY_1", 0).Count > 0, "the moved shell retains scrollback from before its first move");
+        check((await shell.FindAsync("MOVE_HISTORY_1", 0)).Count > 0, "the moved shell retains scrollback from before its first move");
         Save();
         File.WriteAllText(identityPath, JsonSerializer.Serialize(new {
             pane, pid, token, host = _host.Identity,
