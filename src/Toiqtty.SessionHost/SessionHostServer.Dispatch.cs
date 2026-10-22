@@ -213,10 +213,11 @@ public sealed partial class SessionHostServer
         watchCancellation.ThrowIfCancellationRequested();
         lock (_gate) lock (_outputGate)
         {
-            var revisions = new Dictionary<string, long>();
+            // The changed panes are the keys of OutputRevisions; an idle watch sends neither.
+            Dictionary<string, long>? revisions = null;
             foreach (var pair in interests)
-                if (_sessions.TryGetValue(pair.Key, out var entry) && entry.OutputRevision > pair.Value) revisions.Add(pair.Key, entry.OutputRevision);
-            return new() { Panes = revisions.Count == 0 ? [] : revisions.Keys.ToArray(), OutputRevisions = revisions, OutputRevision = _outputRevision };
+                if (_sessions.TryGetValue(pair.Key, out var entry) && entry.OutputRevision > pair.Value) (revisions ??= []).Add(pair.Key, entry.OutputRevision);
+            return new() { OutputRevisions = revisions, OutputRevision = _outputRevision };
         }
     }
 

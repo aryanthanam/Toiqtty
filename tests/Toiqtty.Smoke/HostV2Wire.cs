@@ -182,7 +182,9 @@ internal static class HostV2Wire
             new() { Host = Identity, ProcessId = 1, State = state, CapturedVersion = 4, FrameRevision = 7, DeltaBaseRevision = 6, Scrollbar = new(100, 2, 30), BinaryLength = 64, KeepAlive = true, StatusRevision = 9 },
             new() { Host = Identity, ProcessId = 1, States = new() { ["p1"] = state }, Panes = ["gone"], KeepAlive = true },
             new() { Host = Identity, ProcessId = 1, States = new() { ["p1"] = state }, Missing = ["gone"] },
-            new() { Host = Identity, ProcessId = 1, Panes = ["p1"], OutputRevisions = new() { ["p1"] = 12 }, OutputRevision = 12 },
+            new() { Host = Identity, ProcessId = 1, OutputRevisions = new() { ["p1"] = 12 }, OutputRevision = 12 },
+            new() { Host = Identity, ProcessId = 1, OutputRevision = 12 },
+            new() { Host = Identity, ProcessId = 1, State = state, StatusRevision = 9, KeepAlive = true },
             new() { Host = Identity, ProcessId = 1, Value = 1 },
             new() { Host = Identity, ProcessId = 1, Find = new(3, 1) },
             new() { Host = Identity, ProcessId = 1, Text = "copied", Copied = true, State = state },
@@ -247,6 +249,19 @@ internal static class HostV2Wire
             catch (JsonException) { replies = false; }
         }
         check(replies, "protocol-3 reply bytes parse as protocol 2 with the envelope, error, binary length and state intact");
+        // Trimmed replies: only the envelope is always written, and every absent field reads
+        // back as its version-2 default on both sides.
+        string idleJson = Encoding.UTF8.GetString(JsonSerializer.SerializeToUtf8Bytes(new HostReply { Host = Identity, ProcessId = 1, OutputRevision = 12 }, reply));
+        var status = new HostReply { Host = Identity, ProcessId = 1, State = Replies()[1].State, StatusRevision = 9, KeepAlive = true };
+        var statusNode = JsonNode.Parse(JsonSerializer.SerializeToUtf8Bytes(status, reply))!.AsObject();
+        var oldIdle = JsonSerializer.Deserialize(idleJson, v2Reply)!; var newIdle = JsonSerializer.Deserialize(idleJson, reply)!;
+        check(idleJson == $$"""{"Protocol":3,"Host":"{{Identity}}","ProcessId":1,"Error":null,"OutputRevision":12}"""
+            && string.Join(",", statusNode.Select(pair => pair.Key)) == "Protocol,Host,ProcessId,Error,State,KeepAlive,StatusRevision"
+            && oldIdle.Text == "" && oldIdle.Panes.Length == 0 && oldIdle.CapturedVersion == -1 && oldIdle.FrameRevision == 0 && oldIdle.BinaryLength == 0 && oldIdle.Scrollbar is null && oldIdle.Layout is null
+            && newIdle.Text == "" && newIdle.Panes.Length == 0 && newIdle.CapturedVersion == -1 && newIdle.FrameRevision == 0 && newIdle.BinaryLength == 0 && newIdle.Scrollbar is null && newIdle.OutputRevisions is null,
+            "idle watch and status-only capture replies write only the envelope and their own fields; absent fields read as the version-2 defaults");
+        var present = JsonSerializer.Deserialize(JsonSerializer.SerializeToUtf8Bytes(new HostReply { CapturedVersion = 0, Text = "x", Panes = ["p1"] }, reply), v2Reply)!;
+        check(present.CapturedVersion == 0 && present.Text == "x" && present.Panes.SequenceEqual(["p1"]), "a captured version 0, text and panes are still written when present");
         var mismatch = JsonSerializer.Deserialize(V2MismatchReply, reply)!;
         check(mismatch.Protocol == 2 && mismatch.Error is not null && mismatch.Host == Identity, "a protocol-2 host's error reply stays readable by the current client");
         // ErrorCode is a string, omitted when None; unknown or malformed values read as None.
@@ -268,10 +283,15 @@ internal static class HostV2Wire
         bool ok = true;
         foreach (var property in v2.Properties)
             foreach (var match in current.Properties)
-                if (match.Name == property.Name && !SameType(property.PropertyType, match.PropertyType))
+                if (match.Name == property.Name && !SameType(property.PropertyType, match.PropertyType) && !OmittedWhenNull(property.PropertyType, match, current))
                 { ok = false; Console.Error.WriteLine($"{current.Type.Name}.{match.Name} changed JSON type from {property.PropertyType} to {match.PropertyType}"); }
         return ok;
     }
+    // A value v2 declares non-nullable may be nullable on the wire now only if null is never
+    // written (HostReply.CapturedVersion): v2 then reads its own default for the absent field.
+    private static bool OmittedWhenNull(Type v2, JsonPropertyInfo match, JsonTypeInfo current)
+        => Nullable.GetUnderlyingType(match.PropertyType) == v2 && current.CreateObject?.Invoke() is { } empty
+            && match.Get?.Invoke(empty) is null && !JsonSerializer.SerializeToNode(empty, current)!.AsObject().ContainsKey(match.Name);
     private static bool SameType(Type v2, Type current)
     {
         if (v2 == typeof(V2ShellState)) return current == typeof(ShellState);

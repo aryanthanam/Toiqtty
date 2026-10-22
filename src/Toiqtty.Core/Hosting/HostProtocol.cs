@@ -87,24 +87,35 @@ public sealed class HostRequest
 public sealed record HostNavigation(string? SelectedWorkspace, HostWorkspaceNavigation[] Workspaces);
 public sealed record HostWorkspaceNavigation(string Id, string? ActiveTabId, Dictionary<string, string?> FocusedPanes);
 
+/// <summary>Flat reply envelope. Protocol, Host, ProcessId and Error are always written so
+/// any peer can check the version and failure; every other field is omitted when absent
+/// and reads back as its default (version 2 declares the same defaults), which keeps the
+/// capture and watch replies small.</summary>
 public sealed class HostReply
 {
-    public int Protocol { get; set; } = HostProtocol.Version;
+    [JsonIgnore(Condition = JsonIgnoreCondition.Never)] public int Protocol { get; set; } = HostProtocol.Version;
     public string Host { get; set; } = "";
     public int ProcessId { get; set; }
-    public string? Error { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.Never)] public string? Error { get; set; }
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
     public HostErrorCode ErrorCode { get; set; }
-    public string Text { get; set; } = "";
-    public ShellState? State { get; set; }
-    public SavedSession? Layout { get; set; }
-    public string[] Panes { get; set; } = [];
-    public int CapturedVersion { get; set; } = -1;
-    public long FrameRevision { get; set; }
+    // Text, Panes and CapturedVersion keep their version-2 defaults ("", [], -1) for readers;
+    // the wire form behind each is null, so absent, at that default.
+    [JsonIgnore] public string Text { get => TextJson ?? ""; set => TextJson = value.Length == 0 ? null : value; }
+    [JsonInclude, JsonPropertyName("Text"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] internal string? TextJson { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public ShellState? State { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public SavedSession? Layout { get; set; }
+    // Live panes (ping) or panes the states batch could not find.
+    [JsonIgnore] public string[] Panes { get => PanesJson ?? []; set => PanesJson = value.Length == 0 ? null : value; }
+    [JsonInclude, JsonPropertyName("Panes"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] internal string[]? PanesJson { get; set; }
+    // Set with a frame; -1 is "no frame captured".
+    [JsonIgnore] public int CapturedVersion { get => CapturedVersionJson ?? -1; set => CapturedVersionJson = value < 0 ? null : value; }
+    [JsonInclude, JsonPropertyName("CapturedVersion"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] internal int? CapturedVersionJson { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)] public long FrameRevision { get; set; }
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public long? DeltaBaseRevision { get; set; }
-    public TerminalScrollState? Scrollbar { get; set; }
-    public int BinaryLength { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public TerminalScrollState? Scrollbar { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)] public int BinaryLength { get; set; }
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public Dictionary<string, long>? OutputRevisions { get; set; }
     // The host's global output revision when a watch completes.

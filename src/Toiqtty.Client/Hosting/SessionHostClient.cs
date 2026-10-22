@@ -141,7 +141,7 @@ public sealed partial class SessionHostClient
                             if (CancelRetiredWatchForCheck || visible || Array.IndexOf(active, pair.Key) >= 0) seen[pair.Key] = pair.Value;
                         }
                         failures = 0;
-                        foreach (var pane in reply.Panes)
+                        if (reply.OutputRevisions is { } output) foreach (var pane in output.Keys)
                         {
                             Interlocked.Increment(ref WatchNotificationsForCheck); OutputSubscription[]? listeners;
                             lock (_watchGate) _outputListeners.TryGetValue(pane, out listeners);

@@ -26,7 +26,7 @@ internal static class HostJsonIpcChecks
                 }
                 if (DateTime.UtcNow > deadline) throw new TimeoutException("JSON IPC fixture did not start."); await Task.Delay(10);
             } while (true);
-            var samples = new List<object>(); const int workers = 8, iterations = 1000;
+            var samples = new List<object>(); const int workers = 8, iterations = 1000; long replyBytes = 0;
             async Task Worker(int count)
             {
                 var request = HostRequests.Capture(pane, baseline.CapturedVersion, baseline.FrameRevision);
@@ -34,12 +34,13 @@ internal static class HostJsonIpcChecks
                 {
                     var reply = await client.CaptureAsync(request, [], CancellationToken.None, lease);
                     if (reply.BinaryLength != 0 || reply.State?.Version != baseline.CapturedVersion) throw new Exception("The metadata-only IPC workload changed its snapshot baseline.");
+                    Interlocked.Add(ref replyBytes, reply.JsonPayloadLength);
                 }
             }
             await Task.WhenAll(Enumerable.Range(0, workers).Select(_ => Worker(100)));
             for (int round = 0; round < 3; round++)
             {
-                long allocated = GC.GetTotalAllocatedBytes(true); var clientCpu = current.TotalProcessorTime; var hostCpu = host.TotalProcessorTime;
+                Interlocked.Exchange(ref replyBytes, 0); long allocated = GC.GetTotalAllocatedBytes(true); var clientCpu = current.TotalProcessorTime; var hostCpu = host.TotalProcessorTime;
                 var timer = Stopwatch.StartNew(); await Task.WhenAll(Enumerable.Range(0, workers).Select(_ => Worker(iterations))); timer.Stop();
                 samples.Add(new
                 {
@@ -48,11 +49,15 @@ internal static class HostJsonIpcChecks
                     milliseconds = timer.Elapsed.TotalMilliseconds,
                     clientCpuMs = (current.TotalProcessorTime - clientCpu).TotalMilliseconds,
                     hostCpuMs = (host.TotalProcessorTime - hostCpu).TotalMilliseconds,
-                    clientAllocatedBytes = GC.GetTotalAllocatedBytes(true) - allocated
+                    clientAllocatedBytes = GC.GetTotalAllocatedBytes(true) - allocated,
+                    captureReplyJsonBytes = Interlocked.Read(ref replyBytes) / (workers * iterations)
                 });
             }
+            // An idle watch completes empty after its 250 ms poll: the steady-state watch reply.
+            var watch = await client.CallAsync(HostRequests.Watch(new() { [pane] = long.MaxValue }));
             File.WriteAllText(output, JsonSerializer.Serialize(new
             {
+                idleWatchReplyJsonBytes = watch.JsonPayloadLength,
                 legacyJson = HostProtocol.LegacyJsonForCheck,
                 folder,
                 samples,

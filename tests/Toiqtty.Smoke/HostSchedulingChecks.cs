@@ -65,17 +65,17 @@ internal static class HostSchedulingChecks
             await WaitText(a,"PERSIST_READY"); await WaitText(b,"PERSIST_READY");
             var initial=await client.CallAsync(Watch(new() { [a]=-1,[b]=-1 }));
             var seen=initial.OutputRevisions!;
-            Pass(initial.Panes.Length==2 && seen.Count==2 && initial.OutputRevision>=seen.Values.Max(),"Initial watches return independent output revisions for both panes and the global revision");
+            Pass(seen.Count==2 && initial.OutputRevision>=seen.Values.Max(),"Initial watches return independent output revisions for both panes and the global revision");
             await Line(a,"mark"); await WaitText(a,"PERSIST_MARK=1");
             var clock=Stopwatch.StartNew();
             var idle=await client.CallAsync(Watch(new() { [b]=seen[b] }));
-            Pass(idle.Panes.Length==0 && clock.ElapsedMilliseconds>=150,"Output in an excluded busy pane does not wake the idle-pane watch");
+            Pass(idle.OutputRevisions is null && clock.ElapsedMilliseconds>=150,"Output in an excluded busy pane does not wake the idle-pane watch");
             var rejoined=await client.CallAsync(Watch(new() { [a]=seen[a] }));
-            Pass(rejoined.Panes.SequenceEqual([a]) && rejoined.OutputRevisions![a]>seen[a],
+            Pass(rejoined.OutputRevisions?.Keys.SequenceEqual([a])==true && rejoined.OutputRevisions[a]>seen[a],
                 "Rejoining a pane observes its pending output even after the global revision advanced past it");
             await Line(b,"mark"); await WaitText(b,"PERSIST_MARK=1");
             var updated=await client.CallAsync(Watch(new() { [b]=seen[b] }));
-            Pass(updated.Panes.SequenceEqual([b]),"The watched idle pane wakes when its own output changes");
+            Pass(updated.OutputRevisions?.Keys.SequenceEqual([b])==true,"The watched idle pane wakes when its own output changes");
             for(int i=0;i<80;i++)
             {
                 using var stop=new CancellationTokenSource(10);
