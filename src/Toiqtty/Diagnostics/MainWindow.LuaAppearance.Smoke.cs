@@ -26,12 +26,8 @@ public sealed partial class MainWindow
             "Persistent Lua callbacks format actual native tab labels and status text after live reload");
         check(_views.All(v=>v.FontWeightForCheck==500),"Live font-weight reload reaches existing terminal renderers");
         SetSessionTheme(workspace,null);
-        if(_host.SupportsAdvancedAppearance)
-        {
-            await wait(()=>_views.All(v=>v.FrameForCheck.Background==0xff182838));
-            check(!PaneThemeHostNotice.IsOpen,"Global custom palettes reach existing host-owned panes without a restart");
-        }
-        else check(PaneThemeHostNotice.IsOpen,"Older hosts visibly explain unsupported cursor/indexed appearance while preserving their shells");
+        await wait(()=>_views.All(v=>v.FrameForCheck.Background==0xff182838));
+        check(true,"Global custom palettes reach existing host-owned panes without a restart");
         string name=workspace.ActiveTab.Name; workspace.ActiveTab.Name="Callback rename"; RefreshTabs(); UpdateChrome();
         await wait(()=>_tabCards[workspace.ActiveTab.Id].Label.Inlines.OfType<Run>().Any(r=>r.Text=="Lua:Callback rename"));
         check(true,"Runtime formatting follows tab metadata changes without re-evaluating configuration");

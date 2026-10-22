@@ -42,8 +42,7 @@ internal static class IdleMetadataBenchmark
                 allocatedMiBPerSecond=(GC.GetTotalAllocatedBytes(true)-allocated)/elapsed/1048576,
                 metadataBatches=client.MetadataBatchesForCheck-batches,metadataPanes=client.MetadataPanesForCheck-panes,samples};
             check(sessions.All(s=>s.CapturesForCheck==0),"Sixty-four hidden shells remain healthy without visible frame captures during idle measurement");
-            check(client.SupportsMetadataBatch?client.MetadataBatchesForCheck>batches:client.MetadataBatchesForCheck==0,
-                "Idle measurement uses negotiated batched metadata or the older-host individual fallback");
+            check(client.MetadataBatchesForCheck>batches,"Idle measurement uses batched hidden-pane metadata");
             var active=sessions[0];var cells=new TerminalCell[3000];var wake=Stopwatch.StartNew();
             active.AttachView();active.Paste("mark");active.Key(13,0);
             await Wait(()=>active.TryReadSnapshot(cells,out _) && string.Concat(cells.Select(c=>c.GetText())).Contains("PERSIST_MARK=1"));
@@ -51,7 +50,7 @@ internal static class IdleMetadataBenchmark
             active.DetachView();Healthy();
             check(client.Identity==SessionHostClient.TryConnect(folder)?.Identity,"Activation after sustained hidden polling preserves the original host and shell response");
             File.WriteAllText(reportPath,JsonSerializer.Serialize(new {passed=true,folder,hostExecutable,host=client.Identity,
-                panes=sessions.Count,requestedSeconds=seconds,warmupSeconds=10,supportsMetadataBatch=client.SupportsMetadataBatch,
+                panes=sessions.Count,requestedSeconds=seconds,warmupSeconds=10,supportsMetadataBatch=true,
                 measurement,wakeToSnapshotMs=wake.Elapsed.TotalMilliseconds,
                 meaning="Same final client against each exact published host,64 real hidden persistent-shell clients,10s warmup then sustained idle polling. Measures client managed allocation and client/host CPU; no WinUI renderer, no physical display latency. Final activation verifies shell response."},new JsonSerializerOptions {WriteIndented=true}));
             Console.WriteLine("Idle metadata evidence: "+reportPath);

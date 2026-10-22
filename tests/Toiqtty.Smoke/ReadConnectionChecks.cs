@@ -13,7 +13,8 @@ internal static class ReadConnectionChecks
         SessionHostClient.CaptureReadLease? lease = null;
         try
         {
-            check(client.SupportsReusableReads, "The host negotiates reusable read connections without changing the base protocol");
+            check(SessionHostClient.RequiredCapabilities.All((await client.CallAsync(new())).Capabilities.Contains),
+                "The host advertises every capability the client requires, including reusable read connections");
             var markers = new Dictionary<string, string>();
             foreach (string id in ids)
             {
@@ -74,6 +75,7 @@ internal static class ReadConnectionChecks
             try { client.ShutdownForTest(); } catch (IOException) { }
         }
         await StaleConnection(false, check); await StaleConnection(true, check);
+        await EphemeralReads(check); await MissingCapability(check);
     }
     private static HostRequest Request(string pane) => new() { Operation = "capture", Pane = pane, Numbers = [-1], AllowStyleRuns = true };
     private static string Text(HostReply reply)
@@ -83,32 +85,70 @@ internal static class ReadConnectionChecks
         try { return string.Concat(Cells.Select(cell => cell.GetText())); }
         finally { TerminalCellPool.Shared.Return(Cells); }
     }
-    private static async Task StaleConnection(bool replaceIdentity, Action<bool, string> check)
+    // A scripted single-instance host: one reply per connection, in order.
+    private static (string Folder, Task Server) Fixture(string prefix, int connections, Func<int, HostRequest, HostReply> answer, CancellationToken token)
     {
-        string folder = Path.GetFullPath("artifacts/read-reconnect-" + Guid.NewGuid().ToString("N")); Directory.CreateDirectory(folder);
-        string name = HostProtocol.PipeName(folder), identity = Guid.NewGuid().ToString("N");
-        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        string folder = Path.GetFullPath("artifacts/" + prefix + Guid.NewGuid().ToString("N")); Directory.CreateDirectory(folder);
+        string name = HostProtocol.PipeName(folder);
         var listening = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        // Ping, first capture (server closes its advertised keep-alive), retry.
         var server = Task.Run(async () =>
         {
-            for (int index = 0; index < 3; index++)
+            for (int index = 0; index < connections; index++)
             {
                 await using var pipe = new NamedPipeServerStream(name, PipeDirection.InOut, 1, PipeTransmissionMode.Byte, PipeOptions.Asynchronous | PipeOptions.CurrentUserOnly);
                 listening.TrySetResult();
-                await pipe.WaitForConnectionAsync(deadline.Token); var request = await HostProtocol.ReadJson<HostRequest>(pipe, deadline.Token);
-                if (index > 0 && request.Operation != "capture") throw new Exception("A non-read request reached the reusable channel.");
-                await HostProtocol.WriteJson(pipe, new HostReply
-                {
-                    Host = index == 2 && replaceIdentity ? "replaced" : identity,
-                    ProcessId = Environment.ProcessId,
-                    Capabilities = [HostProtocol.ReusableReadCapability],
-                    KeepAlive = index > 0,
-                    Text = index == 1 ? "first" : "reconnected"
-                }, deadline.Token);
+                await pipe.WaitForConnectionAsync(token); var request = await HostProtocol.ReadJson<HostRequest>(pipe, token);
+                var reply = answer(index, request); reply.ProcessId = Environment.ProcessId;
+                await HostProtocol.WriteJson(pipe, reply, token);
             }
         });
-        await listening.Task.WaitAsync(deadline.Token);
+        listening.Task.Wait(token);
+        return (folder, server);
+    }
+    private static async Task MissingCapability(Action<bool, string> check)
+    {
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        var partial = SessionHostClient.RequiredCapabilities.Where(name => name != "literal-input").ToArray();
+        var (folder, server) = Fixture("read-partial-", 1, (_, _) => new() { Host = "partial", Capabilities = partial }, deadline.Token);
+        bool upgrade = false;
+        try { SessionHostClient.TryConnect(folder); } catch (SessionHostVersionException) { upgrade = true; }
+        await server;
+        check(upgrade, "A version-2 host lacking any consumed capability leads to the version window instead of client fallbacks");
+    }
+    private static async Task EphemeralReads(Action<bool, string> check)
+    {
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        string identity = Guid.NewGuid().ToString("N"); bool reuseRequested = true;
+        // Ping, then two captures whose keep-alive the full-capability host denies.
+        var (folder, server) = Fixture("read-ephemeral-", 3, (index, request) =>
+        {
+            if (index > 0) reuseRequested &= request.Operation == "capture" && request.ReuseReadConnection;
+            return new() { Host = identity, Capabilities = SessionHostClient.RequiredCapabilities, Text = "read" + index };
+        }, deadline.Token);
+        var client = SessionHostClient.TryConnect(folder) ?? throw new Exception("Fixture did not answer ping.");
+        using var lease = client.AcquireCaptureReads() ?? throw new Exception("Capture pool not acquired.");
+        string first = (await client.CaptureAsync(Request("test"), [], deadline.Token, lease)).Text;
+        string second = (await client.CaptureAsync(Request("test"), [], deadline.Token, lease)).Text;
+        await server;
+        check(first == "read1" && second == "read2" && reuseRequested && client.ReadConnectionsOpenedForCheck == 2 && client.ReadConnectionsReusedForCheck == 0,
+            "A denied keep-alive falls back to one ephemeral read connection per request");
+    }
+    private static async Task StaleConnection(bool replaceIdentity, Action<bool, string> check)
+    {
+        string identity = Guid.NewGuid().ToString("N");
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        // Ping, first capture (server closes its advertised keep-alive), retry.
+        var (folder, server) = Fixture("read-reconnect-", 3, (index, request) =>
+        {
+            if (index > 0 && request.Operation != "capture") throw new Exception("A non-read request reached the reusable channel.");
+            return new()
+            {
+                Host = index == 2 && replaceIdentity ? "replaced" : identity,
+                Capabilities = SessionHostClient.RequiredCapabilities,
+                KeepAlive = index > 0,
+                Text = index == 1 ? "first" : "reconnected"
+            };
+        }, deadline.Token);
         var client = SessionHostClient.TryConnect(folder) ?? throw new Exception("Fixture did not answer ping.");
         using var lease = client.AcquireCaptureReads();
         check((await client.CaptureAsync(Request("test"), [], deadline.Token, lease)).Text == "first", "The controlled read fixture establishes a reusable connection");

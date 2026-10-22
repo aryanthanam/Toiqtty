@@ -22,7 +22,7 @@ internal static class MetadataPayloadChecks
         var timer = Stopwatch.StartNew();
         try
         {
-            check(client.SupportsMetadataBatch, "The host negotiates byte-aware metadata batching");
+            check((await client.CallAsync(new())).Capabilities.Contains(HostProtocol.MetadataBatchCapability), "The host advertises byte-aware metadata batching");
             for (int i = 0; i < 96; i++)
             {
                 string pane = Guid.NewGuid().ToString("N");

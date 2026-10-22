@@ -17,11 +17,8 @@ public sealed partial class MainWindow
         if (!Path.GetFileName(SessionStore.Folder).StartsWith("performance-", StringComparison.Ordinal))
             throw new InvalidOperationException("Performance checks require an isolated performance-* directory.");
         _metadataTimer.Stop();
-        _host!.DisablePaneOutputWatchForCheck = Environment.GetEnvironmentVariable("TOIQTTY_PERFORMANCE_WATCH_MODE") == "legacy";
-        _host.CancelRetiredWatchForCheck = Environment.GetEnvironmentVariable("TOIQTTY_PERFORMANCE_WATCH_CANCEL") == "retired";
-        _host.DisableStyleRunsForCheck = Environment.GetEnvironmentVariable("TOIQTTY_PERFORMANCE_CELLS") == "legacy";
+        _host!.CancelRetiredWatchForCheck = Environment.GetEnvironmentVariable("TOIQTTY_PERFORMANCE_WATCH_CANCEL") == "retired";
         _host.DisableReusableReadsForCheck = Environment.GetEnvironmentVariable("TOIQTTY_PERFORMANCE_READS") == "ephemeral";
-        _host.DisableStatusRevisionsForCheck = Environment.GetEnvironmentVariable("TOIQTTY_PERFORMANCE_STATUS") == "legacy";
         bool expandedQuads = Environment.GetEnvironmentVariable("TOIQTTY_PERFORMANCE_QUADS") == "expanded";
         bool compositionRetry = Environment.GetEnvironmentVariable("TOIQTTY_PERFORMANCE_RETRY") == "composition";
         bool nativeLayouts = Environment.GetEnvironmentVariable("TOIQTTY_PERFORMANCE_LAYOUTS") == "native";
@@ -247,24 +244,24 @@ public sealed partial class MainWindow
         {
             version = BuildInfo.Version,
             benchmarkVersion = 4,
-            watchMode = _host!.DisablePaneOutputWatchForCheck ? "legacy" : "pane-interest",
+            watchMode = "pane-interest",
             timestamp = DateTimeOffset.Now,
             textCorpus = Environment.GetEnvironmentVariable("TOIQTTY_PERFORMANCE_TEXT_CORPUS") ?? "ascii",
             measurements,
-            supportsOutputWatch = _host.SupportsOutputWatch,
-            supportsPaneOutputWatch = _host.SupportsPaneOutputWatch,
+            supportsOutputWatch = !_host!.OutputWatchDegraded,
+            supportsPaneOutputWatch = true,
             adapters = _views.Select(view => view.NativeAdapterNameForCheck).Distinct().ToArray(),
             displayState = _power.DisplayState,
-            styleRuns = _host.SupportsStyleRuns && !_host.DisableStyleRunsForCheck,
+            styleRuns = true,
             quadMode = expandedQuads ? "expanded" : "instanced",
             retryMode = compositionRetry ? "composition" : "readiness",
             textLayoutMode = nativeLayouts ? "native" : "projected",
             asciiShapingMode = asciiShapes ? "harfbuzz" : "directwrite",
             asciiStorage = streamedAscii ? "font-scratch" : "shape-cache",
-            reusableReads = _host.SupportsReusableReads && !_host.DisableReusableReadsForCheck,
+            reusableReads = !_host.DisableReusableReadsForCheck,
             cancelRetiredWatch = _host.CancelRetiredWatchForCheck,
             jsonCodec = HostProtocol.LegacyJsonForCheck ? "legacy" : "generated-pooled",
-            statusRevisions = _host.SupportsStatusRevisions && !_host.DisableStatusRevisionsForCheck,
+            statusRevisions = true,
             historyCommands = Environment.GetEnvironmentVariable("TOIQTTY_PERFORMANCE_HISTORY_COMMANDS") ?? "0",
             readBufferKiB = ConPtyProcess.OutputBufferBytes / 1024,
             alphaPresentation = "drawing-surface",

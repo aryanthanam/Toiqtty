@@ -14,11 +14,6 @@ public sealed partial class MainWindow
 
     private void ApplySessionChrome()
     {
-        bool oldColors = _host is { SupportsPaneThemes: false } && (_saved.Settings.TerminalTheme is not null || _saved.Workspaces.Any(w => w.Theme is not null));
-        bool oldAppearance = _host is { SupportsAdvancedAppearance: false } && (_saved.Settings.Cursor.Style != "block" || _saved.Settings.Cursor.Blink
-            || _saved.Workspaces.Any(w => ThemeFor(w) is { Indexed.Length: > 0 }));
-        PaneThemeHostNotice.IsOpen = oldColors || oldAppearance;
-        PaneThemeHostNotice.Title = oldAppearance ? "Cursor defaults and indexed colors need the new session host" : "Pane colors need the new session host";
         var colors = Chrome.For(ThemeFor(_selected));
         if (_appliedSessionPalette == colors) return;
         _appliedSessionPalette = colors;

@@ -44,6 +44,7 @@ internal static class InputDispatchChecks
         await atomic.Complete();
         check((await atomic.Enqueue(new() { Operation="paste",Text="late" })).Error is not null,"A completed dispatcher rejects new input");
         var legacy=System.Text.Json.JsonSerializer.Deserialize<HostReply>("{\"Protocol\":2}")!;
-        check(legacy.Capabilities.Length==0,"Older hosts remain distinguishable without changing the version-2 protocol");
+        check(legacy.Capabilities.Length==0 && SessionHostClient.RequiredCapabilities.Length==12,
+            "Older version-2 hosts stay distinguishable by their missing capabilities, which the client refuses at connect");
     }
 }

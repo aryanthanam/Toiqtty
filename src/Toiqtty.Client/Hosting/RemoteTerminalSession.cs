@@ -11,7 +11,6 @@ public sealed class RemoteTerminalSession : ITerminalSession
     private Task _finishInput = Task.CompletedTask;
     internal Task ClosedForCheck => _finishInput;
     internal int StateVersionForCheck => _state.Version;
-    internal long ResizeSelectionRequestsSentForCheck;
     private readonly string _pane;
     private readonly object _gate = new();
     private readonly Lock _closeGate = new();
@@ -154,11 +153,13 @@ public sealed class RemoteTerminalSession : ITerminalSession
             Operation = operation,
             Pane = _pane,
             Numbers = numbers ?? [],
-            Text = text,
-            AllowStyleRuns = operation == "capture" && _client.SupportsStyleRuns && !_client.DisableStyleRunsForCheck
+            Text = text
         };
-        if (operation == "capture" && _client.SupportsStatusRevisions && !_client.DisableStatusRevisionsForCheck)
+        if (operation == "capture")
+        {
+            request.AllowStyleRuns = true;
             lock (_gate) request.KnownStatusRevision = _captureStatusRevision;
+        }
         return request;
     }
     private async Task<HostReply> SendQueuedRequest(HostRequest request)
@@ -182,11 +183,6 @@ public sealed class RemoteTerminalSession : ITerminalSession
         {
             if (request.Operation == "key" && request.Numbers[2] != 0) _copiedKeys.Remove(request.Numbers[0]);
             reply = await _client.CallAsync(request).ConfigureAwait(false);
-        }
-        if (request.Operation == "resize" && !_client.SupportsResizeSelectionClear)
-        {
-            Interlocked.Increment(ref ResizeSelectionRequestsSentForCheck);
-            await _client.CallAsync(Request("select", [-1, -1])).ConfigureAwait(false);
         }
         if (LatencyStageForCheck is not null) TraceLatency("input-ack-" + request.Operation);
         Accept(reply);
@@ -301,13 +297,10 @@ public sealed class RemoteTerminalSession : ITerminalSession
                 // in Ghostty while a slow/occluded view catches up.
                 if (visible && Volatile.Read(ref _frameAwaitingRead) != 0)
                 { await _pollWake.WaitAsync(1000, _stop.Token).ConfigureAwait(false); continue; }
-                var request = Request(visible ? "capture" : "state", [_captured, Interlocked.Read(ref _frameRevision)]);
-                request.AllowFrameDelta = visible && _client.SupportsFrameDeltas && _captured >= 0;
-                lock (_gate) request.Images = _images.Keys.ToArray();
                 try
                 {
                     Volatile.Write(ref _capturing, 1);
-                    if (!visible && _client.SupportsMetadataBatch)
+                    if (!visible)
                     {
                         using var metadataStop = CancellationTokenSource.CreateLinkedTokenSource(_stop.Token);
                         lock (_metadataGate) _metadataRequest = metadataStop;
@@ -327,10 +320,13 @@ public sealed class RemoteTerminalSession : ITerminalSession
                     }
                     else
                     {
+                        var request = Request("capture", [_captured, Interlocked.Read(ref _frameRevision)]);
+                        request.AllowFrameDelta = _captured >= 0;
+                        lock (_gate) request.Images = _images.Keys.ToArray();
                         await _captureRequests.WaitAsync(_stop.Token).ConfigureAwait(false);
                         try
                         {
-                            if (visible) Interlocked.Increment(ref CapturesForCheck); TraceLatency("capture-request");
+                            Interlocked.Increment(ref CapturesForCheck); TraceLatency("capture-request");
                             var reply = await _client.CaptureAsync(request, _captureBuffer, _stop.Token, _captureReads).ConfigureAwait(false);
                             TraceLatency("capture-reply"); CaptureReplyForCheck?.Invoke(reply); Cache(reply);
                             if (reply.BinaryLength > 0 && reply.Binary.Length <= 1024 * 1024) _captureBuffer = reply.Binary;
@@ -354,9 +350,12 @@ public sealed class RemoteTerminalSession : ITerminalSession
                     continue;
                 }
                 finally { Volatile.Write(ref _capturing, 0); if (visible) _client.OutputDemandChanged(); }
-                if (!visible && _client.SupportsMetadataBatch) continue;
-                int delay = visible ? (_client.SupportsOutputWatch ? 1000 : Environment.TickCount64 < Interlocked.Read(ref _interactiveUntil) ? 8 : 16) : 400;
-                if (visible && _snapshot is { } frame)
+                // Hidden panes wait inside the batched metadata reader.
+                if (!visible) continue;
+                // Output watches wake visible captures; the short timers are only
+                // the fallback once repeated watch failures degrade the client.
+                int delay = !_client.OutputWatchDegraded ? 1000 : Environment.TickCount64 < Interlocked.Read(ref _interactiveUntil) ? 8 : 16;
+                if (_snapshot is { } frame)
                     delay = (int)Math.Min(delay, frame.Frame.RenderHeld != 0 ? 16 : frame.Frame.AnimationDelay == uint.MaxValue ? delay : Math.Max(1, frame.Frame.AnimationDelay));
                 await _pollWake.WaitAsync(delay, _stop.Token).ConfigureAwait(false);
             }
@@ -486,17 +485,15 @@ public sealed class RemoteTerminalSession : ITerminalSession
     public void Paste(string text, bool clipboard = false) => QueueInput(Request("paste", [clipboard ? 1 : 0], text));
     public void SendText(string text)
     {
-        if (!_client.SupportsLiteralInput) throw new NotSupportedException("Literal text sending needs a 0.7.19+ session host. Existing shells have been left running.");
         if (System.Text.Encoding.UTF8.GetByteCount(text) > 65536) throw new ArgumentException("Literal input exceeds 64 KiB.");
         QueueInput(Request("send-text", text: text));
     }
     public Task SendTextAsync(string text)
     {
-        if (!_client.SupportsLiteralInput) throw new NotSupportedException("Literal text sending needs a 0.7.19+ session host. Existing shells have been left running.");
         if (System.Text.Encoding.UTF8.GetByteCount(text) > 65536) throw new ArgumentException("Literal input exceeds 64 KiB.");
         return AdmitText(Request("send-text", text: text));
     }
-    public Task PasteAsync(string text) => AdmitText(Request(_client.SupportsLiteralInput ? "paste-checked" : "paste", [0], text));
+    public Task PasteAsync(string text) => AdmitText(Request("paste-checked", [0], text));
     private async Task AdmitText(HostRequest request)
     {
         var reply = await _input.Enqueue(request).ConfigureAwait(false); ObserveInputReply(reply);
@@ -540,10 +537,10 @@ public sealed class RemoteTerminalSession : ITerminalSession
     { var values = Send(Request("find", [direction], text)).Numbers; return values.Length == 2 ? ((int)values[0], (int)values[1]) : (0, 0); }
     public bool Mouse(int action, int button, uint modifiers, float x, float y)
     {
-        var request = Request("mouse", [action, button, modifiers, (long)(x * 1000), (long)(y * 1000)]);
-        if (_state.MouseTracking is not { } tracking) return Send(request).Numbers.FirstOrDefault() != 0;
-        if (tracking) QueueInput(request);
-        return tracking;
+        // Every required-capability host reports mouse tracking with its state.
+        if (_state.MouseTracking != true) return false;
+        QueueInput(Request("mouse", [action, button, modifiers, (long)(x * 1000), (long)(y * 1000)]));
+        return true;
     }
     public void Detach() => BeginClose(false);
     public void Dispose() => BeginClose(true);

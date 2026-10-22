@@ -20,7 +20,7 @@ internal static class SessionThemeChecks
         await store.SaveAsync([workspace]);
         var legacy = new Workspace { Id = workspace.Id };
         new SessionThemeStore(folder).LoadInto([legacy]);
-        check(legacy.Theme == workspace.Theme, "Frontend theme preferences restore a session identity even when an older host omits its theme");
+        check(legacy.Theme == workspace.Theme, "Frontend theme preferences restore a session identity even when the host layout omits its theme");
         File.WriteAllText(Path.Combine(folder, "session-themes.json"), JsonSerializer.Serialize(new Dictionary<string,SessionTheme> {
             [workspace.Id] = new() { Name = "Dracula", Accent = "#FF79C6", Background = "#282A36", Foreground = "#F8F8F2" } }));
         new SessionThemeStore(folder).LoadInto([legacy]);

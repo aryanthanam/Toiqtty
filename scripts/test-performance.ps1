@@ -1,6 +1,6 @@
-param([string]$AppDirectory='artifacts/performance-dev', [string]$TestDirectory='artifacts/performance-tests', [ValidateRange(1,10)][int]$Iterations=3, [switch]$SkipBuild, [switch]$ResizeStress, [switch]$Scale16, [switch]$LegacyWatch, [switch]$RenderProfile, [switch]$Translucent, [string]$MonitorDevice, [ValidateScript({$_ -eq 0 -or ($_ -ge 9 -and $_ -le 32)})][int]$FontSize=0,
+param([string]$AppDirectory='artifacts/performance-dev', [string]$TestDirectory='artifacts/performance-tests', [ValidateRange(1,10)][int]$Iterations=3, [switch]$SkipBuild, [switch]$ResizeStress, [switch]$Scale16, [switch]$RenderProfile, [switch]$Translucent, [string]$MonitorDevice, [ValidateScript({$_ -eq 0 -or ($_ -ge 9 -and $_ -le 32)})][int]$FontSize=0,
     [ValidateSet(0,1,4,8,16)][int]$PaneCount=0,[ValidateSet('','quiet','controlled-output','saturated-output','mixed-output')][string]$Phase='',[ValidateRange(1,30)][int]$OutputSeconds=5,
-    [switch]$LegacyCells,[switch]$ExpandedQuads,[switch]$CompositionRetry,[switch]$NativeLayouts=$true,[switch]$CompositionBulk,[switch]$LegacyAtlasHash,[switch]$Foreground,[switch]$AsciiShapes=$true,[switch]$EphemeralReads,[switch]$LegacyJson,[switch]$LegacyStatus,[ValidateRange(0,100)][int]$HistoryCommands=0,[ValidateSet(16,64)][int]$ReadBufferKiB=16,[switch]$ReserveResize=$true,[string]$PresentMonExe,[ValidateRange(1,120)][int]$PresentMonSeconds=15,[switch]$CancelRetiredWatch,[switch]$StreamedAscii=$true,[ValidateSet(1,2)][int]$FrameLatency=2,[ValidateSet(0,1)][int]$PresentInterval=0,[ValidateSet('ascii','unicode','styled')][string]$TextCorpus='ascii',[switch]$EagerBackgrounds,[switch]$ColorGlyphCache=$true,[switch]$PreparedLayouts=$true)
+    [switch]$ExpandedQuads,[switch]$CompositionRetry,[switch]$NativeLayouts=$true,[switch]$CompositionBulk,[switch]$LegacyAtlasHash,[switch]$Foreground,[switch]$AsciiShapes=$true,[switch]$EphemeralReads,[switch]$LegacyJson,[ValidateRange(0,100)][int]$HistoryCommands=0,[ValidateSet(16,64)][int]$ReadBufferKiB=16,[switch]$ReserveResize=$true,[string]$PresentMonExe,[ValidateRange(1,120)][int]$PresentMonSeconds=15,[switch]$CancelRetiredWatch,[switch]$StreamedAscii=$true,[ValidateSet(1,2)][int]$FrameLatency=2,[ValidateSet(0,1)][int]$PresentInterval=0,[ValidateSet('ascii','unicode','styled')][string]$TextCorpus='ascii',[switch]$EagerBackgrounds,[switch]$ColorGlyphCache=$true,[switch]$PreparedLayouts=$true)
 $ErrorActionPreference='Stop'
 $root=Split-Path $PSScriptRoot -Parent
 . "$PSScriptRoot/test-window.ps1"
@@ -58,14 +58,12 @@ for ($iteration=0; $iteration -lt $Iterations; $iteration++) {
     $start.Environment['TOIQTTY_PERFORMANCE_OUTPUT_MS']=($OutputSeconds*1000).ToString()
     $start.Environment['TOIQTTY_PERFORMANCE_FRAME_LATENCY']=$FrameLatency.ToString()
     $start.Environment['TOIQTTY_PERFORMANCE_PRESENT_INTERVAL']=$PresentInterval.ToString()
-    if($LegacyCells){$start.Environment['TOIQTTY_PERFORMANCE_CELLS']='legacy'}
     if($ExpandedQuads){$start.Environment['TOIQTTY_PERFORMANCE_QUADS']='expanded'}
     if($CompositionRetry){$start.Environment['TOIQTTY_PERFORMANCE_RETRY']='composition'}
     if($NativeLayouts){$start.Environment['TOIQTTY_PERFORMANCE_LAYOUTS']='native'}
     if($AsciiShapes){$start.Environment['TOIQTTY_PERFORMANCE_ASCII']='harfbuzz'}
     if($EphemeralReads){$start.Environment['TOIQTTY_PERFORMANCE_READS']='ephemeral'}
     if($LegacyJson){$start.Environment['TOIQTTY_PERFORMANCE_JSON']='legacy'}
-    if($LegacyStatus){$start.Environment['TOIQTTY_PERFORMANCE_STATUS']='legacy'}
     if($HistoryCommands){$start.Environment['TOIQTTY_PERFORMANCE_HISTORY_COMMANDS']=$HistoryCommands.ToString()}
     $start.Environment['TOIQTTY_PERFORMANCE_READ_KIB']=$ReadBufferKiB.ToString()
     if($ReserveResize){$start.Environment['TOIQTTY_PERFORMANCE_RESIZE']='capacity'}
@@ -75,7 +73,6 @@ for ($iteration=0; $iteration -lt $Iterations; $iteration++) {
     if($LegacyAtlasHash){$start.Environment['TOIQTTY_PERFORMANCE_ATLAS_HASH']='legacy'}
     if($RenderProfile){$start.Environment['TOIQTTY_RENDER_PROFILE']='1'}
     if($Scale16) { $start.Environment['TOIQTTY_PERFORMANCE_SCALE']='16' }
-    if($LegacyWatch) { $start.Environment['TOIQTTY_PERFORMANCE_WATCH_MODE']='legacy' }
     $process=$null; $displayRequest=$null; $previousForeground=[IntPtr]::Zero; $presentMon=$null; $suspended=$null
     try {
         $displayRequest=New-ToiqttyDisplayRequest

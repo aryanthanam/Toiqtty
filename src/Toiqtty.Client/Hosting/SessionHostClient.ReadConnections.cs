@@ -11,7 +11,7 @@ public sealed partial class SessionHostClient
     internal bool HasCapturePoolForCheck { get { lock (_capturePoolGate) return _capturePool is not null; } }
     internal CaptureReadLease? AcquireCaptureReads()
     {
-        if (!SupportsReusableReads || DisableReusableReadsForCheck) return null;
+        if (DisableReusableReadsForCheck) return null;
         lock (_capturePoolGate)
         {
             _capturePool ??= new(this); _capturePoolReferences++;

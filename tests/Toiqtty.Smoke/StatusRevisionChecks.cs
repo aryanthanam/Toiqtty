@@ -21,7 +21,7 @@ internal static class StatusRevisionChecks
         try
         {
             session.AttachView(); await Wait(() => session.Status.Progress == 75);
-            check(client.SupportsStatusRevisions, "The host negotiates immutable status revisions independently of frame encoding");
+            check((await client.CallAsync(new())).Capabilities.Contains(HostProtocol.StatusRevisionCapability), "The host advertises immutable status revisions independently of frame encoding");
             await Send("history"); await Wait(() => session.Status.Commands.Count == 100);
             var full = await client.CallAsync(Request(-1)); long revision = full.StatusRevision ?? throw new Exception("Status revision missing.");
             var reused = await client.CallAsync(Request(revision));

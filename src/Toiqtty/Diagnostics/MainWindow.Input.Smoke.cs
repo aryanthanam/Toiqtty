@@ -30,7 +30,7 @@ public sealed partial class MainWindow
         await wait(()=>_focused is { FramesPainted:>0 } ready && ready.RenderedText.Contains("LATENCY_READY") && !ready.ResizePendingForCheck);
         var view=_focused!;
         var remote=(RemoteTerminalSession)_selected!.Root.Session!;
-        check(_host!.SupportsOutputWatch,"The host advertises output notifications through protocol-2 capabilities");
+        check(!_host!.OutputWatchDegraded,"Output notifications stay on the host watch rather than degraded polling");
         long notifications=view.FrameNotifications;
         string token=Guid.NewGuid().ToString("N");
         remote.Paste("echo "+token); remote.Key(13,0);
@@ -67,7 +67,7 @@ public sealed partial class MainWindow
         string expected=Convert.ToHexString(System.Text.Encoding.UTF8.GetBytes("aa\x1b[97;1:3u\x1b[200~AB\x1b[201~\x1b[O\x1b[I"));
         await wait(()=>view.RenderedText.Contains(expected));
         check(true,"Real ConPTY input preserves key press/repeat/release, bracketed paste and focus-event order");
-        check(remote.Mouse(0,4,0,8,8),"Mouse ownership follows upstream mode metadata or the legacy host query");
+        check(remote.Mouse(0,4,0,8,8),"Mouse ownership follows upstream mode metadata in the host's shell state");
         await wait(()=>view.RenderedText.Contains(Convert.ToHexString(System.Text.Encoding.UTF8.GetBytes("\x1b[<64;"))));
         check(true,"Queued mouse wheel input reaches the application's raw input through Ghostty's encoder");
         await remote.InputDrained;

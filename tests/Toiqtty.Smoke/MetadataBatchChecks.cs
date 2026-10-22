@@ -33,13 +33,13 @@ internal static class MetadataBatchChecks
         }
         try
         {
-            Pass(client.SupportsMetadataBatch,"The updated host negotiates optional batched hidden-pane metadata");
+            Pass(SessionHostClient.RequiredCapabilities.All((await client.CallAsync(new())).Capabilities.Contains),
+                "The host advertises every consumed capability, including batched hidden-pane metadata");
             await Wait(()=>sessions.All(session=>session.Performance.BytesRead>0));
             sessions[0].Select(0,5); bool hadSelection=sessions[0].CopySelection().Length>0;
             sessions[0].Resize(99,30,9,18); bool cleared=sessions[0].CopySelection().Length==0;
             sessions[0].Resize(100,30,9,18);
-            Pass(client.SupportsResizeSelectionClear && hadSelection && cleared && sessions[0].ResizeSelectionRequestsSentForCheck==0,
-                "Updated-host resizing clears selection without an additional transport request");
+            Pass(hadSelection && cleared,"Host resizing clears selection without a client-side select request");
             bool demand=true; string subscriber=Guid.NewGuid().ToString("N"); void listener(string _) { }
             client.AddOutputListener(subscriber, listener,()=>demand); var interests=client.OutputInterestsForCheck();
             long allocationStart=GC.GetAllocatedBytesForCurrentThread(); bool same=true;

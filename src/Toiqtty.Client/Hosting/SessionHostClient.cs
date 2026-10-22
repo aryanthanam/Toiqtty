@@ -24,29 +24,24 @@ public sealed partial class SessionHostClient
     public int ProcessId { get; private set; }
     public SavedSession? Layout { get; private set; }
     public string[] Panes { get; private set; } = [];
-    public bool SupportsOutputWatch { get; private set; }
-    public bool SupportsFrameDeltas { get; private set; }
-    public bool SupportsStyleRuns { get; private set; }
-    public bool SupportsReusableReads { get; private set; }
-    public bool SupportsStatusRevisions { get; private set; }
-    internal bool DisableStatusRevisionsForCheck { get; set; }
+    /// <summary>Every version-2 capability this client consumes. A host lacking any
+    /// of them is treated as a different version rather than served by fallbacks.</summary>
+    internal static readonly string[] RequiredCapabilities =
+    [
+        "output-watch", "pane-output-watch", "navigation-save", HostProtocol.MetadataBatchCapability, HostProtocol.ReusableReadCapability,
+        HostProtocol.StatusRevisionCapability, "resize-clears-selection", "row-deltas", "style-runs-v1", "pane-themes", "appearance-v2", "literal-input"
+    ];
+    // Set after repeated watch failures; visible panes then poll on short timers.
+    private volatile bool _outputWatchDegraded;
+    internal bool OutputWatchDegraded => _outputWatchDegraded;
     internal bool DisableReusableReadsForCheck { get; set; }
     internal long ReadConnectionsOpenedForCheck, ReadConnectionsReusedForCheck;
-    internal bool DisableStyleRunsForCheck { get; set; }
-    public bool SupportsPaneOutputWatch { get; private set; }
-    public bool SupportsNavigationSave { get; private set; }
-    public bool SupportsMetadataBatch { get; private set; }
-    public bool SupportsResizeSelectionClear { get; private set; }
-    public bool SupportsPaneThemes { get; private set; }
-    public bool SupportsAdvancedAppearance { get; private set; }
-    public bool SupportsLiteralInput { get; private set; }
     private readonly SemaphoreSlim _layoutSaveGate = new(1, 1);
     private readonly Lock _navigationGate = new();
     private HostRequest? _pendingNavigation;
     private List<TaskCompletionSource> _navigationCompletions = [];
     private bool _savingNavigation;
     internal long WatchRequestsForCheck, WatchNotificationsForCheck;
-    internal bool DisablePaneOutputWatchForCheck { get; set; }
     internal bool CancelRetiredWatchForCheck { get; set; }
     private readonly Lock _watchGate = new();
     private sealed record OutputSubscription(Action<string> Listener, Func<bool> Demand, Func<bool>? Visible);
@@ -61,7 +56,7 @@ public sealed partial class SessionHostClient
         {
             var subscription = new OutputSubscription(listener, demand ?? AlwaysDemand, visible);
             _outputListeners[pane] = _outputListeners.TryGetValue(pane, out var existing) ? [.. existing, subscription] : [subscription];
-            if (SupportsOutputWatch && _watchStop is null)
+            if (!_outputWatchDegraded && _watchStop is null)
             {
                 _watchStop = new(); var token = _watchStop.Token;
                 _ = Task.Run(() => WatchOutput(token));
@@ -90,13 +85,12 @@ public sealed partial class SessionHostClient
     }
     private async Task WatchOutput(CancellationToken stop)
     {
-        long revision = -1;
         var seen = new Dictionary<string, long>();
         // A watch reply does not invalidate the independent demand signal.
         // Reuse its pending wait across replies instead of canceling a task
         // and allocating a linked cancellation source on every output batch.
         using var demandStop = CancellationTokenSource.CreateLinkedTokenSource(stop);
-        using var readConnection = SupportsReusableReads ? new HostReadConnection(this) : null;
+        using var readConnection = new HostReadConnection(this);
         Task? demand = null;
         Task DemandWake() => demand ??= _watchWake.WaitAsync(demandStop.Token);
         int failures = 0;
@@ -116,54 +110,48 @@ public sealed partial class SessionHostClient
                         // still sleeps whenever none of them currently need output.
                         string[] interests = OutputInterests(visible: !CancelRetiredWatchForCheck);
                         Interlocked.Increment(ref WatchRequestsForCheck);
-                        bool filtered = SupportsPaneOutputWatch && !DisablePaneOutputWatchForCheck;
-                        HostReply reply;
-                        if (filtered)
+                        // Every interest carries its own seen revision, so the host
+                        // never needs the global revision fallback.
+                        using var requestStop = CancellationTokenSource.CreateLinkedTokenSource(stop);
+                        var pending = CallCoreAsync(new()
                         {
-                            using var requestStop = CancellationTokenSource.CreateLinkedTokenSource(stop);
-                            var pending = CallCoreAsync(new()
-                            {
-                                Operation = "watch",
-                                Numbers = [revision],
-                                WatchPanes = interests,
-                                WatchRevisions = interests.ToDictionary(id => id, id => seen.GetValueOrDefault(id, -1))
-                            }, TimeSpan.FromSeconds(3), requestStop.Token, null,
-                                readConnection: DisableReusableReadsForCheck ? null : readConnection);
-                            bool changed = false;
-                            while (!pending.IsCompleted)
-                            {
-                                var wake = DemandWake();
-                                if (await Task.WhenAny(pending, wake).ConfigureAwait(false) == pending)
-                                    break;
-                                await wake.ConfigureAwait(false);
-                                demand = null;
-                                var current = OutputInterests(visible: !CancelRetiredWatchForCheck);
-                                // Existing interests may retire while a capture covers
-                                // them. Only a newly interested pane needs an early wake.
-                                if ((CancelRetiredWatchForCheck && current.Length == 0) || (!ReferenceEquals(current, interests) && current.Except(interests).Any()))
-                                { changed = true; requestStop.Cancel(); break; }
-                            }
-                            if (changed) { try { await pending.ConfigureAwait(false); } catch (Exception ex) when (ex is OperationCanceledException or IOException) { } continue; }
-                            reply = await pending.ConfigureAwait(false);
-                            // A temporary capture/backpressure pause need not destroy
-                            // its read channel. Finish the bounded outstanding watch,
-                            // but acknowledge only currently demanded panes so a later
-                            // resume still receives output published while it slept.
-                            var active = OutputInterests();
-                            if (reply.OutputRevisions is { } revisions) foreach (var pair in revisions)
-                            {
-                                bool visible = false;
-                                lock (_watchGate) if (_outputListeners.TryGetValue(pair.Key, out var subscriptions))
-                                    foreach (var subscription in subscriptions) if (subscription.Visible?.Invoke() == true) { visible = true; break; }
-                                // Remote pane owners explicitly wake captures when a
-                                // frame is consumed or a view resumes. Generic demand
-                                // subscribers retain their unacknowledged catch-up.
-                                if (CancelRetiredWatchForCheck || visible || Array.IndexOf(active, pair.Key) >= 0) seen[pair.Key] = pair.Value;
-                            }
+                            Operation = "watch",
+                            WatchPanes = interests,
+                            WatchRevisions = interests.ToDictionary(id => id, id => seen.GetValueOrDefault(id, -1))
+                        }, TimeSpan.FromSeconds(3), requestStop.Token, null,
+                            readConnection: DisableReusableReadsForCheck ? null : readConnection);
+                        bool changed = false;
+                        while (!pending.IsCompleted)
+                        {
+                            var wake = DemandWake();
+                            if (await Task.WhenAny(pending, wake).ConfigureAwait(false) == pending)
+                                break;
+                            await wake.ConfigureAwait(false);
+                            demand = null;
+                            var current = OutputInterests(visible: !CancelRetiredWatchForCheck);
+                            // Existing interests may retire while a capture covers
+                            // them. Only a newly interested pane needs an early wake.
+                            if ((CancelRetiredWatchForCheck && current.Length == 0) || (!ReferenceEquals(current, interests) && current.Except(interests).Any()))
+                            { changed = true; requestStop.Cancel(); break; }
                         }
-                        else reply = await CallCoreAsync(new() { Operation = "watch", Numbers = [revision] }, TimeSpan.FromSeconds(3), stop, null,
-                            readConnection: DisableReusableReadsForCheck ? null : readConnection).ConfigureAwait(false);
-                        revision = reply.Numbers.FirstOrDefault(revision); failures = 0;
+                        if (changed) { try { await pending.ConfigureAwait(false); } catch (Exception ex) when (ex is OperationCanceledException or IOException) { } continue; }
+                        var reply = await pending.ConfigureAwait(false);
+                        // A temporary capture/backpressure pause need not destroy
+                        // its read channel. Finish the bounded outstanding watch,
+                        // but acknowledge only currently demanded panes so a later
+                        // resume still receives output published while it slept.
+                        var active = OutputInterests();
+                        if (reply.OutputRevisions is { } revisions) foreach (var pair in revisions)
+                        {
+                            bool visible = false;
+                            lock (_watchGate) if (_outputListeners.TryGetValue(pair.Key, out var subscriptions))
+                                foreach (var subscription in subscriptions) if (subscription.Visible?.Invoke() == true) { visible = true; break; }
+                            // Remote pane owners explicitly wake captures when a
+                            // frame is consumed or a view resumes. Generic demand
+                            // subscribers retain their unacknowledged catch-up.
+                            if (CancelRetiredWatchForCheck || visible || Array.IndexOf(active, pair.Key) >= 0) seen[pair.Key] = pair.Value;
+                        }
+                        failures = 0;
                         foreach (var pane in reply.Panes)
                         {
                             Interlocked.Increment(ref WatchNotificationsForCheck); OutputSubscription[]? listeners;
@@ -185,7 +173,7 @@ public sealed partial class SessionHostClient
                     // whole session its output wakeups, so retry with backoff.
                     Action<string>[] listeners;
                     bool retire = ++failures >= 5;
-                    lock (_watchGate) { if (retire) SupportsOutputWatch = false; listeners = _outputListeners.Values.SelectMany(items => items.Select(item => item.Listener)).ToArray(); }
+                    lock (_watchGate) { if (retire) _outputWatchDegraded = true; listeners = _outputListeners.Values.SelectMany(items => items.Select(item => item.Listener)).ToArray(); }
                     foreach (var listener in listeners) listener(""); // Fall back to bounded snapshot polling.
                     if (retire) break;
                     try { await Task.Delay(100 << failures, stop).ConfigureAwait(false); } catch (OperationCanceledException) { break; }
@@ -290,8 +278,8 @@ public sealed partial class SessionHostClient
                 bool owned = child is not null && child.HasExited && LiveHostProcess(folder);
                 if (!owned && (child is null || child.HasExited)) { child?.Dispose(); child = Process.Start(start); }
                 if (TryConnect(folder, owned ? TimeSpan.FromSeconds(1) : TimeSpan.FromMilliseconds(250)) is { } ready) return ready;
-                // Current hosts signal after creating their first pipe. The
-                // bounded timeout also supports older hosts and lease races.
+                // Hosts signal after creating their first pipe. The bounded
+                // timeout also covers lease races.
                 readyEvent.WaitOne(50);
             }
         }
@@ -300,21 +288,11 @@ public sealed partial class SessionHostClient
     }
     private void Accept(HostReply reply)
     {
+        // An older version-2 host keeps its shells; the version window explains
+        // how to stop it instead of this client carrying per-feature fallbacks.
+        foreach (string capability in RequiredCapabilities)
+            if (Array.IndexOf(reply.Capabilities, capability) < 0) throw new SessionHostVersionException();
         Identity = reply.Host; ProcessId = reply.ProcessId; Layout = reply.Layout; Panes = reply.Panes;
-        SupportsOutputWatch = reply.Capabilities.Contains("output-watch");
-        SupportsFrameDeltas = reply.Capabilities.Contains("row-deltas");
-        SupportsStyleRuns = reply.Capabilities.Contains("style-runs-v1");
-        SupportsReusableReads = reply.Capabilities.Contains(HostProtocol.ReusableReadCapability);
-        SupportsStatusRevisions = reply.Capabilities.Contains(HostProtocol.StatusRevisionCapability);
-        SupportsPaneThemes = reply.Capabilities.Contains("pane-themes");
-        SupportsAdvancedAppearance = reply.Capabilities.Contains("appearance-v2");
-        SupportsLiteralInput = reply.Capabilities.Contains("literal-input");
-        SupportsPaneOutputWatch = reply.Capabilities.Contains("pane-output-watch");
-        SupportsNavigationSave = reply.Capabilities.Contains("navigation-save");
-        // Version 1 cannot report response overflow. Keep its safe individual
-        // state path rather than disconnecting every pane in a large batch.
-        SupportsMetadataBatch = reply.Capabilities.Contains(HostProtocol.MetadataBatchCapability);
-        SupportsResizeSelectionClear = reply.Capabilities.Contains("resize-clears-selection");
     }
     internal string[] OutputInterestsForCheck() => OutputInterests();
     public HostReply Call(HostRequest request, TimeSpan? timeout = null)
@@ -380,7 +358,6 @@ public sealed partial class SessionHostClient
     }
     public Task SaveNavigationAsync(SavedSession layout)
     {
-        if (!SupportsNavigationSave) return SaveAsync(layout);
         var request = new HostRequest
         {
             Operation = "navigate",

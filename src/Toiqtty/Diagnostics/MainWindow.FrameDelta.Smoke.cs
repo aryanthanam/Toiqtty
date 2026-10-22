@@ -14,7 +14,6 @@ public sealed partial class MainWindow
         await wait(()=>_focused is { FramesPainted:>0 } ready && ready.HasImage(902) && !ready.ResizePendingForCheck);
         var view=_focused!; var remote=(RemoteTerminalSession)view.Session!;
         string identity=_host!.Identity;
-        check(_host.SupportsFrameDeltas,"The host negotiates row-delta transport");
         long startBytes=remote.FrameBytesForCheck,startDelta=remote.DeltaFramesForCheck,startFull=remote.FullFramesForCheck;
         for(int i=0;i<20;i++)
         {

@@ -87,8 +87,6 @@
   <InfoBar x:Name="LuaConfigBanner" IsOpen="False" Severity="Error" Title="Lua configuration error">
    <InfoBar.ActionButton><Button Content="Details" Click="LuaConfigStatusClick" /></InfoBar.ActionButton>
   </InfoBar>
-  <InfoBar x:Name="PaneThemeHostNotice" IsOpen="False" Severity="Informational" IsClosable="False" Title="Pane colors need the new session host"
-      Message="Use ‘Quit toiqtty and stop all sessions’ in the command palette, then reopen toiqtty and choose a theme. This stops running shells. Closing only the window keeps the older host running."/>
   </StackPanel>
   <Grid x:Name="WorkspaceBody" Grid.Row="2">
    <Grid.ColumnDefinitions><ColumnDefinition x:Name="SidebarColumn" Width="220"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>

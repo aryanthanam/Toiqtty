@@ -24,12 +24,8 @@ public sealed partial class MainWindow
                 "Lua startup and window reconnect leave the bottom bar hidden when not configured");
             Check(_saved.Workspaces[0].Theme == SessionThemePresets.Find("Cobalt2") && _saved.Workspaces[1].Theme == SessionThemePresets.Find("Catppuccin Latte"),
                 "Lua session themes reach WinUI and survive a complete window reconnect");
-            if (_host is { SupportsPaneThemes: true })
-            {
-                await Wait(() => _views.All(v => v.FrameForCheck.Background == Controls.Chrome.For(_selected!.Theme).Background));
-                Check(!PaneThemeHostNotice.IsOpen, "The current host applies Lua pane backgrounds across window reconnects without an upgrade notice");
-            }
-            else Check(PaneThemeHostNotice.IsOpen, "An older host retains live shells and visibly explains the full host restart needed for pane colors");
+            await Wait(() => _views.All(v => v.FrameForCheck.Background == Controls.Chrome.For(_selected!.Theme).Background));
+            Check(true, "The host applies Lua pane backgrounds across window reconnects");
             if (phase=="prepare")
             {
                 Check(_persistent && !_reattached && _saved.Workspaces.Count==2 && _saved.Workspaces[0].Tabs.Count==2,

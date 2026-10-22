@@ -63,7 +63,8 @@ internal static class HostSchedulingChecks
         {
             foreach(var pane in new[] { a,b }) await client.CallAsync(new() { Operation="create",Pane=pane,Text=command,Directory=Environment.CurrentDirectory,Settings=new(),Layout=layout });
             await WaitText(a,"PERSIST_READY"); await WaitText(b,"PERSIST_READY");
-            Pass(client.SupportsPaneOutputWatch && client.SupportsNavigationSave,"The host negotiates per-pane watches and navigation-only saves");
+            var advertised=(await client.CallAsync(new())).Capabilities;
+            Pass(advertised.Contains("pane-output-watch") && advertised.Contains("navigation-save"),"The host advertises per-pane watches and navigation-only saves");
             var initial=await client.CallAsync(Watch([a,b],new() { [a]=-1,[b]=-1 },-1));
             var seen=initial.OutputRevisions!;
             Pass(initial.Panes.Length==2 && seen.Count==2,"Initial watches return independent output revisions for both panes");
