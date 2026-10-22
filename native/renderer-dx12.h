@@ -78,6 +78,7 @@ struct Dx12Device {
     void initializePipelines();
 
     UINT64 nextFence=0;
+    std::mutex signalGate;
     UINT64 adapterKey=0;
     UINT64 executedLists=0;
     std::string adapterName;
@@ -97,12 +98,21 @@ struct Dx12Device {
         if(!value || fence->GetCompletedValue()>=value) {
             check(device->GetDeviceRemovedReason());return;
         }
-        check(fence->SetEventOnCompletion(value,completed));
-        DWORD result=WaitForSingleObject(completed,5000);
+        // Each waiting thread uses its own event: a shared auto-reset event
+        // lets one waiter consume another's completion signal.
+        HANDLE event=waitEvent();
+        check(fence->SetEventOnCompletion(value,event));
+        DWORD result=WaitForSingleObject(event,5000);
         check(device->GetDeviceRemovedReason());
         if(result!=WAIT_OBJECT_0)throw Failure{result==WAIT_TIMEOUT?DXGI_ERROR_DEVICE_HUNG:HRESULT_FROM_WIN32(GetLastError())};
     }
-    UINT64 signal() {UINT64 value=++nextFence;check(queue->Signal(fence.Get(),value));return value;}
+    // Increment and Signal stay ordered across threads so the fence never regresses.
+    UINT64 signal() {std::lock_guard guard(signalGate);UINT64 value=++nextFence;check(queue->Signal(fence.Get(),value));return value;}
+    static HANDLE waitEvent() {
+        thread_local struct Event {HANDLE handle=CreateEventW(nullptr,FALSE,FALSE,nullptr);~Event(){if(handle)CloseHandle(handle);}} event;
+        if(!event.handle)throw Failure{HRESULT_FROM_WIN32(GetLastError())};
+        return event.handle;
+    }
     void idle() {bridgeContext->Flush();wait(signal());}
     void collectDiagnostics() {
         if(!debug)return;

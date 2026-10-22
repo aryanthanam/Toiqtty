@@ -43,6 +43,7 @@ public sealed partial class MainWindow
                 if (_focused is { } backgroundView) backgroundView.CheckBackgroundLayersForCheck(Check);
                 await CheckDirectXConcurrentReadback(Check);
                 CheckDirectXLayoutRetirement(Check);
+                await CheckFinalizedRendererTeardown(Check);
                 await CheckDirectXLowFeatureFallback(Check);
                 foreach (float dpi in new[] { 96f, 120f, 144f, 168f, 192f }) Check(await CheckPowerlineSeams(dpi), $"Native antialiased Powerline shapes retain opaque flat joins at {dpi} DPI");
                 if (int.TryParse(Environment.GetEnvironmentVariable("TOIQTTY_DIRECTX_STRESS_SECONDS"), out int seconds) && seconds > 0) await CheckDirectXStress(seconds, Check);

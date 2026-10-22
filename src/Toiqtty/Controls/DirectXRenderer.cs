@@ -273,8 +273,21 @@ internal sealed unsafe class DirectXRenderer : IDisposable
     }
     internal sealed class RendererHandle : SafeHandleZeroOrMinusOneIsInvalid
     {
+        // Renderer teardown waits on the shared device and uses the shared 11-on-12
+        // context, which only the creating UI thread may touch. A handle released
+        // by the finalizer posts destruction there; a stopped dispatcher means the
+        // process is ending, and the renderer is left to process teardown.
+        private readonly DispatcherQueue? _owner = DispatcherQueue.GetForCurrentThread();
         internal RendererHandle(nint value) : base(true) { SetHandle(value); }
-        protected override bool ReleaseHandle() { Native.Destroy(handle); return true; }
+        protected override bool ReleaseHandle()
+        {
+            nint renderer = handle;
+            if (_owner is null || _owner.HasThreadAccess) Native.Destroy(renderer);
+            else if (_owner.TryEnqueue(DispatcherQueuePriority.Low, () => { Native.Destroy(renderer); Interlocked.Increment(ref OwnerDestroysForCheck); }))
+                Interlocked.Increment(ref PostedDestroysForCheck);
+            return true;
+        }
+        internal static int PostedDestroysForCheck, OwnerDestroysForCheck;
     }
     internal sealed class TextLayoutHandle : SafeHandleZeroOrMinusOneIsInvalid
     {

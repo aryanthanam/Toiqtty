@@ -7,6 +7,19 @@ namespace Toiqtty;
 
 public sealed partial class MainWindow
 {
+    private static async Task CheckFinalizedRendererTeardown(Action<bool,string> check)
+    {
+        int posted=DirectXRenderer.RendererHandle.PostedDestroysForCheck, owned=DirectXRenderer.RendererHandle.OwnerDestroysForCheck;
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        static void Abandon() { var leaked=new DirectXRenderer(CanvasDevice.GetSharedDevice()); leaked.GetStats(); }
+        for(int i=0;i<4;i++) Abandon();
+        GC.Collect(); GC.WaitForPendingFinalizers(); GC.Collect();
+        for(int i=0;i<100 && DirectXRenderer.RendererHandle.OwnerDestroysForCheck-owned<4;i++) await Task.Delay(20);
+        check(DirectXRenderer.RendererHandle.PostedDestroysForCheck-posted>=4 && DirectXRenderer.RendererHandle.OwnerDestroysForCheck-owned>=4,
+            "Renderers released by the finalizer are destroyed on their UI thread, never beside it");
+        using var after=new DirectXRenderer(CanvasDevice.GetSharedDevice());
+        check(after.GetStats().DeviceRemovedReason==0,"The shared device remains usable after finalizer-posted renderer teardown");
+    }
     private static void CheckDirectXLayoutRetirement(Action<bool,string> check)
     {
         var device=CanvasDevice.GetSharedDevice();
