@@ -75,7 +75,7 @@ internal static class PersistentSessionChecks
         SessionHostClient? client=null; RemoteTerminalSession? first=null, second=null;
         try
         {
-            var clients=await Task.WhenAll(Enumerable.Range(0,3).Select(_=>Task.Run(()=>SessionHostClient.ConnectOrStart(folder,hostExecutable))));
+            var clients=await Task.WhenAll(Enumerable.Range(0,3).Select(_=>Task.Run(()=>HostTestCalls.ConnectOrStartForTest(folder,hostExecutable))));
             client=clients[0];
             Pass(client.IsRunning,"the cached session-host owner is reported alive");
             Pass(clients.All(c=>c.Identity==client.Identity && c.ProcessId==client.ProcessId),"concurrent launches share one session host per data directory");
@@ -100,7 +100,7 @@ internal static class PersistentSessionChecks
             Line(first,"animate");
             Line(first,"background");
             first.Detach(); first=null; client.DetachForTest(); await Task.Delay(1200);
-            var reconnected=SessionHostClient.TryConnect(folder)!;
+            var reconnected=HostTestCalls.TryConnectForTest(folder)!;
             Pass(reconnected is not null && reconnected.Identity==client.Identity && reconnected.ProcessId==client.ProcessId,"detaching the frontend keeps the same host alive");
             second=reconnected!.StartForTest(pane,"invalid-command-must-not-run",Environment.CurrentDirectory,new AppSettings()); second.ResizeForTest(80,20,8,20); second.AttachView();
             await Wait(()=> { Capture(second); return Text(second).Contains("PERSIST_DETACHED_OUTPUT"); });
@@ -130,7 +130,7 @@ internal static class PersistentSessionChecks
             second.ReadSnapshotForTest(cells);
             bool rejected=false;
             try { var future=HostRequests.Ping(); future.Protocol=999; reconnected!.CallForTest(future); } catch (HostRejectedException ex) { rejected=ex.Code==HostErrorCode.ProtocolMismatch; }
-            Pass(rejected && SessionHostClient.TryConnect(folder) is not null,"incompatible IPC requests are rejected with ProtocolMismatch without ending live shells");
+            Pass(rejected && HostTestCalls.TryConnectForTest(folder) is not null,"incompatible IPC requests are rejected with ProtocolMismatch without ending live shells");
             HostErrorCode lastCode=HostErrorCode.None;
             async Task<string?> Answer(HostRequest request)
             {
@@ -169,12 +169,12 @@ internal static class PersistentSessionChecks
             }
             await AsyncCreate(reconnected!,folder,command,pane,Pass);
             await HostV2Wire.RunHost(folder,Pass);
-            Pass(SessionHostClient.TryConnect(folder) is not null && !second.HasExited,"raw protocol-2 requests, shutdown included, leave the live host and its shell intact");
+            Pass(HostTestCalls.TryConnectForTest(folder) is not null && !second.HasExited,"raw protocol-2 requests, shutdown included, leave the live host and its shell intact");
             using var owner=Process.GetProcessById(client.ProcessId);
             second.Dispose(); second=null; await owner.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(12));
             Pass(true,"closing the last shell stops the background host");
             Pass(!client.IsRunning,"an exited cached host is detected before creating another shell");
-            client=SessionHostClient.ConnectOrStart(folder,hostExecutable);
+            client=HostTestCalls.ConnectOrStartForTest(folder,hostExecutable);
             using var exitedOwner=Process.GetProcessById(client.ProcessId);
             var exited=client.StartForTest(Guid.NewGuid().ToString("N"),"cmd.exe /c exit 0",Environment.CurrentDirectory,new AppSettings());
             await exitedOwner.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(12)); exited.Detach();
@@ -186,7 +186,7 @@ internal static class PersistentSessionChecks
         finally
         {
             first?.Dispose(); second?.Dispose();
-            try { SessionHostClient.TryConnect(folder)?.ShutdownForTest(); } catch (IOException) { }
+            try { HostTestCalls.TryConnectForTest(folder)?.ShutdownForTest(); } catch (IOException) { }
         }
     }
     // The app's connector: one shared attempt, and a host killed mid-session is
@@ -256,7 +256,7 @@ internal static class PersistentSessionChecks
         // The frontend dies without closing it: a restarted app reads the host's layout, restores
         // the pane by identity and reattaches the running shell (the launch command never reruns).
         shell.DetachView(); await shell.DetachAsync();
-        var restarted=SessionHostClient.TryConnect(folder)!;
+        var restarted=HostTestCalls.TryConnectForTest(folder)!;
         bool restoredLayout=restarted.Layout?.Workspaces.Any(w=>w.AllPanes().Any(p=>p.Id==pane))==true && restarted.Panes.Contains(pane);
         var restored=restarted.StartForTest(pane,"invalid-command-must-not-run",Environment.CurrentDirectory,new AppSettings());
         restored.ResizeForTest(90,24,8,20); restored.AttachView();
@@ -405,7 +405,7 @@ internal static class PersistentSessionChecks
                 foreach (var item in report.RootElement.GetProperty("checks").EnumerateArray()) check(true,item.GetString()!);
                 if (phase is "prepare" or "crash-prepare")
                 {
-                    var host=SessionHostClient.TryConnect(folder);
+                    var host=HostTestCalls.TryConnectForTest(folder);
                     check(host is not null && host.Panes.Length==4,"closing the entire WinUI process leaves all four shell panes running");
                     await Task.Delay(3500);
                 }
@@ -414,10 +414,10 @@ internal static class PersistentSessionChecks
             int hostPid=identity.RootElement.GetProperty("hostProcessId").GetInt32();
             await Wait(()=> { try { return Process.GetProcessById(hostPid).HasExited; } catch (ArgumentException) { return true; } });
             // The reconnect probe also starts and closes a replacement host.
-            await Wait(()=>SessionHostClient.TryConnect(folder) is null);
-            check(SessionHostClient.TryConnect(folder) is null,"closing the last session through WinUI shuts down its background host");
+            await Wait(()=>HostTestCalls.TryConnectForTest(folder) is null);
+            check(HostTestCalls.TryConnectForTest(folder) is null,"closing the last session through WinUI shuts down its background host");
             Console.WriteLine("Persistent WinUI evidence: "+folder);
         }
-        finally { try { SessionHostClient.TryConnect(folder)?.ShutdownForTest(); } catch (IOException) { } }
+        finally { try { HostTestCalls.TryConnectForTest(folder)?.ShutdownForTest(); } catch (IOException) { } }
     }
 }

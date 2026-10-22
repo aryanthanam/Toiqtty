@@ -16,7 +16,7 @@ internal static class HostTransportSoakChecks
         layout.Workspaces.Add(workspace);
         for (int i = 0; i < 4; i++) workspace.Tabs.Add(new TerminalTab { Root = new PaneNode {
             Command = $"\"{client}\" " + (i < 2 ? "--performance-client" : "--persistent-shell-client"), Directory = Environment.CurrentDirectory } });
-        var host = SessionHostClient.ConnectOrStart(folder, hostExecutable);
+        var host = HostTestCalls.ConnectOrStartForTest(folder, hostExecutable);
         var sessions = new List<RemoteTerminalSession>();
         var cells = new TerminalCell[4][]; var samples = new List<object>(); var memory = new List<long>();
         var timer = Stopwatch.StartNew(); long snapshots = 0, reconnects = 0, images = 0; int cycle = 0;
@@ -65,7 +65,7 @@ internal static class HostTransportSoakChecks
                 cycle++; await Task.Delay(3500);
             }
             check(snapshots > 100 && images > 0 && reconnects >= 2, "host soak repeatedly transports text and animated images through resize and frontend reattachments");
-            check(workspace.AllPanes().Select(p=>p.Id).ToHashSet().SetEquals(SessionHostClient.TryConnect(folder)!.Panes), "host soak preserves every shell pane identity throughout the run");
+            check(workspace.AllPanes().Select(p=>p.Id).ToHashSet().SetEquals(HostTestCalls.TryConnectForTest(folder)!.Panes), "host soak preserves every shell pane identity throughout the run");
             double growth = memory.TakeLast(Math.Min(6, memory.Count)).Average() - memory.Skip(memory.Count / 2).Take(Math.Min(6, memory.Count)).Average();
             if (seconds >= 1800) check(growth < 64 * 1048576, "host and remote-client memory stabilize within 64 MiB after midpoint");
             File.WriteAllText(reportPath, JsonSerializer.Serialize(new { passed = true, durationSeconds = timer.Elapsed.TotalSeconds,

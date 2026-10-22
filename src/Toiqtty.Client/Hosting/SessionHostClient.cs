@@ -230,8 +230,6 @@ public sealed partial class SessionHostClient
     /// <summary>Probe for a running host on the thread pool. Null when none answers.</summary>
     public static Task<SessionHostClient?> TryConnectAsync(string folder, CancellationToken cancellation = default)
         => Task.Run(() => TryConnectCoreAsync(folder, ProbeTimeout, cancellation), cancellation);
-    /// <summary>Blocking probe for tools and smoke checks. The app and CLI await TryConnectAsync.</summary>
-    public static SessionHostClient? TryConnect(string folder) => TryConnectCoreAsync(folder, ProbeTimeout, default).GetAwaiter().GetResult();
     private static async Task<SessionHostClient?> TryConnectCoreAsync(string folder, TimeSpan timeout, CancellationToken cancellation)
     {
         // Only fast-fail when Windows says the pipe does not exist. A busy or
@@ -245,9 +243,6 @@ public sealed partial class SessionHostClient
     /// <summary>Connect to the running host or start one, entirely on the thread pool.</summary>
     public static Task<SessionHostClient> ConnectOrStartAsync(string folder, string? executable = null, CancellationToken cancellation = default)
         => Task.Run(() => ConnectOrStartCoreAsync(folder, executable, cancellation), cancellation);
-    /// <summary>Blocking connect for smoke checks. Product code goes through SessionHostConnector.</summary>
-    public static SessionHostClient ConnectOrStart(string folder, string? executable = null)
-        => ConnectOrStartCoreAsync(folder, executable, default).GetAwaiter().GetResult();
     private static async Task<SessionHostClient> ConnectOrStartCoreAsync(string folder, string? executable, CancellationToken cancellation)
     {
         if (await TryConnectCoreAsync(folder, ProbeTimeout, cancellation).ConfigureAwait(false) is { } existing) return existing;
@@ -317,13 +312,6 @@ public sealed partial class SessionHostClient
     // explains how to stop that host instead of this client carrying fallbacks.
     private void Accept(HostReply reply) { Identity = reply.Host; ProcessId = reply.ProcessId; Layout = reply.Layout; Panes = reply.Panes; WatchHostProcess(); }
     internal string[] OutputInterestsForCheck() => OutputInterests();
-    public HostReply Call(HostRequest request, TimeSpan? timeout = null)
-    {
-        try { return CallAsync(request, timeout).GetAwaiter().GetResult(); }
-        catch (OperationCanceledException ex) { throw new HostTransportException(HostErrorCode.Timeout, "Session host request timed out. Input was not retried.", ex); }
-    }
-    /// <summary>Blocking diagnostics call, for smoke checks only. Product code awaits CallAsync.</summary>
-    internal HostReply CallForCheck(HostRequest request, TimeSpan? timeout = null) => Call(request, timeout);
     public Task<HostReply> CallAsync(HostRequest request, TimeSpan? timeout = null, CancellationToken cancellation = default)
         => CallCoreAsync(request, timeout, cancellation, null);
     internal Task<HostReply> CaptureAsync(HostRequest request, byte[] reuse, CancellationToken cancellation, CaptureReadLease? lease = null)
@@ -373,8 +361,6 @@ public sealed partial class SessionHostClient
     /// <summary>Stamp a layout snapshot or shell creation at the moment it is taken.</summary>
     internal long NextLayoutRevision() => Interlocked.Increment(ref _layoutRevision);
     internal string LayoutEpoch => _layoutEpoch;
-    public void Save(SavedSession layout)
-        => SaveAsync(layout).GetAwaiter().GetResult();
     public Task SaveAsync(SavedSession layout) => SaveAsync(layout, NextLayoutRevision());
     internal async Task SaveAsync(SavedSession layout, long revision)
     {
@@ -453,8 +439,6 @@ public sealed partial class SessionHostClient
         if (reply.States is null) throw new IOException("The host omitted its attach states.");
         foreach (var pair in reply.States) states[pair.Key] = pair.Value;
     }
-    public void Detach() => Call(HostRequests.Detach());
-    public void Shutdown() => Call(HostRequests.Shutdown());
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool WaitNamedPipeW(string name, uint timeout);

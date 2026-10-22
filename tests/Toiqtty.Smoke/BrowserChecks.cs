@@ -116,7 +116,7 @@ internal static class BrowserChecks
                 return request.Operation;
             });
             bool incompatible = false;
-            try { SessionHostClient.TryConnect(legacyFolder); } catch (SessionHostVersionException) { incompatible = true; }
+            try { HostTestCalls.TryConnectForTest(legacyFolder); } catch (SessionHostVersionException) { incompatible = true; }
             check(incompatible && await oldReply == "ping", "an older session host raises an explicit version error instead of being treated as missing or receiving layout mutations");
         }
         finally { Environment.SetEnvironmentVariable("TOIQTTY_DATA_DIR", prior); }

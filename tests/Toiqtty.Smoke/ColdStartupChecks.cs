@@ -30,7 +30,7 @@ internal static class ColdStartupChecks
         void Seed() => File.WriteAllText(Path.Combine(folder,"session.json"),JsonSerializer.Serialize(stale));
         async Task StopHost()
         {
-            var host=SessionHostClient.TryConnect(folder);
+            var host=HostTestCalls.TryConnectForTest(folder);
             if(host is null) return;
             using var process=Process.GetProcessById(host.ProcessId);
             await host.CallAsync(HostRequests.Shutdown());
@@ -64,7 +64,7 @@ internal static class ColdStartupChecks
                 "A real cold launch with a saved split layout opens exactly one default session, tab and shell");
             check(!Panes(fresh).Any(staleIds.Contains) && fresh.GetProperty("fontSize").GetDouble()==18 && fresh.GetProperty("shell").GetString()==shell,
                 "Cold launch preserves preferences while giving the default shell a new identity");
-            check(SessionHostClient.TryConnect(folder)!.Panes.Order().SequenceEqual(Panes(fresh).Order()),
+            check(HostTestCalls.TryConnectForTest(folder)!.Panes.Order().SequenceEqual(Panes(fresh).Order()),
                 "The fresh host owns only the default shell and no hidden shells from the old layout");
             File.WriteAllText(config,"return {startup={sessions={{name='Do not replay on attach',tabs={{}}}}}}");
             var attached=await Launch("reattach");
@@ -76,7 +76,7 @@ internal static class ColdStartupChecks
             check(configured.GetProperty("sessions").GetArrayLength()==2 && Tabs(configured)==3 && Panes(configured).Length==4
                 && configured.GetProperty("sessions")[0].GetProperty("Name").GetString()=="Configured primary" && !Panes(configured).Any(staleIds.Contains),
                 "After host exit, Lua when_empty startup creates only its configured sessions, tabs and splits despite an old disk layout");
-            check(SessionHostClient.TryConnect(folder)!.Panes.Order().SequenceEqual(Panes(configured).Order()),
+            check(HostTestCalls.TryConnectForTest(folder)!.Panes.Order().SequenceEqual(Panes(configured).Order()),
                 "The configured cold host owns exactly its declared shells");
             await StopHost(); Seed();
             File.WriteAllText(config,"return { startup =");
@@ -87,7 +87,7 @@ internal static class ColdStartupChecks
             File.WriteAllText(config,"return {startup={sessions={{name='Configured browser',tabs={{kind='browser',url='about:blank'}}}}}}");
             var browser=await Launch("browser-only");
             check(browser.GetProperty("sessions")[0].GetProperty("Name").GetString()=="Configured browser" && Panes(browser).Length==1
-                && browser.GetProperty("host").ValueKind==JsonValueKind.Null && SessionHostClient.TryConnect(folder) is null,
+                && browser.GetProperty("host").ValueKind==JsonValueKind.Null && HostTestCalls.TryConnectForTest(folder) is null,
                 "Browser-only Lua startup ignores old shell layouts and does not start a shell host");
             Console.WriteLine("Cold startup evidence: "+folder);
         }

@@ -8,7 +8,7 @@ internal static class HostJsonIpcChecks
     internal static async Task Run(string executable, string output)
     {
         string folder = Path.GetFullPath("artifacts/json-ipc-" + Guid.NewGuid().ToString("N"));
-        var client = SessionHostClient.ConnectOrStart(folder, executable); string pane = Guid.NewGuid().ToString("N");
+        var client = HostTestCalls.ConnectOrStartForTest(folder, executable); string pane = Guid.NewGuid().ToString("N");
         await client.CallAsync(HostRequests.Create(pane, $"\"{Environment.ProcessPath}\" --persistent-shell-client", Environment.CurrentDirectory, null));
         using var host = Process.GetProcessById(client.ProcessId); using var current = Process.GetCurrentProcess();
         using var lease = client.AcquireCaptureReads();

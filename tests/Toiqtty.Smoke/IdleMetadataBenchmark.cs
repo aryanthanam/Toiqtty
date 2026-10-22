@@ -11,7 +11,7 @@ internal static class IdleMetadataBenchmark
         if(seconds is < 15 or > 600) throw new ArgumentOutOfRangeException(nameof(seconds));
         string folder=Path.GetFullPath("artifacts/performance-idle-metadata-"+Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(folder);
-        var client=SessionHostClient.ConnectOrStart(folder,hostExecutable);
+        var client=HostTestCalls.ConnectOrStartForTest(folder,hostExecutable);
         var sessions=new List<RemoteTerminalSession>();
         using var self=Process.GetCurrentProcess();
         using var host=Process.GetProcessById(client.ProcessId);
@@ -50,7 +50,7 @@ internal static class IdleMetadataBenchmark
             await Wait(()=>active.TryReadSnapshot(cells,out _) && string.Concat(cells.Select(c=>c.GetText())).Contains("PERSIST_MARK=1"));
             wake.Stop();
             active.DetachView();Healthy();
-            check(client.Identity==SessionHostClient.TryConnect(folder)?.Identity,"Activation after sustained hidden polling preserves the original host and shell response");
+            check(client.Identity==HostTestCalls.TryConnectForTest(folder)?.Identity,"Activation after sustained hidden polling preserves the original host and shell response");
             File.WriteAllText(reportPath,JsonSerializer.Serialize(new {passed=true,folder,hostExecutable,host=client.Identity,
                 panes=sessions.Count,requestedSeconds=seconds,warmupSeconds=10,supportsMetadataBatch=true,
                 measurement,wakeToSnapshotMs=wake.Elapsed.TotalMilliseconds,

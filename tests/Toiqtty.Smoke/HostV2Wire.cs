@@ -365,10 +365,10 @@ internal static class HostV2Wire
         }
         var v2 = Serve(_ => V2MismatchReply, 1);
         bool version = false;
-        try { SessionHostClient.TryConnect(folder); } catch (SessionHostVersionException) { version = true; }
+        try { HostTestCalls.TryConnectForTest(folder); } catch (SessionHostVersionException) { version = true; }
         check(version && await v2 == "ping3;", "the client raises the version error against a protocol-2 host's raw mismatch reply");
         var v3 = Serve(index => index == 0 ? """{"Protocol":3,"Host":"fake","ProcessId":1}""" : """{"Protocol":3,"Host":"fake","ProcessId":1,"Error":"uncoded"}""", 2);
-        var client = SessionHostClient.TryConnect(folder) ?? throw new IOException("The scripted protocol-3 host did not answer.");
+        var client = HostTestCalls.TryConnectForTest(folder) ?? throw new IOException("The scripted protocol-3 host did not answer.");
         HostErrorCode code = HostErrorCode.None;
         try { await client.CallAsync(HostRequests.Copy("p1")); } catch (HostRejectedException ex) { code = ex.Code; }
         await v3;

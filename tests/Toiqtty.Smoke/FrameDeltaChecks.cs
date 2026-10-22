@@ -7,7 +7,7 @@ internal static class FrameDeltaChecks
     internal static async Task RunHost(string executable, Action<bool, string> check)
     {
         string folder = Path.GetFullPath("artifacts/row-handoff-" + Guid.NewGuid().ToString("N"));
-        var client = SessionHostClient.ConnectOrStart(folder, executable);
+        var client = HostTestCalls.ConnectOrStartForTest(folder, executable);
         string pane = Guid.NewGuid().ToString("N");
         var session = client.StartForTest(pane, $"\"{Environment.ProcessPath}\" --delta-client", Environment.CurrentDirectory, new());
         var fast = new TerminalCell[3000]; var slow = new TerminalCell[3000];

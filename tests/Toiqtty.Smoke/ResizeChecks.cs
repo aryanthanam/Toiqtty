@@ -35,7 +35,7 @@ internal static class ResizeChecks
                 using var identity=JsonDocument.Parse(File.ReadAllText(Path.Combine(folder,"input-close.json")));
                 string pane=identity.RootElement.GetProperty("pane").GetString()!;
                 string expected="ACK_"+identity.RootElement.GetProperty("token").GetString()+"_249";
-                var host=SessionHostClient.TryConnect(folder) ?? throw new IOException("Closing stopped the session host.");
+                var host=HostTestCalls.TryConnectForTest(folder) ?? throw new IOException("Closing stopped the session host.");
                 bool delivered=false; string lastText=""; var deadline=Stopwatch.StartNew();
                 while(deadline.Elapsed<TimeSpan.FromSeconds(10))
                 {
@@ -53,6 +53,6 @@ internal static class ResizeChecks
             }
             Console.WriteLine(phase+" WinUI evidence: "+folder);
         }
-        finally { try { SessionHostClient.TryConnect(folder)?.ShutdownForTest(); } catch(IOException) { } }
+        finally { try { HostTestCalls.TryConnectForTest(folder)?.ShutdownForTest(); } catch(IOException) { } }
     }
 }

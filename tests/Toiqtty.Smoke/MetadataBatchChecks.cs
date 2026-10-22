@@ -20,7 +20,7 @@ internal static class MetadataBatchChecks
     internal static async Task Run(string hostExecutable,Action<bool,string> check)
     {
         string folder=Path.GetFullPath("artifacts/metadata-batch-"+Guid.NewGuid().ToString("N")); Directory.CreateDirectory(folder);
-        var client=SessionHostClient.ConnectOrStart(folder,hostExecutable); var checks=new List<string>();
+        var client=HostTestCalls.ConnectOrStartForTest(folder,hostExecutable); var checks=new List<string>();
         void Pass(bool value,string text) { check(value,text); checks.Add(text); }
         string command=$"\"{Environment.ProcessPath}\" --persistent-shell-client";
         var ids=Enumerable.Range(0,16).Select(_=>Guid.NewGuid().ToString("N")).ToArray();

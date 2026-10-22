@@ -7,7 +7,7 @@ public static partial class HostSnapshotCodec
 {
     private const uint FullRunsMagic = 0x4652544f, DeltaRunsMagic = 0x4452544f; // OTRF / OTRD.
 
-    // Negotiated with style-runs-v1. A row owns its run boundaries; no run may
+    // Always offered under protocol 3; falls back to EncodeUtf8 when that is smaller. A row owns its run boundaries; no run may
     // cross a row or make a delta depend on another row's previous attributes.
     internal static byte[] EncodeUtf8Runs(TerminalSnapshot snapshot, Utf8TerminalBuffer cells, HashSet<ulong> known, bool delta = false)
     {

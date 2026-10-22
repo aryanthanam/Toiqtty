@@ -7,7 +7,7 @@ internal static class ArchitectureChecks
     internal static async Task RunHost(string hostExecutable, Action<bool, string> check)
     {
         string folder = Path.GetFullPath("artifacts/architecture-host-" + Guid.NewGuid().ToString("N"));
-        var client = SessionHostClient.ConnectOrStart(folder, hostExecutable);
+        var client = HostTestCalls.ConnectOrStartForTest(folder, hostExecutable);
         string id = Guid.NewGuid().ToString("N");
         var session = client.StartForTest(id, $"\"{Environment.ProcessPath}\" --persistent-shell-client", Environment.CurrentDirectory, new());
         var cells = new TerminalCell[3000];
@@ -114,6 +114,9 @@ internal static class ArchitectureChecks
         var defaulted = typeof(ITerminalSession).GetMethods().Where(m => !m.IsAbstract).Select(m => m.Name).ToArray();
         string offenders = string.Join(", ", blocking.Concat(defaulted));
         check(offenders.Length == 0, "ITerminalSession exposes no synchronous IPC-shaped member and no default body" + (offenders.Length == 0 ? "" : ": " + offenders));
+        var waits = BlockingWaits();
+        check(waits.Count == 0, "The client and the product UI never block on a task (GetAwaiter().GetResult(), .Wait() or an unguarded .Result)"
+            + (waits.Count == 0 ? "" : ": " + string.Join("; ", waits)));
         var model = new SavedSession { Workspaces = [] };
         var owner = SessionLayout.AddWorkspace(model, "owner", new PaneNode(), out _)!;
         var keep = owner.Root.Id;
@@ -208,5 +211,38 @@ internal static class ArchitectureChecks
         check(true, "Layout removal and presentation detachment preserve shell input until its owner explicitly closes it");
         lifetime.ClosePanes([leaf]); await lifetime.DrainAsync().WaitAsync(TimeSpan.FromSeconds(5));
         check(shell.HasExited, "The lifetime coordinator awaits explicit shell teardown");
+    }
+
+    // A source scan, so a blocking wait cannot return through a helper the reflection check misses.
+    // Diagnostics-only UI code may block (it drives checks); tests block through HostTestCalls.
+    // .Result is allowed only where the same line proves completion or awaits it.
+    private static List<string> BlockingWaits()
+    {
+        var root = new DirectoryInfo(Environment.CurrentDirectory);
+        while (root is not null && !Directory.Exists(Path.Combine(root.FullName, "src", "Toiqtty.Client"))) root = root.Parent;
+        if (root is null) return ["source tree not found from " + Environment.CurrentDirectory];
+        var blocking = new System.Text.RegularExpressions.Regex(@"GetAwaiter\(\)\s*\.\s*GetResult\(|\.Wait\(|\.Result\b(?!\s*\()");
+        var found = new List<string>(); int scanned = 0;
+        foreach (string project in new[] { "Toiqtty.Client", "Toiqtty" })
+        {
+            string folder = Path.Combine(root.FullName, "src", project);
+            foreach (string file in Directory.EnumerateFiles(folder, "*.cs", SearchOption.AllDirectories))
+            {
+                string relative = Path.GetRelativePath(folder, file).Replace('\\', '/');
+                if (relative.StartsWith("bin/") || relative.StartsWith("obj/") || project == "Toiqtty" && relative.StartsWith("Diagnostics/")) continue;
+                scanned++; int number = 0;
+                foreach (string raw in File.ReadLines(file))
+                {
+                    number++;
+                    string line = raw.TrimStart();
+                    if (line.StartsWith("//") || line.StartsWith("///")) continue;
+                    foreach (System.Text.RegularExpressions.Match match in blocking.Matches(line))
+                        if (!match.Value.StartsWith(".Result") || !line.Contains("IsCompleted") && !line.Contains("await "))
+                        { found.Add($"{project}/{relative}:{number}"); break; }
+                }
+            }
+        }
+        if (scanned < 20) found.Add($"only {scanned} source files scanned under {root.FullName}");
+        return found;
     }
 }

@@ -53,7 +53,7 @@ internal static class StartupChecks
                     Console.WriteLine($"{phase}: window {steps["window-activated"]:0} ms; first frame {steps["first-frame"]:0} ms; prompt {steps["prompt-ready"]:0} ms");
                 }
             }
-            finally { try { SessionHostClient.TryConnect(folder)?.ShutdownForTest(); } catch (IOException) { } }
+            finally { try { HostTestCalls.TryConnectForTest(folder)?.ShutdownForTest(); } catch (IOException) { } }
             void UserPreferences() => Toiqtty.Configuration.UserPreferences.Save(folder, new AppSettings {
                 Shell = immediate ? "cmd.exe /D /Q /K echo TOIQTTY_STARTUP_READY" : ShellDefaults.Command + (profile ? " -NoExit -Command \"[Console]::Write('TOIQTTY_STARTUP_PROFILE_READY')\"" : " -NoProfile"), StartDirectory = Environment.CurrentDirectory
             });

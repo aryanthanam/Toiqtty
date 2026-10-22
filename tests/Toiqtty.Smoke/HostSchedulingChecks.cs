@@ -8,7 +8,7 @@ internal static class HostSchedulingChecks
     internal static async Task AcceptStorm(string hostExecutable,Action<bool,string> check)
     {
         string folder=Path.GetFullPath("artifacts/host-accept-storm-"+Guid.NewGuid().ToString("N")); Directory.CreateDirectory(folder);
-        var client=SessionHostClient.ConnectOrStart(folder,hostExecutable);
+        var client=HostTestCalls.ConnectOrStartForTest(folder,hostExecutable);
         string pane=Guid.NewGuid().ToString("N");
         try
         {
@@ -39,7 +39,7 @@ internal static class HostSchedulingChecks
         void Pass(bool value,string description) { check(value,description); checks.Add(description); }
         Environment.SetEnvironmentVariable(variable,delay.ToString());
         SessionHostClient client;
-        try { client=SessionHostClient.ConnectOrStart(folder,hostExecutable); }
+        try { client=HostTestCalls.ConnectOrStartForTest(folder,hostExecutable); }
         finally { Environment.SetEnvironmentVariable(variable,null); }
         string command=$"\"{Environment.ProcessPath}\" --persistent-shell-client",epoch=Guid.NewGuid().ToString("N");
         var workspace=new Workspace { Tabs=[new(),new(),new()] };
@@ -87,7 +87,7 @@ internal static class HostSchedulingChecks
         string folder=Path.GetFullPath("artifacts/host-scheduling-"+Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(folder); var checks=new List<string>();
         void Pass(bool value,string description) { check(value,description); checks.Add(description); }
-        var client=SessionHostClient.ConnectOrStart(folder,hostExecutable);
+        var client=HostTestCalls.ConnectOrStartForTest(folder,hostExecutable);
         var workspace=new Workspace { Tabs=[new(),new()] };
         var layout=new SavedSession { Workspaces=[workspace],SelectedWorkspace=workspace.Id };
         string a=workspace.Tabs[0].Root.Id,b=workspace.Tabs[1].Root.Id;

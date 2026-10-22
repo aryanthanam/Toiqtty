@@ -9,7 +9,7 @@ internal static class ShutdownReplyChecks
         for (int iteration = 0; iteration < 5; iteration++)
         {
             string folder = Path.GetFullPath("artifacts/performance-shutdown-" + Guid.NewGuid().ToString("N"));
-            var host = SessionHostClient.ConnectOrStart(folder, executable);
+            var host = HostTestCalls.ConnectOrStartForTest(folder, executable);
             using var owner = Process.GetProcessById(host.ProcessId);
             var shells = new List<RemoteTerminalSession>();
             try
@@ -21,12 +21,12 @@ internal static class ShutdownReplyChecks
                 check(true, "shutdown round " + (iteration + 1) + " receives a complete acknowledgement before the host cancels connections");
                 try { await capture; } catch (IOException) { }
                 await owner.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(12));
-                check(SessionHostClient.TryConnect(folder) is null, "shutdown round " + (iteration + 1) + " closes all four shells and releases its pipe");
+                check(HostTestCalls.TryConnectForTest(folder) is null, "shutdown round " + (iteration + 1) + " closes all four shells and releases its pipe");
             }
             finally
             {
                 foreach (var shell in shells) shell.Detach();
-                try { SessionHostClient.TryConnect(folder)?.ShutdownForTest(); } catch (IOException) { }
+                try { HostTestCalls.TryConnectForTest(folder)?.ShutdownForTest(); } catch (IOException) { }
             }
         }
     }

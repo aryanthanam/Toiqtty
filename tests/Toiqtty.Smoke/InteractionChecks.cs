@@ -81,7 +81,7 @@ internal static class InteractionChecks
             check(first.Action is { Kind:"paste",Value:"Work1" } && second.Action?.Value=="Work2","Lua action callbacks retain state and return structured actions with context");
             check((await runtime.Invoke(new() { Action="bad" })).Error is not null,"Invalid Lua action results report errors without executing UI operations");
         }
-        var host=SessionHostClient.ConnectOrStart(folder,helper);
+        var host=HostTestCalls.ConnectOrStartForTest(folder,helper);
         string paneId=Guid.NewGuid().ToString("N");
         using var shell=host.StartForTest(paneId,ShellDefaults.Command+" -NoProfile",Environment.CurrentDirectory,new());
         shell.AttachView();

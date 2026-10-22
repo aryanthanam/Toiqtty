@@ -7,7 +7,7 @@ internal static class ReadConnectionChecks
     internal static async Task Run(string executable, Action<bool, string> check)
     {
         string folder = Path.GetFullPath("artifacts/read-connections-" + Guid.NewGuid().ToString("N"));
-        var client = SessionHostClient.ConnectOrStart(folder, executable);
+        var client = HostTestCalls.ConnectOrStartForTest(folder, executable);
         var held = new List<NamedPipeClientStream>();
         var ids = new[] { Guid.NewGuid().ToString("N"), Guid.NewGuid().ToString("N") };
         SessionHostClient.CaptureReadLease? lease = null;
@@ -136,7 +136,7 @@ internal static class ReadConnectionChecks
             if (index > 0) reuseRequested &= request.Operation == "capture" && request.ReuseReadConnection;
             return new() { Host = identity, Text = "read" + index };
         }, deadline.Token);
-        var client = SessionHostClient.TryConnect(folder) ?? throw new Exception("Fixture did not answer ping.");
+        var client = HostTestCalls.TryConnectForTest(folder) ?? throw new Exception("Fixture did not answer ping.");
         using var lease = client.AcquireCaptureReads() ?? throw new Exception("Capture pool not acquired.");
         string first = (await client.CaptureAsync(Request("test"), [], deadline.Token, lease)).Text;
         string second = (await client.CaptureAsync(Request("test"), [], deadline.Token, lease)).Text;
@@ -159,7 +159,7 @@ internal static class ReadConnectionChecks
                 Text = index == 1 ? "first" : "reconnected"
             };
         }, deadline.Token);
-        var client = SessionHostClient.TryConnect(folder) ?? throw new Exception("Fixture did not answer ping.");
+        var client = HostTestCalls.TryConnectForTest(folder) ?? throw new Exception("Fixture did not answer ping.");
         using var lease = client.AcquireCaptureReads();
         check((await client.CaptureAsync(Request("test"), [], deadline.Token, lease)).Text == "first", "The controlled read fixture establishes a reusable connection");
         bool changed = false; HostReply? reply = null;

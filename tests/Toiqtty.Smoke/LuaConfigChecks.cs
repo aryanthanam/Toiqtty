@@ -35,7 +35,7 @@ internal static class LuaConfigChecks
             }
             Console.WriteLine("Lua WinUI evidence: "+folder);
         }
-        finally { try { Toiqtty.Hosting.SessionHostClient.TryConnect(folder)?.ShutdownForTest(); } catch(IOException){} }
+        finally { try { HostTestCalls.TryConnectForTest(folder)?.ShutdownForTest(); } catch(IOException){} }
     }
     public static async Task Run(string helper, Action<bool,string> check)
     {

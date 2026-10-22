@@ -55,6 +55,8 @@ Version 0.7.3 supersedes the initial metadata batching capability with `metadata
 
 Version 0.7.6 preflights outgoing snapshot bytes at the existing 96 MiB limit without changing their wire format. The optional real Kitty/tmux fixture enables both tmux passthrough and its RGB terminal feature: quantizing placeholder foreground colors into palette indices loses the image ID encoded in those colors. Its startup marker uses split `printf` arguments so command echo cannot satisfy readiness. These are test configuration and validation changes; image parsing and placeholder geometry remain upstream implementations.
 
+The release after 0.10.6 moves the private session IPC to protocol 3: typed per-operation payloads, string error codes, batched `attach`, `copy-or-key` and no capability negotiation (the 0.7.x capabilities above are now always on). It adds no terminal escape sequences. **Upgrade note:** a protocol-3 frontend cannot attach to a running protocol-2 host. Before opening the new version, choose ‘Quit toiqtty and stop all sessions’ in the running version; otherwise the new frontend shows its upgrade window and leaves the old shells untouched. Running v2 shells cannot be carried over.
+
 Keep the host-protocol gaps above in the compatibility milestone. Before claiming Ghostty protocol parity, implement the applicable missing callbacks and renderer state, then exercise capability negotiation, fragmented streams, reset/resize/screen-switch lifetimes, and real applications. The current automated checks cover representative behavior; they do not substitute for that application matrix.
 
 ## Hardening and client matrix

@@ -15,7 +15,7 @@ internal static class MetadataPayloadChecks
             output.Append("\x1b]133;C;cmdline_url=PAYLOAD_").Append(i.ToString("D3")).Append('_').Append('x', 1800)
                 .Append("\x07\x1b]133;D;0\x07");
         File.WriteAllText(history, output.ToString(), new UTF8Encoding(false));
-        var client = SessionHostClient.ConnectOrStart(folder, hostExecutable);
+        var client = HostTestCalls.ConnectOrStartForTest(folder, hostExecutable);
         using var owner = Process.GetProcessById(client.ProcessId);
         var states = new Dictionary<string, ShellState>();
         int successful = 0; long combinedBytes = 0, maxIndividualBytes = 0; bool passed = false; string? error = null;

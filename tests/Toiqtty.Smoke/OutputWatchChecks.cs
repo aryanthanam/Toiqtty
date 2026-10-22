@@ -9,7 +9,7 @@ internal static class OutputWatchChecks
     internal static async Task Run(string executable, Action<bool, string> check)
     {
         string folder = Path.GetFullPath("artifacts/output-watch-" + Guid.NewGuid().ToString("N"));
-        var host = SessionHostClient.ConnectOrStart(folder, executable);
+        var host = HostTestCalls.ConnectOrStartForTest(folder, executable);
         string pane = Guid.NewGuid().ToString("N"), other = Guid.NewGuid().ToString("N");
         int demand = 0, notifications = 0, otherNotifications = 0, cancellations = 0;
         void listener(string _) => Interlocked.Increment(ref notifications);

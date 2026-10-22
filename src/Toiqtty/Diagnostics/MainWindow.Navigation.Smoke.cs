@@ -138,13 +138,13 @@ public sealed partial class MainWindow
         await wait(()=>_focused?.PaneId==surviving && _focused.InputHasFocus);
         check(source.Root.IsLeaf,"closing the focused split pane restores input to its surviving sibling");
         NavigateNotification(destination.Id, pane); await wait(() => _focused?.PaneId == pane);
-        check(hostPanes.SetEquals(_host.CallForCheck(Hosting.HostRequests.Ping()).Panes)
+        check(hostPanes.SetEquals(_host!.CallForCheck(Hosting.HostRequests.Ping()).Panes)
             && objects.All(pair => ReferenceEquals(SessionLayout.Find(_saved, pair.Key)!.Value.Pane.Session, pair.Value)),
             "all shell session objects and host pane IDs remain unchanged after moves and reordering");
         check((await shell.FindAsync("MOVE_HISTORY_1", 0)).Count > 0, "the moved shell retains scrollback from before its first move");
         Save();
         File.WriteAllText(identityPath, JsonSerializer.Serialize(new {
-            pane, pid, token, host = _host.Identity,
+            pane, pid, token, host = _host!.Identity,
             sessions = _saved.Workspaces.Select(w => w.Id).ToArray(), tabs = destination.Tabs.Select(t => t.Id).ToArray()
         }));
 

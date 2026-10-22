@@ -119,13 +119,13 @@ internal static class NavigationChecks
                 if (!report.RootElement.GetProperty("passed").GetBoolean()) throw new InvalidOperationException(report.RootElement.GetProperty("error").GetString());
                 foreach (var item in report.RootElement.GetProperty("checks").EnumerateArray()) check(true, item.GetString()!);
                 if (phase == "navigation-prepare")
-                    check(SessionHostClient.TryConnect(folder) is { Panes.Length: 4 }, "closing the moved layout's frontend leaves all four shells running");
+                    check(HostTestCalls.TryConnectForTest(folder) is { Panes.Length: 4 }, "closing the moved layout's frontend leaves all four shells running");
             }
             var until = DateTime.UtcNow.AddSeconds(12);
-            while (SessionHostClient.TryConnect(folder) is not null && DateTime.UtcNow < until) await Task.Delay(100);
-            check(SessionHostClient.TryConnect(folder) is null, "closing the isolated moved sessions ends their host cleanly");
+            while (HostTestCalls.TryConnectForTest(folder) is not null && DateTime.UtcNow < until) await Task.Delay(100);
+            check(HostTestCalls.TryConnectForTest(folder) is null, "closing the isolated moved sessions ends their host cleanly");
             Console.WriteLine("Navigation WinUI evidence: " + folder);
         }
-        finally { try { SessionHostClient.TryConnect(folder)?.ShutdownForTest(); } catch (IOException) { } }
+        finally { try { HostTestCalls.TryConnectForTest(folder)?.ShutdownForTest(); } catch (IOException) { } }
     }
 }

@@ -1,10 +1,12 @@
 using Toiqtty.Hosting;
 using Toiqtty.Models;
 
-/// <summary>Blocking test conveniences over the asynchronous host API. Later protocol
-/// steps delete the client's synchronous calls; tests depend only on these wrappers.</summary>
+/// <summary>Blocking test conveniences over the asynchronous host API. The client has no
+/// synchronous calls (ArchitectureChecks enforces that); tests block only through these.</summary>
 internal static class HostTestCalls
 {
+    public static SessionHostClient ConnectOrStartForTest(string folder, string? executable = null) => SessionHostClient.ConnectOrStartAsync(folder, executable).GetAwaiter().GetResult();
+    public static SessionHostClient? TryConnectForTest(string folder) => SessionHostClient.TryConnectAsync(folder).GetAwaiter().GetResult();
     public static HostReply CallForTest(this SessionHostClient client, HostRequest request, TimeSpan? timeout = null)
     {
         try { return client.CallAsync(request, timeout).GetAwaiter().GetResult(); }
