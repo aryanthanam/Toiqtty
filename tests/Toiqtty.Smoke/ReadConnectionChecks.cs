@@ -107,11 +107,24 @@ internal static class ReadConnectionChecks
     {
         using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(10));
         // A protocol-2 host refuses the protocol-3 ping with its own mismatch reply.
-        var (folder, server) = Fixture("read-v2-", 1, (_, _) => new() { Protocol = 2, Host = "v2", Error = "Incompatible session-host protocol. Stop existing sessions before upgrading the host." }, deadline.Token);
+        static HostReply Refuse(int index, HostRequest request) => new() { Protocol = 2, Host = "v2", Error = "Incompatible session-host protocol. Stop existing sessions before upgrading the host." };
+        var (folder, server) = Fixture("read-v2-", 1, Refuse, deadline.Token);
         bool upgrade = false;
-        try { SessionHostClient.TryConnect(folder); } catch (SessionHostVersionException) { upgrade = true; }
+        try { await SessionHostClient.TryConnectAsync(folder); } catch (SessionHostVersionException) { upgrade = true; }
         await server;
         check(upgrade, "A protocol-2 host leads to the version window instead of client fallbacks");
+        // The connector reports the mismatch once and keeps it: no second ping,
+        // no replacement host launched against the other version's lease.
+        (folder, server) = Fixture("read-v2-", 1, Refuse, deadline.Token);
+        var connector = new SessionHostConnector(folder, Path.Combine(folder, "missing-host.exe")); int reported = 0;
+        connector.VersionMismatch += _ => Interlocked.Increment(ref reported);
+        var first = connector.ConnectAsync(); var again = connector.ConnectAsync();
+        bool mismatch = false;
+        try { await first; } catch (SessionHostVersionException) { mismatch = true; }
+        var later = connector.ConnectAsync();
+        await server;
+        check(mismatch && ReferenceEquals(first, again) && ReferenceEquals(first, later) && reported == 1 && connector.Current is null,
+            "The host connector shares one attempt and reports a version mismatch once without retrying");
     }
     private static async Task EphemeralReads(Action<bool, string> check)
     {

@@ -31,7 +31,9 @@ public sealed partial class MainWindow : Window
     private bool _sessionsRestored;
     private readonly bool _persistent;
     private readonly bool _reattached;
-    private SessionHostClient? _host;
+    // One single-flight connection; _host is whichever client it has resolved.
+    private readonly SessionHostConnector _connector = new(SessionStore.Folder);
+    private SessionHostClient? _host => _connector.Current;
     private readonly StartupLuaEvaluation? _startupLua;
     private readonly StartupGraphics? _startupGraphics;
     internal MainWindow(Notifications.DesktopNotifications? notifications = null, SessionHostClient? runningHost = null, Task<SessionHostClient?>? startingHost = null, SavedSession? saved = null, StartupLuaEvaluation? startupLua = null, StartupGraphics? startupGraphics = null)
@@ -78,8 +80,15 @@ public sealed partial class MainWindow : Window
         _persistent=diagnostics.Persistent; _luaEnabled=diagnostics.LuaEnabled;
         StartupTrace.Mark("window-host-probe-begin");
         if (_persistent && runningHost is { } running && running.Panes.Length>0)
-        { _host=running; _saved=running.Layout??_saved; _reattached=true; }
+        { _connector.Adopt(running); _saved=running.Layout??_saved; _reattached=true; }
         StartupTrace.Mark("window-host-probe-end");
+        // A reconnect after a host exit can meet a newer or older host version.
+        _connector.VersionMismatch += ex => DispatcherQueue.TryEnqueue(() =>
+        {
+            if (_closed) return;
+            SetStatusMessage(ex.Message, problem: true);
+            (Application.Current as App)?.ShowUpgradeWindow(ex.Message);
+        });
         diagnostics.PrepareFixture(_saved);
         ExtendsContentIntoTitleBar = true;
         SetTitleBar(TitleBar);
@@ -113,7 +122,7 @@ public sealed partial class MainWindow : Window
             ApplyWindowSettings(initial: true);
             if (_persistent && startingHost is not null)
             {
-                try { _host = await startingHost; }
+                try { if (await startingHost is { } started) _connector.Adopt(started); }
                 catch (Exception ex) when (ex is IOException or System.ComponentModel.Win32Exception or UnauthorizedAccessException or InvalidOperationException)
                 { SetStatusMessage("Could not start session host: " + ex.Message, problem: true); }
                 if (_closed) return;
@@ -322,7 +331,7 @@ public sealed partial class MainWindow : Window
                 var panel = new StackPanel { Spacing = 12, Margin = new Thickness(28), VerticalAlignment = VerticalAlignment.Center };
                 panel.Children.Add(new TextBlock { Text = "Couldn’t start this shell", FontSize = 18, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
                 panel.Children.Add(new TextBlock { Text = ex.Message + "\n\n" + node.Command, TextWrapping = TextWrapping.Wrap, IsTextSelectionEnabled = true });
-                var retry = new Button { Content = "Retry" }; retry.Click += (_, _) => { ForgetTabLayout(workspace.ActiveTab.Id); RebuildPanes(node.Id); }; panel.Children.Add(retry);
+                var retry = new Button { Content = "Retry" }; retry.Click += (_, _) => { _connector.Retry(); ForgetTabLayout(workspace.ActiveTab.Id); RebuildPanes(node.Id); }; panel.Children.Add(retry);
                 var settings = new Button { Content = "Edit shell settings" }; settings.Click += SettingsClick; panel.Children.Add(settings);
                 return panel;
             }
@@ -413,7 +422,7 @@ public sealed partial class MainWindow : Window
             else if (_selected == removed) SelectWorkspace(_saved.Workspaces[Math.Clamp(removal.WorkspaceIndex - 1, 0, _saved.Workspaces.Count - 1)]);
             else RefreshSidebar();
             Save();
-            if (_saved.Workspaces.Count == 0) _host = null;
+            if (_saved.Workspaces.Count == 0) _connector.Reset();
         }
         else if (removal.RemovedTab is not null)
         {
@@ -463,7 +472,7 @@ public sealed partial class MainWindow : Window
             // Shell closure is explicitly owned by SessionLifetimeCoordinator.
             // Browser-only layouts therefore retire their host reference at
             // the layout transition, rather than waiting for an IPC failure.
-            if(_persistent && _saved.Workspaces.SelectMany(w=>w.AllPanes()).All(p=>p.IsBrowser)) _host=null;
+            if(_persistent && _saved.Workspaces.SelectMany(w=>w.AllPanes()).All(p=>p.IsBrowser)) _connector.Reset();
             SavePreferences();
             if (_sessionThemesLoaded) _ = ObserveSave(_sessionThemes.SaveAsync(_saved.Workspaces));
             _=ObserveSave(_sessionPersistence.Enqueue(_saved,navigationOnly,_persistent?_host:null));

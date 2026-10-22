@@ -37,8 +37,10 @@ public sealed partial class MainWindow
         StartupTrace.Mark("shell-connect-begin");
         if (_persistent)
         {
-            if (_host is null || !_host.IsRunning) _host=SessionHostClient.ConnectOrStart(SessionStore.Folder);
-            var remote=new RemoteTerminalSession(_host,node.Id,node.Command,node.Directory,_saved.Settings.WithTerminalTheme(workspace.Theme),_saved);
+            // Until shell creation is asynchronous (B4) this waits for the connector,
+            // which connects or starts the host on the thread pool, single-flight.
+            var host=_connector.ConnectAsync().GetAwaiter().GetResult();
+            var remote=new RemoteTerminalSession(host,node.Id,node.Command,node.Directory,_saved.Settings.WithTerminalTheme(workspace.Theme),_saved);
             node.Session=remote; node.Attention=remote.PendingAttention;
             workspace.Attention|=node.Attention;
         }
@@ -227,7 +229,7 @@ public sealed partial class MainWindow
         await ObserveSave(_sessionPersistence.FlushAsync());
         await SessionLifetimeCoordinator.DetachAsync(_saved.Workspaces.SelectMany(w=>w.AllPanes()));
         try { if(_host is not null) await _host.CallAsync(HostRequests.Shutdown()); } catch (Exception ex) when (ex is IOException or OperationCanceledException) { SetStatusMessage(ex.Message, problem: true); return; }
-        _host=null;
+        _connector.Reset();
         Close();
     }
 }

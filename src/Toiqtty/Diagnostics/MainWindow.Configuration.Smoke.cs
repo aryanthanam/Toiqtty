@@ -87,7 +87,8 @@ public sealed partial class MainWindow
                 Check(_saved.Workspaces.Count==4 && _saved.Workspaces.SelectMany(w=>w.AllPanes()).Select(p=>p.Id).Distinct().Count()==8,
                     "explicitly creating configured sessions produces new identities without replacing existing sessions");
                 foreach (var session in _saved.Workspaces.ToArray()) RemoveWorkspace(session);
-                await Wait(()=>Hosting.SessionHostClient.TryConnect(SessionStore.Folder) is null);
+                for (var stopped=DateTime.UtcNow.AddSeconds(15); await Hosting.SessionHostClient.TryConnectAsync(SessionStore.Folder) is not null; await Task.Delay(100))
+                    if (DateTime.UtcNow>stopped) throw new TimeoutException("Lua UI check timed out waiting for the host to stop.");
                 Check(_saved.Workspaces.Count==0,"closing every configured session stops the host without automatically replaying startup actions");
             }
         }

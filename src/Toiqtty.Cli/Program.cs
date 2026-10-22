@@ -77,7 +77,7 @@ try
     try { reply = await ControlProtocol.Call(folder, request); }
     catch (IOException) when (request.Command == "sessions")
     {
-        var host = SessionHostClient.TryConnect(folder);
+        var host = await SessionHostClient.TryConnectAsync(folder);
         reply = ControlReply.Success((host?.Layout?.Workspaces ?? []).Select(w => new { id = w.Id, name = w.Name, selected = host?.Layout?.SelectedWorkspace == w.Id,
             tabs = w.Tabs.Select(t => new { id = t.Id, name = t.Name, panes = t.Root.Leaves().Select(p => new { id = p.Id, kind = p.Kind, directory = p.Directory, shell = p.Command }) }) }).ToArray());
     }

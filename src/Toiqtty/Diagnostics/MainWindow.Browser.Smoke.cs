@@ -207,7 +207,7 @@ public sealed partial class MainWindow
                     "browser-owned local storage survives a complete window restart");
                 string shell = _selected.Root.Leaves().Single(p => !p.IsBrowser).Id;
                 ClosePane(shell);
-                await Wait(() => Task.FromResult(Hosting.SessionHostClient.TryConnect(SessionStore.Folder) is null));
+                await Wait(async () => await Hosting.SessionHostClient.TryConnectAsync(SessionStore.Folder) is null);
                 browser = _browsers[pane]; browser.Navigate(fixture.Origin + "/browser-only-saved");
                 await Wait(() => Task.FromResult(SessionStore.Load().Workspaces.Single().Root.BrowserUrl.EndsWith("/browser-only-saved")));
                 Check(_selected.Root.IsBrowser && _host is null, "browser-only navigation keeps saving after the final shell and session host have stopped");

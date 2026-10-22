@@ -85,23 +85,14 @@ public partial class App : Application
         var startupGraphics = new StartupGraphics();
         Models.StartupTrace.Mark("host-probe-begin");
         Hosting.SessionHostClient? runningHost;
-        try { runningHost = await Task.Run(() => Hosting.SessionHostClient.TryConnect(Models.SessionStore.Folder)); }
+        try { runningHost = await Hosting.SessionHostClient.TryConnectAsync(Models.SessionStore.Folder); }
         catch (Hosting.SessionHostVersionException ex)
         {
             startupGraphics.Dispose();
-            var panel = new StackPanel { Spacing = 20, Margin = new Thickness(28), RequestedTheme = ElementTheme.Dark };
-            panel.Children.Add(new TextBlock { Text = "Finish the toiqtty upgrade", FontSize = 22 });
-            panel.Children.Add(new TextBlock { Text = ex.Message, TextWrapping = TextWrapping.Wrap, MaxWidth = 460 });
-            var close = new Button { Content = "Close" }; panel.Children.Add(close);
-            _upgradeWindow = new Window { Title = "toiqtty update", Content = new Border {
-                RequestedTheme = ElementTheme.Dark, Background = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 25, 28, 34)),
-                Child = new ScrollViewer { Content = panel, VerticalScrollBarVisibility = ScrollBarVisibility.Auto }
-            } };
-            _upgradeWindow.AppWindow.Resize(new Windows.Graphics.SizeInt32(600, 420));
-            close.Click += (_, _) => _upgradeWindow.Close();
-            _instance.Activated += () => _upgradeWindow.DispatcherQueue.TryEnqueue(_upgradeWindow.Activate);
-            _upgradeWindow.Closed += (_, _) => _instance.Dispose();
-            _upgradeWindow.Activate(); return;
+            var upgrade = ShowUpgradeWindow(ex.Message);
+            _instance.Activated += () => upgrade.DispatcherQueue.TryEnqueue(upgrade.Activate);
+            upgrade.Closed += (_, _) => _instance.Dispose();
+            return;
         }
         Models.StartupTrace.Mark("host-probe-end");
         bool usesHost=diagnostics.Persistent;
@@ -123,7 +114,7 @@ public partial class App : Application
                 }
                 if (!launchShell || startupLua?.IsDisposed == true) return null;
                 Models.StartupTrace.Mark("host-start-begin");
-                var host = Hosting.SessionHostClient.Start(Models.SessionStore.Folder);
+                var host = await Hosting.SessionHostClient.StartAsync(Models.SessionStore.Folder).ConfigureAwait(false);
                 Models.StartupTrace.Mark("host-start-end");
                 return host;
             }) : null;
@@ -157,6 +148,25 @@ public partial class App : Application
             if (_pendingNotification is { } pending) _window.NavigateNotification(pending.Workspace, pending.Pane);
             _pendingNotification = null;
         }
+    }
+    /// <summary>Explain how to stop an incompatible host. Used at startup and when a
+    /// mid-session reconnect meets another host version; call on the UI thread.</summary>
+    internal Window ShowUpgradeWindow(string message)
+    {
+        if (_upgradeWindow is { } shown) { shown.Activate(); return shown; }
+        var panel = new StackPanel { Spacing = 20, Margin = new Thickness(28), RequestedTheme = ElementTheme.Dark };
+        panel.Children.Add(new TextBlock { Text = "Finish the toiqtty upgrade", FontSize = 22 });
+        panel.Children.Add(new TextBlock { Text = message, TextWrapping = TextWrapping.Wrap, MaxWidth = 460 });
+        var close = new Button { Content = "Close" }; panel.Children.Add(close);
+        var window = new Window { Title = "toiqtty update", Content = new Border {
+            RequestedTheme = ElementTheme.Dark, Background = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 25, 28, 34)),
+            Child = new ScrollViewer { Content = panel, VerticalScrollBarVisibility = ScrollBarVisibility.Auto }
+        } };
+        _upgradeWindow = window;
+        window.AppWindow.Resize(new Windows.Graphics.SizeInt32(600, 420));
+        close.Click += (_, _) => window.Close();
+        window.Closed += (_, _) => { if (ReferenceEquals(_upgradeWindow, window)) _upgradeWindow = null; };
+        window.Activate(); return window;
     }
     private void DispatcherNotification(string workspace, string pane)
     {

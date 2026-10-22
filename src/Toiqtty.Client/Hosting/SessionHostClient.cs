@@ -201,33 +201,60 @@ public sealed partial class SessionHostClient
             return previous;
         }
     }
-    internal bool IsRunning
+    // The host process handle is opened once in Accept. Liveness is then a
+    // wait-state read on that handle, never a process-table lookup by id.
+    private Process? _hostProcess;
+    private volatile bool _hostExited;
+    private int _exitRaised;
+    /// <summary>Raised once, on the thread pool, when the connected host process exits.</summary>
+    public event Action? Exited;
+    public bool HostExited => _hostExited;
+    internal bool IsRunning => !_hostExited && _hostProcess?.HasExited != true;
+    private void WatchHostProcess()
     {
-        get
+        try
         {
-            try { using var owner = Process.GetProcessById(ProcessId); return !owner.HasExited; }
-            catch (ArgumentException) { return false; }
+            var owner = Process.GetProcessById(ProcessId);
+            owner.EnableRaisingEvents = true; owner.Exited += (_, _) => OnHostExited();
+            _hostProcess = owner;
+            if (owner.HasExited) OnHostExited();
         }
+        catch (ArgumentException) { OnHostExited(); }
+        // Access denied or a scripted fixture: liveness is unknown, so assume
+        // running and let request failures decide, as before this handle existed.
+        catch (Exception ex) when (ex is InvalidOperationException or System.ComponentModel.Win32Exception) { }
     }
+    private void OnHostExited() { _hostExited = true; if (Interlocked.Exchange(ref _exitRaised, 1) == 0) Exited?.Invoke(); }
     private SessionHostClient(string folder) { Folder = folder; _pipeName = HostProtocol.PipeName(folder); }
-    public static SessionHostClient? TryConnect(string folder) => TryConnect(folder, TimeSpan.FromMilliseconds(250));
-    private static SessionHostClient? TryConnect(string folder, TimeSpan timeout)
+    private static readonly TimeSpan ProbeTimeout = TimeSpan.FromMilliseconds(250);
+    /// <summary>Probe for a running host on the thread pool. Null when none answers.</summary>
+    public static Task<SessionHostClient?> TryConnectAsync(string folder, CancellationToken cancellation = default)
+        => Task.Run(() => TryConnectCoreAsync(folder, ProbeTimeout, cancellation), cancellation);
+    /// <summary>Blocking probe for tools and smoke checks. The app and CLI await TryConnectAsync.</summary>
+    public static SessionHostClient? TryConnect(string folder) => TryConnectCoreAsync(folder, ProbeTimeout, default).GetAwaiter().GetResult();
+    private static async Task<SessionHostClient?> TryConnectCoreAsync(string folder, TimeSpan timeout, CancellationToken cancellation)
     {
         // Only fast-fail when Windows says the pipe does not exist. A busy or
         // inaccessible existing pipe still follows the bounded connection path.
         if (!WaitNamedPipeW(@"\\.\pipe\" + HostProtocol.PipeName(folder), 1) && Marshal.GetLastWin32Error() == 2) return null;
         var client = new SessionHostClient(folder);
-        try { client.Accept(client.Call(HostRequests.Ping(), timeout)); return client; }
+        try { client.Accept(await client.CallAsync(HostRequests.Ping(), timeout, cancellation).ConfigureAwait(false)); return client; }
         catch (SessionHostVersionException) { throw; }
-        catch (Exception ex) when (ex is IOException or OperationCanceledException or TimeoutException) { return null; }
+        catch (Exception ex) when (ex is IOException or TimeoutException || ex is OperationCanceledException && !cancellation.IsCancellationRequested) { return null; }
     }
+    /// <summary>Connect to the running host or start one, entirely on the thread pool.</summary>
+    public static Task<SessionHostClient> ConnectOrStartAsync(string folder, string? executable = null, CancellationToken cancellation = default)
+        => Task.Run(() => ConnectOrStartCoreAsync(folder, executable, cancellation), cancellation);
+    /// <summary>Blocking connect for smoke checks. Product code goes through SessionHostConnector.</summary>
     public static SessionHostClient ConnectOrStart(string folder, string? executable = null)
+        => ConnectOrStartCoreAsync(folder, executable, default).GetAwaiter().GetResult();
+    private static async Task<SessionHostClient> ConnectOrStartCoreAsync(string folder, string? executable, CancellationToken cancellation)
     {
-        if (TryConnect(folder) is { } existing) return existing;
+        if (await TryConnectCoreAsync(folder, ProbeTimeout, cancellation).ConfigureAwait(false) is { } existing) return existing;
         // A live but busy host misses the short probe; wait for it rather than
         // launching replacements that can only lose its lease.
-        if (LiveHostProcess(folder) && TryConnect(folder, TimeSpan.FromSeconds(2)) is { } busy) return busy;
-        return Start(folder, executable);
+        if (LiveHostProcess(folder) && await TryConnectCoreAsync(folder, TimeSpan.FromSeconds(2), cancellation).ConfigureAwait(false) is { } busy) return busy;
+        return await StartCoreAsync(folder, executable, cancellation).ConfigureAwait(false);
     }
     /// <summary>Whether the lease owner recorded in host.json is still running.</summary>
     private static bool LiveHostProcess(string folder)
@@ -245,7 +272,9 @@ public sealed partial class SessionHostClient
     }
     // The application already probed once before constructing its window.
     // A concurrent launcher is safe: the host's exclusive lease still decides ownership.
-    internal static SessionHostClient Start(string folder, string? executable = null)
+    internal static Task<SessionHostClient> StartAsync(string folder, string? executable = null, CancellationToken cancellation = default)
+        => Task.Run(() => StartCoreAsync(folder, executable, cancellation), cancellation);
+    private static async Task<SessionHostClient> StartCoreAsync(string folder, string? executable, CancellationToken cancellation)
     {
         executable ??= Path.Combine(AppContext.BaseDirectory, "Toiqtty.SessionHost.exe");
         if (!File.Exists(executable)) throw new IOException("The toiqtty session host is missing. Build or reinstall the complete application.");
@@ -266,18 +295,27 @@ public sealed partial class SessionHostClient
                 // must not be respawned; connect to that host instead.
                 bool owned = child is not null && child.HasExited && LiveHostProcess(folder);
                 if (!owned && (child is null || child.HasExited)) { child?.Dispose(); child = Process.Start(start); }
-                if (TryConnect(folder, owned ? TimeSpan.FromSeconds(1) : TimeSpan.FromMilliseconds(250)) is { } ready) return ready;
+                if (await TryConnectCoreAsync(folder, owned ? TimeSpan.FromSeconds(1) : ProbeTimeout, cancellation).ConfigureAwait(false) is { } ready) return ready;
                 // Hosts signal after creating their first pipe. The bounded
-                // timeout also covers lease races.
-                readyEvent.WaitOne(50);
+                // timeout also covers lease races. No thread blocks on the event.
+                await WaitAsync(readyEvent, 50).ConfigureAwait(false);
+                cancellation.ThrowIfCancellationRequested();
             }
         }
         finally { child?.Dispose(); }
         throw new IOException("The session host did not start. See host-error.log in the toiqtty data directory.");
     }
+    // Completes when the handle is signalled or the timeout passes.
+    private static async Task WaitAsync(WaitHandle handle, int milliseconds)
+    {
+        var done = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var registration = ThreadPool.RegisterWaitForSingleObject(handle, static (state, _) => ((TaskCompletionSource)state!).TrySetResult(), done, milliseconds, executeOnlyOnce: true);
+        try { await done.Task.ConfigureAwait(false); }
+        finally { registration.Unregister(null); }
+    }
     // Any other protocol version already failed in ExchangeAsync; the version window
     // explains how to stop that host instead of this client carrying fallbacks.
-    private void Accept(HostReply reply) { Identity = reply.Host; ProcessId = reply.ProcessId; Layout = reply.Layout; Panes = reply.Panes; }
+    private void Accept(HostReply reply) { Identity = reply.Host; ProcessId = reply.ProcessId; Layout = reply.Layout; Panes = reply.Panes; WatchHostProcess(); }
     internal string[] OutputInterestsForCheck() => OutputInterests();
     public HostReply Call(HostRequest request, TimeSpan? timeout = null)
     {

@@ -178,6 +178,7 @@ internal static class PersistentSessionChecks
             var exited=new RemoteTerminalSession(client,Guid.NewGuid().ToString("N"),"cmd.exe /c exit 0",Environment.CurrentDirectory,new AppSettings());
             await exitedOwner.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(12)); exited.Detach();
             Pass(true,"the host exits after its last child exits naturally");
+            await ConnectorReconnects(folder,hostExecutable,command,Pass);
             File.WriteAllText(Path.Combine(folder,"result.json"),JsonSerializer.Serialize(new { passed=true,checks },new JsonSerializerOptions { WriteIndented=true }));
             Console.WriteLine("Session host evidence: "+folder);
         }
@@ -186,6 +187,32 @@ internal static class PersistentSessionChecks
             first?.Dispose(); second?.Dispose();
             try { SessionHostClient.TryConnect(folder)?.ShutdownForTest(); } catch (IOException) { }
         }
+    }
+    // The app's connector: one shared attempt, and a host killed mid-session is
+    // noticed through its process handle and replaced on the next connect.
+    private static async Task ConnectorReconnects(string folder,string hostExecutable,string command,Action<bool,string> pass)
+    {
+        var connector=new SessionHostConnector(folder,hostExecutable); var cells=new TerminalCell[1600];
+        var attempts=await Task.WhenAll(Enumerable.Range(0,4).Select(_=>Task.Run(connector.ConnectAsync)));
+        var connected=attempts[0];
+        pass(attempts.All(c=>ReferenceEquals(c,connected)) && ReferenceEquals(connector.Current,connected) && connected.IsRunning,
+            "concurrent connector callers share one connection attempt and host client");
+        int exits=0; connected.Exited+=()=>Interlocked.Increment(ref exits);
+        var doomed=new RemoteTerminalSession(connected,Guid.NewGuid().ToString("N"),command,Environment.CurrentDirectory,new AppSettings());
+        using (var victim=Process.GetProcessById(connected.ProcessId)) { victim.Kill(); await victim.WaitForExitAsync(); }
+        await Wait(()=>Volatile.Read(ref exits)==1 && connector.Current is null);
+        pass(connected.HostExited && !connected.IsRunning,"a killed host is detected from its process handle and dropped by the connector");
+        await doomed.CloseAsync();
+        var replacement=await connector.ConnectAsync();
+        RemoteTerminalSession? revived=null;
+        try
+        {
+            var shell=revived=new(replacement,Guid.NewGuid().ToString("N"),command,Environment.CurrentDirectory,new AppSettings()); shell.ResizeForTest(80,20,8,20); shell.AttachView();
+            await Wait(()=> { if (!shell.TryReadSnapshot(cells,out _)) return false; return string.Concat(cells.Select(c=>c.GetText())).Contains("PERSIST_READY PID="); });
+            pass(replacement.Identity!=connected.Identity && replacement.IsRunning && Volatile.Read(ref exits)==1,
+                "killing the host mid-session reconnects through the connector to a fresh, usable host");
+        }
+        finally { revived?.Dispose(); }
     }
     // Every protocol-3 operation once against the live host, on a disposable cmd pane,
     // plus the payload faults. Sync and shutdown are covered by the scheduling and
