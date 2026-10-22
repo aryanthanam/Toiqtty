@@ -41,8 +41,14 @@ public interface ITerminalSession : IDisposable
     /// <summary>Ctrl+C: copies the selection, or sends the key when nothing is selected. A copied
     /// key's release is suppressed. Returns the copied text, empty when the key was sent.</summary>
     Task<string> CopyOrKeyAsync(uint key, uint modifiers, string text, TerminalKeyAction action, uint? unshiftedCodepoint, uint consumedModifiers);
-    Task<string> HyperlinkAsync(ushort column, ushort row);
-    Task<(int Count, int Index)> FindAsync(string text, int direction);
+    /// <summary>The OSC 8 target at a viewport cell, empty when none. A hover lookup is
+    /// latest-wins: remote sessions keep one in flight and one pending, and a newer hover
+    /// cancels the pending one. Cancellation never undoes a lookup already sent.</summary>
+    Task<string> HyperlinkAsync(ushort column, ushort row, bool hover = false, CancellationToken cancellation = default);
+    /// <summary>Direction 0 searches anew and supersedes any find not yet sent, which is then
+    /// cancelled; steps (+1 older, -1 newer) queue in order. Cancellation withdraws an unsent
+    /// find only; one already sent still runs on the host.</summary>
+    Task<(int Count, int Index)> FindAsync(string text, int direction, CancellationToken cancellation = default);
     Task<int> QueryDropAsync(int action, int x = 0, int y = 0, IReadOnlyDictionary<string, byte[]>? items = null, uint operations = 1);
     Task<int> DropAsync(int x, int y, IReadOnlyDictionary<string, byte[]> items, uint operations = 1, TimeSpan? timeout = null);
     ValueTask CloseAsync();

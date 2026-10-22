@@ -66,5 +66,30 @@ internal static class InputDispatchChecks
         check(admittedFiller==OrderedHostInput.MaxRequests-3 && !copyRelease.IsCompleted && !focusLoss.IsCompleted,
             "A copy-or-key press reserves its release and the final focus loss from typed key and focus arguments");
         held.SetResult(); await Task.WhenAll(filler.Append(pressed).Append(copyRelease).Append(focusLoss)); await typed.Drain;
+
+        // Find: a new search withdraws every unsent find, steps keep their order, other input is untouched,
+        // and cancellation withdraws only what is still queued.
+        var stalled=new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var finds=new List<HostRequest>();
+        var sending=new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var finding=new OrderedHostInput(async request=> { sending.TrySetResult(); await stalled.Task; lock(finds) finds.Add(request); return new(); });
+        var inFlight=finding.EnqueueSuperseding(HostRequests.Find("p","a",0),1,true,default);
+        await sending.Task;
+        var key=finding.Enqueue(HostRequests.Key("p",65,0));
+        var olderSearch=finding.EnqueueSuperseding(HostRequests.Find("p","ab",0),1,true,default);
+        var olderStep=finding.EnqueueSuperseding(HostRequests.Find("p","ab",1),1,false,default);
+        using var closing=new CancellationTokenSource();
+        var newest=finding.EnqueueSuperseding(HostRequests.Find("p","abc",0),1,true,default);
+        var step1=finding.EnqueueSuperseding(HostRequests.Find("p","abc",1),1,false,default);
+        var step2=finding.EnqueueSuperseding(HostRequests.Find("p","abc",1),1,false,closing.Token);
+        var cancelled=finding.EnqueueSuperseding(HostRequests.Find("p","abc",-1),1,false,closing.Token);
+        closing.Cancel();
+        check(olderSearch.IsCanceled && olderStep.IsCanceled && cancelled.IsCanceled && step2.IsCanceled && !inFlight.IsCompleted && !newest.IsCompleted && !step1.IsCompleted && finding.Pending==4,
+            "A new search supersedes unsent finds and cancellation withdraws queued ones without touching the sent find or other input");
+        var afterClose=finding.EnqueueSuperseding(HostRequests.Find("p","",0),1,true,closing.Token);
+        check(afterClose.IsCanceled,"A find admitted with an already cancelled token is never queued");
+        stalled.SetResult(); await Task.WhenAll(inFlight,key,newest,step1); await finding.Drain;
+        check(finds.Select(r=>r.Operation+":"+r.Text+":"+(r.Find?.Direction.ToString() ?? "-")).SequenceEqual(["find:a:0","key::-","find:abc:0","find:abc:1"]) && finding.Pending==0 && finding.PendingBytes==0,
+            "Only the sent find, other input and the surviving search and step reach the host, in order, and accounting returns to zero");
     }
 }

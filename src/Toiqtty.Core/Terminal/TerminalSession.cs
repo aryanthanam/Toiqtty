@@ -188,7 +188,8 @@ public sealed class TerminalSession : ITerminalSession, IAsyncDisposable
         Attention?.Invoke();
     }
     public string Hyperlink(ushort column, ushort row) { lock (_gate) { return _disposed ? "" : _terminal.Hyperlink(column, row); } }
-    public Task<string> HyperlinkAsync(ushort column, ushort row) => Task.FromResult(Hyperlink(column, row));
+    public Task<string> HyperlinkAsync(ushort column, ushort row, bool hover = false, CancellationToken cancellation = default)
+        => cancellation.IsCancellationRequested ? Task.FromCanceled<string>(cancellation) : Task.FromResult(Hyperlink(column, row));
     public void QueueResize(ushort columns, ushort rows, uint width, uint height) { Resize(columns, rows, width, height); Select(-1, -1); }
     public void Resize(ushort columns, ushort rows, uint width, uint height)
     {
@@ -338,7 +339,8 @@ public sealed class TerminalSession : ITerminalSession, IAsyncDisposable
     {
         lock (_gate) { if (_disposed) return (0, 0); var result = _terminal.Find(text, direction); Interlocked.Increment(ref _version); return result; }
     }
-    public Task<(int Count, int Index)> FindAsync(string text, int direction) => Task.FromResult(Find(text, direction));
+    public Task<(int Count, int Index)> FindAsync(string text, int direction, CancellationToken cancellation = default)
+        => cancellation.IsCancellationRequested ? Task.FromCanceled<(int, int)>(cancellation) : Task.FromResult(Find(text, direction));
     public bool Mouse(int action, int button, uint modifiers, float x, float y)
     {
         byte[]? bytes;

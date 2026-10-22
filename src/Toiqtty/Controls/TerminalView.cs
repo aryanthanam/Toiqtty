@@ -201,7 +201,7 @@ public sealed partial class TerminalView : Grid, IDisposable
     internal void InjectRenderDeviceLostForCheck() => _canvas.InjectDeviceLostForCheck();
     internal void SetRenderDpiScale(float scale) => _canvas.DpiScale = scale;
     internal void ResumeRendering() { if (_disposed) return; _renderSuspended = false; _canvas.Resume(); SetCaptureVisible(IsLoaded); _hasSized = false; RecreateRenderResources(); _timer.Start(); }
-    internal void SuspendRendering() { TraceLifecycle("suspend"); _renderSuspended = true; _canvas.Suspend(); SetCaptureVisible(false); StopAutoScroll(); _timer.Stop(); }
+    internal void SuspendRendering() { TraceLifecycle("suspend"); _renderSuspended = true; _canvas.Suspend(); SetCaptureVisible(false); CancelHover(); StopAutoScroll(); _timer.Stop(); }
     private TerminalAutomationPeer? _textPeer;
     private AccessibleTerminalText? _accessibleText;
     internal TerminalAutomationPeer TextPeer => _textPeer ??= new TerminalAutomationPeer(this);
@@ -231,7 +231,8 @@ public sealed partial class TerminalView : Grid, IDisposable
     private void TraceLatency(string stage) => LatencyStageForCheck?.Invoke(stage, System.Diagnostics.Stopwatch.GetTimestamp());
     private int _hoverCell = -1;
     private int _hoverVersion = -1;
-    private bool _hoverPending;
+    // Cancelled when the pointer leaves or the view detaches; hover lookups are latest-wins in the session.
+    private CancellationTokenSource? _hoverStop;
     private int _version = -1;
     private bool _resettingText, _selecting, _focused, _composing;
     private volatile bool _disposed;
@@ -324,7 +325,7 @@ public sealed partial class TerminalView : Grid, IDisposable
         };
         _canvas.PointerCaptureLost += (_, e) => { _selecting = false; MiddleScrollCaptureLost(e.GetCurrentPoint(_canvas).Properties.IsMiddleButtonPressed); };
         _canvas.PointerCanceled += (_, _) => StopAutoScroll("pointer-cancelled");
-        _canvas.PointerExited += (_, e) => { _hoverCell = -1; MiddleScrollPointerExited(e.GetCurrentPoint(_canvas).Position); };
+        _canvas.PointerExited += (_, e) => { CancelHover(); MiddleScrollPointerExited(e.GetCurrentPoint(_canvas).Position); };
         InitializeDrop();
         _canvas.PointerWheelChanged += (_, e) =>
         {
@@ -996,7 +997,7 @@ public sealed partial class TerminalView : Grid, IDisposable
             int cell = CellAt(e.GetCurrentPoint(_canvas).Position);
             if (_session is not { } session || (_hoverCell == cell && _hoverVersion == session.Version)) return;
             _hoverCell = cell;
-            if (!_hoverPending) _ = UpdateHover(session);
+            _ = UpdateHover(session, cell, session.Version);
             return;
         }
         _dragPosition = e.GetCurrentPoint(_canvas).Position;
@@ -1015,27 +1016,18 @@ public sealed partial class TerminalView : Grid, IDisposable
         var end = new Point((lastColumn + .9) * CellWidth, (row + .5) * CellHeight);
         Gesture(0, start); Gesture(2, end); Gesture(1, end);
     }
-    private async Task UpdateHover(ITerminalSession session)
+    // One call per cell change; the session supersedes lookups not yet sent.
+    private async Task UpdateHover(ITerminalSession session, int cell, int version)
     {
-        _hoverPending = true;
-        try
-        {
-            while (!_disposed)
-            {
-                int cell = _hoverCell;
-                if (cell < 0) return;
-                int version = session.Version;
-                var link = await session.HyperlinkAsync((ushort)(cell % GridColumns), (ushort)(cell / GridColumns));
-                if (_disposed || _selecting || _middleScroll.Active) return;
-                if (cell != _hoverCell) continue;
-                _hoverVersion = version;
-                ProtectedCursor = InputSystemCursor.Create(string.IsNullOrEmpty(link) ? InputSystemCursorShape.IBeam : InputSystemCursorShape.Hand);
-                ToolTipService.SetToolTip(_canvas, string.IsNullOrEmpty(link) ? null : "Ctrl+click · " + link);
-                return;
-            }
-        }
-        finally { _hoverPending = false; }
+        string link;
+        try { link = await session.HyperlinkAsync((ushort)(cell % GridColumns), (ushort)(cell / GridColumns), hover: true, (_hoverStop ??= new()).Token); }
+        catch (OperationCanceledException) { return; }
+        if (_disposed || _selecting || _middleScroll.Active || cell != _hoverCell) return;
+        _hoverVersion = version;
+        ProtectedCursor = InputSystemCursor.Create(string.IsNullOrEmpty(link) ? InputSystemCursorShape.IBeam : InputSystemCursorShape.Hand);
+        ToolTipService.SetToolTip(_canvas, string.IsNullOrEmpty(link) ? null : "Ctrl+click · " + link);
     }
+    private void CancelHover() { _hoverCell = -1; if (_hoverStop is { } stop) { _hoverStop = null; stop.Cancel(); stop.Dispose(); } }
     private bool ReportMouse(PointerRoutedEventArgs e, int action, int? wheel = null)
     {
         if (Down(VirtualKey.Shift)) return false;
@@ -1180,7 +1172,7 @@ public sealed partial class TerminalView : Grid, IDisposable
         _disposed = true;
         ReleaseInputForClose(); _pendingScrollRow = null;
         if (_remote is { } remote) { remote.FrameAvailable -= OnRemoteFrame; SetCaptureVisible(false); }
-        _timer.Stop();
+        CancelHover(); _timer.Stop();
         _powerline?.Dispose();
         _images.Dispose(); _textRenderer.Dispose(); ResetLayers();
         StopObservingRoot();

@@ -429,10 +429,52 @@ public sealed class RemoteTerminalSession : ITerminalSession
     }
     private async Task ObserveQueuedInput(Task<HostReply> request)
     { ObserveInputReply(await request.ConfigureAwait(false)); }
-    // A rejected lookup or a lost/cancelled read means no link. Anything else (a
-    // replaced host version, a malformed reply) is a fault, not a missing link.
-    public async Task<string> HyperlinkAsync(ushort column, ushort row)
-    { if (_client is not { } client) return ""; try { return (await client.CallAsync(HostRequests.Hyperlink(_pane, column, row), cancellation: _stop.Token).ConfigureAwait(false)).Text; } catch (Exception ex) when (ex is HostRejectedException or HostTransportException or OperationCanceledException) { return ""; } }
+    // A rejected lookup or a lost read means no link. Anything else (a replaced host
+    // version, a malformed reply) is a fault, not a missing link. Each lookup is its own
+    // pipe, so hovers are latest-wins: one in flight and one pending per session.
+    public Task<string> HyperlinkAsync(ushort column, ushort row, bool hover = false, CancellationToken cancellation = default)
+    {
+        if (_client is not { } client) return Task.FromResult("");
+        if (!hover) return LookupHyperlink(client, column, row, cancellation);
+        var next = new HoverLookup(column, row, cancellation); bool start;
+        lock (_hoverGate)
+        {
+            // The superseded hover was never sent; its caller sees a cancellation.
+            _hoverNext?.Completion.TrySetCanceled();
+            _hoverNext = next;
+            start = !_hoverRunning; _hoverRunning = true;
+        }
+        if (start) _ = PumpHovers(client);
+        return next.Completion.Task;
+    }
+    private sealed record HoverLookup(ushort Column, ushort Row, CancellationToken Cancellation)
+    { public readonly TaskCompletionSource<string> Completion = new(TaskCreationOptions.RunContinuationsAsynchronously); }
+    private readonly Lock _hoverGate = new();
+    private HoverLookup? _hoverNext;
+    private bool _hoverRunning;
+    internal long HyperlinkLookupsSentForCheck;
+    private async Task PumpHovers(SessionHostClient client)
+    {
+        while (true)
+        {
+            HoverLookup lookup;
+            lock (_hoverGate) { if (_hoverNext is not { } next) { _hoverRunning = false; return; } lookup = next; _hoverNext = null; }
+            try { lookup.Completion.TrySetResult(await LookupHyperlink(client, lookup.Column, lookup.Row, lookup.Cancellation).ConfigureAwait(false)); }
+            catch (OperationCanceledException) { lookup.Completion.TrySetCanceled(); }
+            catch (Exception ex) { lookup.Completion.TrySetException(ex); }
+        }
+    }
+    // A detached view's cancellation abandons the wait; the host still answers a sent lookup.
+    private async Task<string> LookupHyperlink(SessionHostClient client, ushort column, ushort row, CancellationToken cancellation)
+    {
+        cancellation.ThrowIfCancellationRequested();
+        if (_stop.IsCancellationRequested) return "";
+        using var linked = cancellation.CanBeCanceled ? CancellationTokenSource.CreateLinkedTokenSource(_stop.Token, cancellation) : null;
+        Interlocked.Increment(ref HyperlinkLookupsSentForCheck);
+        try { return (await client.CallAsync(HostRequests.Hyperlink(_pane, column, row), cancellation: linked?.Token ?? _stop.Token).ConfigureAwait(false)).Text; }
+        catch (OperationCanceledException) when (cancellation.IsCancellationRequested) { throw; }
+        catch (Exception ex) when (ex is HostRejectedException or HostTransportException or OperationCanceledException) { return ""; }
+    }
     // Diagnostics only: a full capture after queued input has drained.
     internal async Task<TerminalSnapshot> ReadSnapshotAsync(TerminalCell[] cells)
     {
@@ -566,9 +608,11 @@ public sealed class RemoteTerminalSession : ITerminalSession
         var reply = await _input.Enqueue(HostRequests.DropQuery(_pane, action, x, y, operations, items)).ConfigureAwait(false);
         ObserveInputReply(reply); return (int)(reply.Value ?? 0);
     }
-    public async Task<(int Count, int Index)> FindAsync(string text, int direction)
+    private const int FindSlot = 1;
+    // A new search makes every unsent find moot; steps keep their order so each one advances.
+    public async Task<(int Count, int Index)> FindAsync(string text, int direction, CancellationToken cancellation = default)
     {
-        var reply = await _input.Enqueue(HostRequests.Find(_pane, text, direction)).ConfigureAwait(false);
+        var reply = await _input.EnqueueSuperseding(HostRequests.Find(_pane, text, direction), FindSlot, direction == 0, cancellation).ConfigureAwait(false);
         ObserveInputReply(reply); return reply.Find is { } found ? (found.Count, found.Index) : (0, 0);
     }
     public bool Mouse(int action, int button, uint modifiers, float x, float y)

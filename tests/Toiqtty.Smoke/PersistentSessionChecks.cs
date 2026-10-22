@@ -240,6 +240,19 @@ internal static class PersistentSessionChecks
         await Wait(()=>shell.TryReadSnapshot(cells,out var frame) && frame!.Frame.Columns==90 && frame.Frame.Rows==24 && string.Concat(cells.Select(c=>c.GetText())).Contains("PERSIST_MARK=1"));
         await shell.InputDrained;
         pass(!shell.StatusSummary.Contains("fail",StringComparison.OrdinalIgnoreCase),"resize, paste, key and focus queued before the create arrive after it, in order");
+        // A hover sweep faster than the host answers: latest-wins keeps one lookup in flight and one pending.
+        long lookups=shell.HyperlinkLookupsSentForCheck;
+        var sweep=Enumerable.Range(0,200).Select(i=>shell.HyperlinkAsync((ushort)(i%90),(ushort)(i/90),hover:true)).ToArray();
+        try { await Task.WhenAll(sweep).WaitAsync(TimeSpan.FromSeconds(15)); } catch (OperationCanceledException) { }
+        long sweepLookups=shell.HyperlinkLookupsSentForCheck-lookups;
+        using (var detached=new CancellationTokenSource())
+        {
+            detached.Cancel(); var leaving=shell.HyperlinkAsync(1,1,hover:true,detached.Token);
+            bool withdrawn=false; try { await leaving.WaitAsync(TimeSpan.FromSeconds(10)); } catch (OperationCanceledException) { withdrawn=true; }
+            pass(sweepLookups is >= 1 and <= 3 && sweep[^1].IsCompletedSuccessfully && sweep.Count(t=>t.IsCanceled)>=197 && withdrawn
+                && await shell.HyperlinkAsync(0,0)=="",
+                $"a 200-cell hover sweep sends {sweepLookups} hyperlink lookups (one pipe each), answers only the latest, and a detached view's lookup is cancelled");
+        }
         // The frontend dies without closing it: a restarted app reads the host's layout, restores
         // the pane by identity and reattaches the running shell (the launch command never reruns).
         shell.DetachView(); await shell.DetachAsync();

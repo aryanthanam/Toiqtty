@@ -713,14 +713,16 @@ public sealed partial class MainWindow : Window
         buttons.Children.Add(next); buttons.Children.Add(previous);
         var panel = new StackPanel { Spacing = 12 }; panel.Children.Add(input); panel.Children.Add(count); panel.Children.Add(buttons);
         int generation = 0;
+        // Closing withdraws finds still queued behind input; one already sent still runs.
+        using var closed = new CancellationTokenSource();
         async Task Search(int direction)
         {
             int current = ++generation; string text = input.Text;
             if (direction == 0) await Task.Delay(180);
-            if (current != generation) return;
+            if (current != generation || closed.IsCancellationRequested) return;
             try
             {
-                var result = await session.FindAsync(text,direction);
+                var result = await session.FindAsync(text,direction,closed.Token);
                 if (current != generation) return;
                 count.Text = result.Count == 0 ? "No matches" : $"{result.Index + 1} of {result.Count} matches";
             }
@@ -733,7 +735,8 @@ public sealed partial class MainWindow : Window
         var dialog = new ContentDialog { Title = "Find in terminal", Content = panel, CloseButtonText = "Done" };
         dialog.Opened += (_, _) => input.Focus(FocusState.Programmatic);
         await ShowDialog(dialog);
-        generation++;
+        generation++; closed.Cancel();
+        // The clearing find also supersedes any search still queued.
         try { await session.FindAsync("",0); session.Select(-1,-1); }
         catch (Exception ex) when (ex is IOException or OperationCanceledException or InvalidOperationException) { System.Diagnostics.Debug.WriteLine(ex); }
     }
