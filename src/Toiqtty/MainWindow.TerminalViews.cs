@@ -12,7 +12,9 @@ public sealed partial class MainWindow
     private readonly Dictionary<string,RetainedTerminal> _terminalViews=[];
     private long _terminalUseSequence;
     private int _terminalViewsCreated,_terminalViewsEvicted;
+#if DIAGNOSTICS
     private bool _syntheticInputOnlyForCheck;
+#endif
 
     private TerminalView GetTerminalView(PaneNode node,Workspace workspace)
     {
@@ -32,9 +34,13 @@ public sealed partial class MainWindow
         var view=new TerminalView(node,_saved.Settings);
         view.SetSessionTheme(ThemeFor(workspace));
         view.SetWallpaper(_wallpaperImage,_saved.Settings.Wallpaper);
+#if DIAGNOSTICS
         if(_syntheticInputOnlyForCheck) view.UseSyntheticInputOnlyForCheck();
+#endif
         view.SetWindowRenderingActive(WindowRenderingActive);
+#if DIAGNOSTICS
         if(workspace==_hardwareWorkspace) view.ValidationObserved+=(kind,text)=>RecordHardwareEvent(kind,text);
+#endif
         view.Activated+=FocusView;
         view.HyperlinkRequested+=uri=> { if(_saved.Settings.Browser.OpenTerminalLinks) NewBrowser(uri.AbsoluteUri); else _=Windows.System.Launcher.LaunchUriAsync(uri); };
         view.FontSizeChanged+=()=> { foreach(var pane in _views) pane.ApplySettings(); UpdateStatusBar(); Save(); };

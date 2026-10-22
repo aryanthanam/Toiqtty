@@ -1,9 +1,11 @@
-param([string]$OutputDirectory = 'artifacts/release',[string]$SigningCertificateThumbprint,[switch]$AllowKeyPrompt)
+# -Diagnostics includes the WinUI validation drivers used by the GPU, endurance,
+# performance-regression and published UI suites. Releases ship without them.
+param([string]$OutputDirectory = 'artifacts/release',[string]$SigningCertificateThumbprint,[switch]$AllowKeyPrompt,[switch]$Diagnostics)
 $ErrorActionPreference = 'Stop'
 $repoRoot = Split-Path $PSScriptRoot -Parent
 $publishFolder = if ([IO.Path]::IsPathRooted($OutputDirectory)) { $OutputDirectory } else { Join-Path $repoRoot $OutputDirectory }
 & "$PSScriptRoot/build-native.ps1"
-dotnet publish "$repoRoot/src/Toiqtty/Toiqtty.csproj" -c Release -o $publishFolder
+dotnet publish "$repoRoot/src/Toiqtty/Toiqtty.csproj" -c Release -o $publishFolder "-p:ToiqttyDiagnostics=$(if ($Diagnostics) { 'true' } else { 'false' })"
 if ($LASTEXITCODE -ne 0) { throw 'Publish failed.' }
 & "$PSScriptRoot/remove-obsolete-assets.ps1" -Directory $publishFolder
 # Interrupted ReadyToRun publishes can leave cached, zero-filled binaries.

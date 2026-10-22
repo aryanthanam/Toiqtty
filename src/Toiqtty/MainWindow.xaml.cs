@@ -55,7 +55,9 @@ public sealed partial class MainWindow : Window
         _power = new(WinRT.Interop.WindowNative.GetWindowHandle(this), resumed =>
         {
             if (_closed) return;
+#if DIAGNOSTICS
             if (_hardwareWorkspace is not null) RecordHardwareEvent(resumed ? "power-resume" : "power-suspend", "Window power notification received");
+#endif
             if (resumed)
             {
                 _resumeCount++;
@@ -135,6 +137,7 @@ public sealed partial class MainWindow : Window
             _sessionsRestored = true;
             if (_pendingNavigation is { } pending) { _pendingNavigation = null; NavigateNotification(pending.Workspace, pending.Pane); }
             if (startupProbe) _ = RunStartupProbe();
+#if DIAGNOSTICS
             else if (dpiSmoke) _ = RunDpiSmoke();
             else if (designSmoke) _ = RunDesignSmoke();
             else if (configSmoke) _ = RunConfigurationSmoke(configProbe);
@@ -143,8 +146,11 @@ public sealed partial class MainWindow : Window
             else if (browserSmoke) _ = RunBrowserSmoke();
             else if (Environment.GetCommandLineArgs().Contains("--directx-smoke")) _ = RunDirectXSmoke();
             else if (uiSmoke) _ = RunUiSmoke();
+#endif
             InitializeControlServer();
+#if DIAGNOSTICS
             if (hardwareCheck) _ = PrepareHardwareChecks();
+#endif
         };
         _metadataTimer.Tick += async (_, _) => await PollMetadata();
         _luaPresentationTimer.Tick += (_, _) => QueueLuaPresentation();

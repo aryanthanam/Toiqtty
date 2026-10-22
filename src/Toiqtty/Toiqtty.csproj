@@ -19,7 +19,17 @@
     <Nullable>enable</Nullable>
     <PublishTrimmed>false</PublishTrimmed>
     <PublishReadyToRun Condition="'$(Configuration)' == 'Release'">true</PublishReadyToRun>
+    <!-- Validation drivers are compiled into development and test builds only.
+         publish.ps1 ships without them unless -Diagnostics is passed. -->
+    <ToiqttyDiagnostics Condition="'$(ToiqttyDiagnostics)' == ''">true</ToiqttyDiagnostics>
+    <DefineConstants Condition="'$(ToiqttyDiagnostics)' == 'true'">$(DefineConstants);DIAGNOSTICS</DefineConstants>
   </PropertyGroup>
+  <ItemGroup Condition="'$(ToiqttyDiagnostics)' != 'true'">
+    <Compile Remove="Diagnostics/**;MainWindow.Smoke.cs" />
+    <!-- Kept in product builds: mode parsing rejects diagnostic flags, and the
+         startup probe measures the exact shipped binary. -->
+    <Compile Include="Diagnostics/WindowDiagnosticOptions.cs;Diagnostics/MainWindow.Startup.Probe.cs" />
+  </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="../Toiqtty.SessionHost/Toiqtty.SessionHost.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="../Toiqtty.Cli/Toiqtty.Cli.csproj" ReferenceOutputAssembly="false" />

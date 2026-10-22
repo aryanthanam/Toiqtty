@@ -9,6 +9,20 @@ internal sealed record WindowDiagnosticOptions(bool Browser, bool Config, bool D
     internal bool Persistent => (!Ui && !Hardware) || SessionProbe is not null || BrowserProbe is not null || ConfigProbe is not null;
     internal bool LuaEnabled => (!Ui && !Hardware) || Config;
 
+    /// <summary>A validation mode was requested from a product build without diagnostics.</summary>
+    internal static string? Unavailable()
+    {
+#if DIAGNOSTICS
+        return null;
+#else
+        string[] modes = ["--ui-smoke", "--directx-smoke", "--browser-smoke", "--config-smoke", "--design-smoke", "--dpi-smoke", "--hardware-check", "--notification-probe"];
+        string[] probes = ["TOIQTTY_SESSION_UI_PROBE", "TOIQTTY_BROWSER_UI_PROBE", "TOIQTTY_CONFIG_UI_PROBE"];
+        string? requested = Environment.GetCommandLineArgs().FirstOrDefault(modes.Contains)
+            ?? probes.FirstOrDefault(name => Environment.GetEnvironmentVariable(name) is not null);
+        return requested is null ? null : $"This toiqtty build has no validation drivers ({requested} requested). Publish with scripts/publish.ps1 -Diagnostics.";
+#endif
+    }
+
     internal static WindowDiagnosticOptions Read()
     {
         var args = Environment.GetCommandLineArgs().ToHashSet(StringComparer.Ordinal);

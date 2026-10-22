@@ -156,7 +156,7 @@ dotnet format style Toiqtty.slnx --no-restore --severity info --verify-no-change
 ./scripts/test-dpi.ps1            # Real mixed-monitor moves, pixel checks and external UIA geometry
 ./scripts/test-navigation.ps1     # Reordering, live pane moves, and persistence across window closure
 ./scripts/test-performance.ps1 -Scale16 # Event-based latency, output and mixed busy/idle measurements
-./scripts/test-performance-regressions.ps1 # Cached views, row deltas, background and input lifecycle
+./scripts/test-performance-regressions.ps1 # Cached views, row deltas, background and input lifecycle (publish with -Diagnostics first)
 ./scripts/test-endurance.ps1 -Seconds 10800 # Three-hour sessionized stress with crash monitoring
 ./scripts/test-endurance.ps1 -Seconds 10800 -FrontendDebuggerMode None -HostDebuggerMode None # Same stress without attached debuggers
 ./scripts/test-endurance.ps1 -Seconds 60 -PauseCheck # Verify external minimization pauses active stress time

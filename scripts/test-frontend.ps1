@@ -22,7 +22,7 @@ try {
         Invoke-Stage 'WinUI, sessions, browser and Lua' { & "$PSScriptRoot/test.ps1" -SkipNative -Ui -Sessions -Browser -Lua }
     }
     if ($Performance) {
-        Invoke-Stage 'Publish release' { & "$PSScriptRoot/publish.ps1" }
+        Invoke-Stage 'Publish release with diagnostics' { & "$PSScriptRoot/publish.ps1" -Diagnostics }
         Invoke-Stage 'Performance regressions' { & "$PSScriptRoot/test-performance-regressions.ps1" }
     }
     Write-Host ''
