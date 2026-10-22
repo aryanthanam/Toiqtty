@@ -18,7 +18,7 @@ internal static class IdleMetadataBenchmark
         object? measurement=null;
         try
         {
-            for(int i=0;i<64;i++) sessions.Add(new(client,Guid.NewGuid().ToString("N"),
+            for(int i=0;i<64;i++) sessions.Add(client.StartForTest(Guid.NewGuid().ToString("N"),
                 $"\"{Environment.ProcessPath}\" --persistent-shell-client",Environment.CurrentDirectory,new AppSettings()));
             await Wait(()=>sessions.All(s=>s.Performance.BytesRead>0));
             await Task.Delay(10000); // Exclude shell creation, first state, and initial JIT work.

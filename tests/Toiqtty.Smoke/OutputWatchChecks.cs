@@ -92,7 +92,7 @@ internal static class OutputWatchChecks
     private static async Task CaptureWakeRace(SessionHostClient client, string command, Action<bool, string> check)
     {
         string pane = Guid.NewGuid().ToString("N");
-        var session = new RemoteTerminalSession(client, pane, command, Environment.CurrentDirectory, new AppSettings());
+        var session = client.StartForTest(pane, command, Environment.CurrentDirectory, new AppSettings());
         using var release = new ManualResetEventSlim();
         var noticed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         void watch(string _) => noticed.TrySetResult();

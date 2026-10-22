@@ -14,6 +14,12 @@ internal static class HostTestCalls
     public static void ShutdownForTest(this SessionHostClient client) => client.CallForTest(HostRequests.Shutdown());
     public static void DetachForTest(this SessionHostClient client) => client.CallForTest(HostRequests.Detach());
     public static void SaveForTest(this SessionHostClient client, SavedSession layout) => client.SaveAsync(layout).GetAwaiter().GetResult();
+    // Shell creation is asynchronous; tests that need the shell before continuing block on Ready.
+    public static RemoteTerminalSession StartForTest(this SessionHostClient client, string pane, string command, string directory, AppSettings settings)
+    {
+        var session = RemoteTerminalSession.Start(Task.FromResult(client), pane, command, directory, settings, Task.CompletedTask);
+        session.Ready.GetAwaiter().GetResult(); return session;
+    }
     // ITerminalSession is async-only; these block a test thread (never a UI thread) on the same ordered input queue.
     public static void ResizeForTest(this RemoteTerminalSession session, ushort columns, ushort rows, uint width, uint height)
     {

@@ -366,6 +366,10 @@ public sealed partial class SessionHostClient
     }
     private readonly string _layoutEpoch = Guid.NewGuid().ToString("N");
     private long _layoutRevision;
+    /// <summary>Creates in flight from this client. Spawns run concurrently on the host, so
+    /// a burst (a restore or a scripted layout) must not exhaust pipe instances or the
+    /// 5 s connect deadline; later creates wait here, before their own deadline starts.</summary>
+    internal readonly SemaphoreSlim CreateAdmission = new(4, 4);
     /// <summary>Stamp a layout snapshot or shell creation at the moment it is taken.</summary>
     internal long NextLayoutRevision() => Interlocked.Increment(ref _layoutRevision);
     internal string LayoutEpoch => _layoutEpoch;

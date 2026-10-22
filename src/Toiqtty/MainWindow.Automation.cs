@@ -51,17 +51,17 @@ public sealed partial class MainWindow
                 Activate(); break;
             case "new-session":
                 ValidateLaunch(); if (_saved.Workspaces.Count >= 64) throw new ArgumentException("Session limit reached.");
-                NewWorkspace(Empty(request.Shell), Empty(request.Name), Empty(request.Directory)); break;
+                NewWorkspace(Empty(request.Shell), Empty(request.Name), Empty(request.Directory)); return await CreatedShellReply(cancellation);
             case "rename-session":
                 if (string.IsNullOrWhiteSpace(request.Name) || request.Name.Length > 60 || request.Name.Any(char.IsControl)) throw new ArgumentException("Use a nonempty session name of at most 60 characters.");
                 Resolve().Name = request.Name; RefreshSidebar(); Save(); break;
             case "new-tab":
                 ValidateLaunch(); var session = Resolve(); if (session.Tabs.Count >= 64) throw new ArgumentException("Tab limit reached.");
-                SelectWorkspace(session); NewTab(Empty(request.Shell), Empty(request.Name), Empty(request.Directory)); break;
+                SelectWorkspace(session); NewTab(Empty(request.Shell), Empty(request.Name), Empty(request.Directory)); return await CreatedShellReply(cancellation);
             case "split":
                 if (request.Direction is not ("right" or "down")) throw new ArgumentException("Split direction must be right or down.");
                 ValidateLaunch(); var target = Resolve(); if (target.Root.Leaves().Count() >= 16) throw new ArgumentException("Tab pane limit reached.");
-                SelectWorkspace(target); Split(request.Direction == "right"); break;
+                SelectWorkspace(target); Split(request.Direction == "right"); return await CreatedShellReply(cancellation);
             case "send-text": case "paste":
                 if (System.Text.Encoding.UTF8.GetByteCount(request.Text) > 65536) throw new ArgumentException("Input exceeds 64 KiB.");
                 var pane = request.Pane.Length == 0 ? Resolve().Root.Leaves().FirstOrDefault(p => p.Id == Resolve().FocusedPaneId)
@@ -77,5 +77,16 @@ public sealed partial class MainWindow
         }
         return ControlReply.Success(new { session = _selected?.Id, tab = _selected?.ActiveTab.Id, pane = ActivePaneId ?? _selected?.FocusedPaneId });
         static string? Empty(string value) => value.Length == 0 ? null : value;
+    }
+    // Shells start asynchronously. A CLI command that created one replies once it runs, or
+    // with the reason it could not start, without blocking the dispatcher meanwhile. The ids
+    // are taken first: the selection can change (user or another CLI request) during the wait.
+    private async Task<ControlReply> CreatedShellReply(CancellationToken cancellation)
+    {
+        var workspace = _selected; string? tab = workspace?.ActiveTab.Id, paneId = ActivePaneId ?? workspace?.FocusedPaneId;
+        var pane = workspace?.Root.Leaves().FirstOrDefault(p => p.Id == workspace.FocusedPaneId);
+        if (pane?.Session is { } shell) await shell.Ready.WaitAsync(cancellation);
+        else if (pane is not null && _shellFailures.TryGetValue(pane.Id, out var failure)) throw new InvalidOperationException("Couldn’t start the shell: " + failure);
+        return ControlReply.Success(new { session = workspace?.Id, tab, pane = paneId });
     }
 }

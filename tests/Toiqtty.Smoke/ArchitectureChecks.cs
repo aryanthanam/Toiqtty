@@ -9,7 +9,7 @@ internal static class ArchitectureChecks
         string folder = Path.GetFullPath("artifacts/architecture-host-" + Guid.NewGuid().ToString("N"));
         var client = SessionHostClient.ConnectOrStart(folder, hostExecutable);
         string id = Guid.NewGuid().ToString("N");
-        var session = new RemoteTerminalSession(client, id, $"\"{Environment.ProcessPath}\" --persistent-shell-client", Environment.CurrentDirectory, new());
+        var session = client.StartForTest(id, $"\"{Environment.ProcessPath}\" --persistent-shell-client", Environment.CurrentDirectory, new());
         var cells = new TerminalCell[3000];
         using var release = new ManualResetEventSlim();
         var intercepted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -45,7 +45,7 @@ internal static class ArchitectureChecks
             SavedSession Only(string pane) => new() { Workspaces = [new() { Name = "ordering", Root = new() { Id = pane, Command = "ignored", Directory = Environment.CurrentDirectory } }] };
             long stale = client.NextLayoutRevision();
             string late = Guid.NewGuid().ToString("N");
-            var created = new RemoteTerminalSession(client, late, $"\"{Environment.ProcessPath}\" --persistent-shell-client", Environment.CurrentDirectory, new());
+            var created = client.StartForTest(late, $"\"{Environment.ProcessPath}\" --persistent-shell-client", Environment.CurrentDirectory, new());
             await client.SaveAsync(Only(id), stale);
             check((await client.CallAsync(HostRequests.Ping())).Panes.Contains(late), "A layout snapshot taken before a shell was created never removes that shell");
             await client.SaveAsync(Only(id));
@@ -54,7 +54,7 @@ internal static class ArchitectureChecks
             await created.DetachAsync();
             session.DetachView(); await session.DetachAsync();
             check((await client.CallAsync(HostRequests.Ping())).Panes.Contains(id), "Awaited detach completes frontend cleanup while preserving the owned shell");
-            var attached = new RemoteTerminalSession(client, id, "ignored", Environment.CurrentDirectory, new());
+            var attached = client.StartForTest(id, "ignored", Environment.CurrentDirectory, new());
             Task close = attached.CloseAsync().AsTask();
             check(ReferenceEquals(close, attached.CloseAsync().AsTask()), "Repeated explicit closure shares one teardown completion");
             await close.WaitAsync(TimeSpan.FromSeconds(10));
@@ -124,6 +124,25 @@ internal static class ArchitectureChecks
         var closed = await broken.Enqueue(HostRequests.SendText("p", "y"));
         check(ambiguous.Error is not null && ambiguous.ErrorCode == HostErrorCode.Disconnected && closed.Error is not null && closed.ErrorCode == HostErrorCode.Disconnected,
             "A transport failure still closes input without replay; its synthetic replies carry codes");
+        var opening = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var delivered = new List<string>();
+        var gated = new OrderedHostInput(request => { lock (delivered) delivered.Add(request.Operation); return Task.FromResult(new HostReply()); }, () => opening.Task);
+        var early = new[] { gated.Enqueue(HostRequests.Key("p", 65, 0)), gated.Enqueue(HostRequests.Resize("p", 80, 20, 8, 16)), gated.Enqueue(HostRequests.Focus("p", true)) };
+        await Task.Delay(50);
+        check(delivered.Count == 0 && early.All(t => !t.IsCompleted) && gated.Pending == 3 && !gated.Drain.IsCompleted, "Input admitted while the open gate runs waits behind it");
+        opening.SetResult(true);
+        var earlyReplies = await Task.WhenAll(early).WaitAsync(TimeSpan.FromSeconds(5));
+        check(delivered.SequenceEqual(["key", "resize", "focus"]) && earlyReplies.All(r => r.Error is null), "Once the gate opens, queued input is delivered in admission order");
+        int unsent = 0;
+        var failedOpen = new OrderedHostInput(_ => { Interlocked.Increment(ref unsent); return Task.FromResult(new HostReply()); },
+            () => Task.FromException<bool>(new HostRejectedException(HostErrorCode.ShellStartFailed, "fixture: no such shell")));
+        var lost = await failedOpen.Enqueue(HostRequests.Key("p", 65, 0)).WaitAsync(TimeSpan.FromSeconds(5));
+        var later = await failedOpen.Enqueue(HostRequests.Key("p", 66, 0)).WaitAsync(TimeSpan.FromSeconds(5));
+        check(unsent == 0 && lost.ErrorCode == HostErrorCode.ShellStartFailed && lost.Error == "fixture: no such shell" && later.ErrorCode == HostErrorCode.ShellStartFailed,
+            "A failed open gate sends nothing and answers queued and later input with its code and reason");
+        var declined = new OrderedHostInput(_ => { Interlocked.Increment(ref unsent); return Task.FromResult(new HostReply()); }, () => Task.FromResult(false));
+        var dropped = await declined.Enqueue(HostRequests.Key("p", 65, 0)).WaitAsync(TimeSpan.FromSeconds(5));
+        check(unsent == 0 && dropped.ErrorCode == HostErrorCode.ShuttingDown, "A declined open gate (closed before create) answers input as shutting down without sending it");
         var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var writes = new List<(SavedSession Layout, bool Navigation)>();

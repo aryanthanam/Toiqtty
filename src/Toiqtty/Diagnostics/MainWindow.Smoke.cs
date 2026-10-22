@@ -83,6 +83,7 @@ public sealed partial class MainWindow
             Check(_views.Count == 3 && initial.Root.Leaves().Count() == 3, "nested horizontal and vertical splits render");
             var sessions = initial.Root.Leaves().Select(p => p.Session!).ToList();
             Check(sessions.All(s => s is not null) && sessions.Distinct().Count() == 3, "each split owns an independent shell");
+            await Task.WhenAll(sessions.Select(s => s.Ready)).WaitAsync(TimeSpan.FromSeconds(30));
             foreach (var session in sessions) { session.Paste("echo TOIQTTY_UI_SMOKE e\u0301 中🙂"); session.Key(13, 0); }
             await Task.Delay(500);
             Check(_views.All(v => v.RenderedText.Contains("TOIQTTY_UI_SMOKE")), "real shell output reaches each rendered pane");
@@ -155,7 +156,10 @@ public sealed partial class MainWindow
                     """);
                 NewWorkspace($"\"{graphicsPwsh}\" -NoLogo -NoProfile -NoExit -File \"{script}\"", "Graphics");
                 var imageView = _views.Single();
-                var deadline = DateTime.UtcNow.AddSeconds(10);
+                // Shells start asynchronously; the output deadline starts once this one runs.
+                await FocusedShellStarted();
+                // A real pwsh child under load can take several seconds to start.
+                var deadline = DateTime.UtcNow.AddSeconds(20);
                 while (!imageView.HasImage(101) && DateTime.UtcNow < deadline) await Task.Delay(100);
                 Check(imageView.HasImage(101), "Kitty PNG escapes emitted by a real PowerShell child survive ConPTY");
                 Check(await imageView.CheckRenderedImage(101, Windows.UI.Color.FromArgb(255, 255, 0, 0), Path.Combine(SessionStore.Folder, "kitty-render.png")),
@@ -215,7 +219,9 @@ public sealed partial class MainWindow
                     + Quote(Path.Combine(AppContext.BaseDirectory, "Integration", "powershell.ps1")) + "\n");
                 NewWorkspace($"\"{pwsh}\" -NoLogo -NoProfile -NoExit -Command \". {Quote(script)}\"", "Starship");
                 var starshipView = _views.Single();
-                var deadline = DateTime.UtcNow.AddSeconds(10);
+                await FocusedShellStarted();
+                // A real pwsh child under load can take several seconds to start.
+                var deadline = DateTime.UtcNow.AddSeconds(20);
                 while (!starshipView.RenderedText.Contains("TOIQTTY_STARSHIP") && DateTime.UtcNow < deadline) await Task.Delay(100);
                 Check(starshipView.RenderedText.Contains("\ue70f TOIQTTY_STARSHIP") && starshipView.RenderedText.Contains("\uf418 main"),
                     "real PowerShell 7 and Starship render a Powerline prompt with Nerd Font icons");
@@ -238,6 +244,9 @@ public sealed partial class MainWindow
         await Task.Delay(15000);
         Close();
     }
+    // A new pane's shell starts asynchronously; output deadlines begin once it runs.
+    private Task FocusedShellStarted()
+        => (_selected?.Root.Leaves().FirstOrDefault(p => p.Id == _selected.FocusedPaneId)?.Session?.Ready ?? Task.CompletedTask).WaitAsync(TimeSpan.FromSeconds(30));
     private static async Task CheckExternalAccessibility(Action<bool, string> check)
     {
         string executable = Environment.GetEnvironmentVariable("TOIQTTY_SMOKE_EXE") ?? Path.Combine(Environment.CurrentDirectory, "tests/Toiqtty.Smoke/bin/Release/net10.0-windows/win-x64/Toiqtty.Smoke.exe");

@@ -31,18 +31,24 @@ public sealed partial class MainWindow
             TabOverflowMenu.Items.Add(item);
         }
     }
+    // Shells whose start failed, by pane, until Retry. BuildNode shows these instead of a view.
+    private readonly Dictionary<string,string> _shellFailures=[];
+    private (Task Commit,HashSet<string> Panes)? _shellLayoutCommit;
     private void EnsureShell(PaneNode node,Workspace workspace)
     {
-        if (node.IsBrowser || node.Session is not null) return;
+        if (node.IsBrowser || node.Session is not null || _shellFailures.ContainsKey(node.Id)) return;
         StartupTrace.Mark("shell-connect-begin");
         if (_persistent)
         {
-            // Until shell creation is asynchronous (B4) this waits for the connector,
-            // which connects or starts the host on the thread pool, single-flight.
-            var host=_connector.ConnectAsync().GetAwaiter().GetResult();
-            var remote=new RemoteTerminalSession(host,node.Id,node.Command,node.Directory,_saved.Settings.WithTerminalTheme(workspace.Theme),_saved);
-            node.Session=remote; node.Attention=remote.PendingAttention;
-            workspace.Attention|=node.Attention;
+            // Returns at once. The session's input queue connects (single-flight, off this
+            // thread), waits until a layout naming the pane is durable, then creates or
+            // reattaches the shell; input typed meanwhile follows it in order. A pane restored
+            // from the live host's layout is already durable there and reattaches without a save.
+            var host=_connector.ConnectAsync();
+            var committed=_durablePanes.Contains(node.Id)?Task.CompletedTask:ShellLayoutCommit(node,host);
+            var remote=RemoteTerminalSession.Start(host,node.Id,node.Command,node.Directory,_saved.Settings.WithTerminalTheme(workspace.Theme),committed);
+            node.Session=remote;
+            UiTasks.Observe(ObserveShellStart(node,remote));
         }
         else node.Session=new TerminalSession(node.Command,node.Directory,_saved.Settings.WithTerminalTheme(workspace.Theme));
         StartupTrace.Mark("shell-connect-end");
@@ -61,6 +67,61 @@ public sealed partial class MainWindow
             current.Workspace.Attention=true; RefreshSidebar(); RefreshTabs();
             SetStatusMessage($"{current.Workspace.Name} needs attention");
         });
+    }
+    /// <summary>The structural save a new shell waits for before its create is sent. Every shell
+    /// requested in one dispatcher turn shares one save (one fsync) when its snapshot holds the pane.</summary>
+    private Task ShellLayoutCommit(PaneNode node,Task<SessionHostClient> host)
+    {
+        if (_shellLayoutCommit is { } pending && pending.Panes.Contains(node.Id)) return pending.Commit;
+        var panes=_saved.Workspaces.SelectMany(w=>w.AllPanes()).Select(p=>p.Id).ToHashSet();
+        Task commit;
+        try { commit=_sessionPersistence.Enqueue(_saved,false,host); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        { SetStatusMessage("Could not save session: "+ex.Message, problem: true); return Task.CompletedTask; }
+        ObservePersistence(commit);
+        if (_shellLayoutCommit is null) DispatcherQueue.TryEnqueue(()=>_shellLayoutCommit=null);
+        _shellLayoutCommit=(commit,panes);
+        return commit;
+    }
+    private async Task ObserveShellStart(PaneNode node,RemoteTerminalSession remote)
+    {
+        try { await remote.Ready; }
+        // Closed or detached before it was created.
+        catch (OperationCanceledException) when (remote.Ready.IsCanceled) { return; }
+        catch (Exception ex)
+        {
+            // A pane closed meanwhile has no panel to show.
+            if (_closed || !ReferenceEquals(node.Session,remote) || FindShellOwner(remote) is null) return;
+            ShowShellFailure(node,remote,ex);
+            return;
+        }
+        if (_closed || !ReferenceEquals(node.Session,remote) || !remote.PendingAttention || FindShellOwner(remote) is not { } owner) return;
+        // A reattached shell that rang while no window was open: mark it, as restore always has.
+        node.Attention=true; owner.Workspace.Attention=true; RefreshSidebar(); RefreshTabs();
+    }
+    /// <summary>A shell's start failed after its view was built: swap in the failure panel.</summary>
+    private void ShowShellFailure(PaneNode node,RemoteTerminalSession remote,Exception ex)
+    {
+        TraceTabLayout("start-error",node.Id,ex.ToString());
+        if (ex is SessionHostVersionException) (Application.Current as App)?.ShowUpgradeWindow(ex.Message);
+        _shellFailures[node.Id]=ex.Message;
+        node.Session=null; remote.Detach();
+        ForgetTerminalViews([node]);
+        SetStatusMessage("Couldn’t start shell: "+ex.Message, problem: true);
+        if (_selected?.ActiveTab.Root.Leaves().Contains(node)==true) RebuildPanes();
+    }
+    private FrameworkElement ShellFailurePanel(PaneNode node,Workspace workspace,string message)
+    {
+        var panel = new StackPanel { Spacing = 12, Margin = new Thickness(28), VerticalAlignment = VerticalAlignment.Center };
+        AutomationProperties.SetAutomationId(panel,"ShellFailure-"+node.Id);
+        panel.Children.Add(new TextBlock { Text = "Couldn’t start this shell", FontSize = 18, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
+        panel.Children.Add(new TextBlock { Text = message + "\n\n" + node.Command, TextWrapping = TextWrapping.Wrap, IsTextSelectionEnabled = true });
+        // Retry rebuilds this pane's session in place, with the same identity.
+        var retry = new Button { Content = "Retry" };
+        retry.Click += (_, _) => { _shellFailures.Remove(node.Id); _connector.Retry(); ForgetTabLayout(workspace.ActiveTab.Id); RebuildPanes(node.Id); };
+        panel.Children.Add(retry);
+        var settings = new Button { Content = "Edit shell settings" }; settings.Click += SettingsClick; panel.Children.Add(settings);
+        return panel;
     }
     private (Workspace Workspace, PaneNode Pane)? FindShellOwner(ITerminalSession shell)
     {

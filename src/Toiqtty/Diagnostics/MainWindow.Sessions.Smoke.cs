@@ -1,10 +1,13 @@
 using System.Text.Json;
+using Microsoft.UI.Xaml.Controls;
 using Toiqtty.Models;
 
 namespace Toiqtty;
 
 public sealed partial class MainWindow
 {
+    // Shells start asynchronously; a check that inspects the host first waits for every requested one.
+    private Task AllShellsReady() => Task.WhenAll(_saved.Workspaces.SelectMany(w=>w.AllPanes()).Select(p=>p.Session?.Ready).OfType<Task>()).WaitAsync(TimeSpan.FromSeconds(30));
     private async Task RunSessionUiProbe(string phase)
     {
         var checks=new List<string>(); string? error=null; bool interrupted=false;
@@ -28,6 +31,8 @@ public sealed partial class MainWindow
                 foreach(var retained in _terminalViews.Values) retained.View.UseSyntheticInputOnlyForCheck();
             }
             await Task.Delay(1000);
+            // Restore no longer waits for shells; probes start from a connected host.
+            await AllShellsReady();
             if (phase == "performance") await RunPerformanceProbe(Check, Wait);
             else if (phase == "pane-reuse") await RunPaneReuseProbe(Check, Wait);
             else if (phase == "scale") await RunScaleProbe(Check,Wait);
@@ -49,10 +54,26 @@ public sealed partial class MainWindow
                 var session=_selected!;
                 await Wait(()=>_focused is { FramesPainted:>0 } ready && ready.RenderedText.Contains("PS "));
                 var first=session.ActiveTab; first.Name="PowerShell";
+                // The dispatcher keeps ticking while shells are created: no create waits on the host.
+                var heartbeat=new DispatcherHeartbeat(DispatcherQueue);
                 NewTab("cmd.exe /Q /K","Split shells"); await Task.Delay(200);
-                Split(true); await Task.Delay(200); Split(false); await Task.Delay(200);
+                Split(true); await Task.Delay(200); Split(false);
                 var second=session.ActiveTab;
+                await Task.WhenAll(second.Root.Leaves().Select(p=>p.Session!.Ready)).WaitAsync(TimeSpan.FromSeconds(15));
+                double gap=heartbeat.Stop();
+                Check(gap<100,$"the UI thread never stalls 100 ms while three shells are created (max dispatcher gap {gap:0} ms)");
                 Check(second.Root.Leaves().Count()==3,"a tab supports nested splits with three independent shells");
+                string missing="toiqtty-missing-shell-"+Guid.NewGuid().ToString("N")+".exe";
+                NewTab(missing,"Unstartable"); var broken=session.ActiveTab; string brokenPane=broken.Root.Id;
+                bool FailurePanel() => _activeLayout?.Root is StackPanel panel && Microsoft.UI.Xaml.Automation.AutomationProperties.GetAutomationId(panel)=="ShellFailure-"+brokenPane;
+                await Wait(()=>FailurePanel() && broken.Root.Session is null);
+                Check(_shellFailures[brokenPane].Length>0 && _views.Count==0,"a shell whose create fails after its view was built is replaced by the error panel");
+                var retry=((StackPanel)_activeLayout!.Root).Children.OfType<Button>().First();
+                new Microsoft.UI.Xaml.Automation.Peers.ButtonAutomationPeer(retry).Invoke();
+                Check(broken.Root.Session is not null && !_shellFailures.ContainsKey(brokenPane) && broken.Root.Id==brokenPane,"Retry restarts the same pane's shell in place");
+                await Wait(()=>FailurePanel() && broken.Root.Session is null);
+                Check(true,"a retried shell that still cannot start shows the error panel again");
+                RemoveTab(session,broken); SelectTab(second); await Task.Delay(200);
                 SelectTab(first); await Task.Delay(400);
                 string token=Guid.NewGuid().ToString("N");
                 string command="$global:TOIQTTY_PERSIST='"+token+"'; Write-Output ('PERSIST_PID='+$PID); Write-Output 'PERSIST_READY'; [Console]::Write(\"`e_Ga=T,f=32,s=1,v=1,i=901,q=2;/wAA/w==`e\\\"); Start-Sleep -Seconds 3; Write-Output 'DETACHED_OUTPUT'";
@@ -96,8 +117,9 @@ public sealed partial class MainWindow
                 Check(_saved.Workspaces.Count==0 && _selected is null,"closing the last session leaves an empty window instead of creating another shell");
                 await Wait(()=>previousOwner.HasExited);
                 NewWorkspace("cmd.exe /Q /K","After host exit");
-                Check(_host is not null && _host.Identity != previousHost,"creating a new session after the cached host exits starts a fresh host");
                 var restarted = _selected!.Root.Leaves().Single().Session!;
+                await restarted.Ready.WaitAsync(TimeSpan.FromSeconds(15));
+                Check(_host is not null && _host.Identity != previousHost,"creating a new session after the cached host exits starts a fresh host");
                 restarted.Paste("echo HOST_RESTART_READY"); restarted.Key(13,0);
                 await Wait(()=>_focused is { } restartedView && restartedView.RenderedText.Contains("HOST_RESTART_READY"));
                 Check(true,"the replacement host renders a usable shell in the same window");

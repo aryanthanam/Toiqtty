@@ -6,8 +6,10 @@ namespace Toiqtty.Hosting;
 /// <summary>Window-side terminal cache. Disposing closes a pane; detaching leaves its shell alive.</summary>
 public sealed class RemoteTerminalSession : ITerminalSession
 {
-    private readonly SessionHostClient _client;
-    private readonly Task _pollTask;
+    // Null until the create gate resolves the host; every capture and metadata path starts after that.
+    private SessionHostClient? _client;
+    private Task _pollTask = Task.CompletedTask;
+    private readonly TaskCompletionSource _ready = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private Task _finishInput = Task.CompletedTask;
     internal Task ClosedForCheck => _finishInput;
     internal int StateVersionForCheck => _state.Version;
@@ -21,7 +23,7 @@ public sealed class RemoteTerminalSession : ITerminalSession
     private readonly SemaphoreSlim _captureRequests = new(1);
     private readonly SemaphoreSlim _pollWake = new(0, 1);
     private readonly OrderedHostInput _input;
-    private readonly SessionHostClient.CaptureReadLease? _captureReads;
+    private SessionHostClient.CaptureReadLease? _captureReads;
     private readonly HashSet<uint> _copiedKeys = [];
     private long _interactiveUntil;
     private long _urgentPresentationUntil;
@@ -60,7 +62,7 @@ public sealed class RemoteTerminalSession : ITerminalSession
     }
     internal long CapturesForCheck;
     internal Action? HiddenMetadataQueuedForCheck { get; set; }
-    internal Task<HostReply> CaptureDiagnosticsForCheck() { lock (_gate) return _client.CallAsync(HostRequests.Capture(_pane, knownStatusRevision: _captureStatusRevision)); }
+    internal Task<HostReply> CaptureDiagnosticsForCheck() { lock (_gate) return _client!.CallAsync(HostRequests.Capture(_pane, knownStatusRevision: _captureStatusRevision)); }
     internal long DeltaFramesForCheck, FullFramesForCheck, FrameBytesForCheck;
     internal long FrameMetadataBytesForCheck, FullStatusesForCheck, ReusedStatusesForCheck;
     public event Action? FrameAvailable;
@@ -102,21 +104,70 @@ public sealed class RemoteTerminalSession : ITerminalSession
     private DateTimeOffset _notice;
     private string _failure = "";
     private HostErrorCode _failureCode;
-    public RemoteTerminalSession(SessionHostClient client, string pane, string command, string directory, AppSettings settings, SavedSession? layout = null)
+    private int _sized;
+    private RemoteTerminalSession(Task<SessionHostClient> connector, string pane, string command, string directory, AppSettings settings, Task layoutCommitted)
     {
-        _client = client; _pane = pane;
-        _input = new(SendQueuedRequest);
-        _state = client.Call(HostRequests.Create(pane, command, directory, settings, layout, client.LayoutEpoch, client.NextLayoutRevision())).State
-            ?? throw new IOException("The session host did not return shell state.");
-        var initialStatus = _state.Status ?? throw new IOException("The session host returned incomplete shell status.");
-        _attention = _state.Attention; _notice = initialStatus.Notices.LastOrDefault()?.Time ?? default;
-        _captureReads = client.AcquireCaptureReads();
-        _client.AddOutputListener(_pane, HostOutputChanged, NeedsOutputNotification, HasVisibleView);
-        _pollTask = Poll();
+        _pane = pane;
+        // Until the host answers: no frame, no mouse tracking, an empty status and the launch directory.
+        _state = new(0, false, 0, "", "Starting shell…", directory, directory, null, new(0, 0, 0, 0, 0, 0), new(0, -1, false, null, [], [], []), 0, false);
+        // Created last: its open gate starts at once on the thread pool.
+        _input = new(SendQueuedRequest, () => Open(connector, command, directory, settings, layoutCommitted));
+    }
+    /// <summary>Returns at once without IPC. Entry 0 of the input queue awaits the connection
+    /// and the commit of a layout that names this pane, then creates or reattaches the shell;
+    /// input queued meanwhile follows it in order. Ready completes then, or faults with the
+    /// reason the shell could not start (input is then answered without being sent).</summary>
+    public static RemoteTerminalSession Start(Task<SessionHostClient> connector, string pane, string command, string directory, AppSettings settings, Task layoutCommitted)
+    {
+        // The caller's settings graph stays mutable on its thread; send a detached copy.
+        var detached = System.Text.Json.JsonSerializer.Deserialize(System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(settings, HostJsonContext.Default.AppSettings), HostJsonContext.Default.AppSettings)!;
+        return new(connector, pane, command, directory, detached, layoutCommitted);
+    }
+    private async Task<bool> Open(Task<SessionHostClient> connector, string command, string directory, AppSettings settings, Task layoutCommitted)
+    {
+        try
+        {
+            var client = await connector.ConfigureAwait(false);
+            // A crash after the spawn must find this pane in the saved layout. The save's
+            // owner reports its own failure; the shell still starts without the guarantee.
+            try { await layoutCommitted.ConfigureAwait(false); } catch (Exception) { }
+            HostReply reply;
+            await client.CreateAdmission.WaitAsync().ConfigureAwait(false);
+            try
+            {
+                // Closed or detached while queued: no shell is spawned only to be closed.
+                if (Volatile.Read(ref _closed) != 0) { _ready.TrySetCanceled(); return false; }
+                int columns = _columns, rows = _rows;
+                bool sized = Volatile.Read(ref _sized) != 0 && columns is >= 2 and <= 1000 && rows is >= 1 and <= 500;
+                // Stamped at send, after the committed save's revision, so that save never drops it.
+                reply = await client.CallAsync(HostRequests.Create(_pane, command, directory, settings, null, client.LayoutEpoch, client.NextLayoutRevision(),
+                    sized ? columns : 0, sized ? rows : 0)).ConfigureAwait(false);
+            }
+            finally { client.CreateAdmission.Release(); }
+            var state = reply.State ?? throw new IOException("The session host did not return shell state.");
+            var status = state.Status ?? throw new IOException("The session host returned incomplete shell status.");
+            lock (_gate) { _state = state; _attention = state.Attention; _notice = status.Notices.LastOrDefault()?.Time ?? default; }
+            Interlocked.Increment(ref _version);
+            _captureReads = client.AcquireCaptureReads();
+            Volatile.Write(ref _client, client);
+            client.AddOutputListener(_pane, HostOutputChanged, NeedsOutputNotification, HasVisibleView);
+            _pollTask = Poll();
+            _ready.TrySetResult();
+            return true;
+        }
+        // Closed while the connection or create was pending: nothing to report, as if declined.
+        catch (Exception) when (Volatile.Read(ref _closed) != 0) { _ready.TrySetCanceled(); return false; }
+        catch (Exception ex)
+        {
+            _failureCode = ex switch { SessionHostException { Code: not HostErrorCode.None } coded => coded.Code, OperationCanceledException => HostErrorCode.Timeout,
+                IOException => HostErrorCode.Disconnected, _ => HostErrorCode.ShellStartFailed };
+            _failure = ex.Message; Interlocked.Increment(ref _version);
+            // The window observes Ready; a session nobody watched must not raise UnobservedTaskException.
+            _ready.TrySetException(ex); _ = _ready.Task.Exception; throw;
+        }
     }
     public int Version => Volatile.Read(ref _version);
-    // The constructor's create call has already returned the shell.
-    public Task Ready => Task.CompletedTask;
+    public Task Ready => _ready.Task;
     public bool HasExited => _state.HasExited;
     public int ExitCode => _state.ExitCode;
     public string Title => _state.Title;
@@ -145,7 +196,7 @@ public sealed class RemoteTerminalSession : ITerminalSession
     public void DetachView() { if (Interlocked.Decrement(ref _viewers) == 0) WakeCapture(); }
     internal int ViewersForCheck => Volatile.Read(ref _viewers);
     internal int FrameListenersForCheck => FrameAvailable?.GetInvocationList().Length ?? 0;
-    private void WakeCapture() { _client.OutputDemandChanged(); try { _pollWake.Release(); } catch (SemaphoreFullException) { } }
+    private void WakeCapture() { _client?.OutputDemandChanged(); try { _pollWake.Release(); } catch (SemaphoreFullException) { } }
     internal void WakeCaptureForCheck() => WakeCapture();
     private void HostOutputChanged(string pane) { if (Volatile.Read(ref _viewers) > 0 && Volatile.Read(ref _frameAwaitingRead) == 0 && (pane == _pane || pane.Length == 0)) WakeCapture(); }
     private async Task<HostReply> SendQueuedRequest(HostRequest request)
@@ -158,7 +209,8 @@ public sealed class RemoteTerminalSession : ITerminalSession
         else
         {
             if (request.Key is { Action: not TerminalKeyAction.Release } pressed) _copiedKeys.Remove(pressed.Key);
-            reply = await _client.CallAsync(request).ConfigureAwait(false);
+            // Queued requests are sent only after the open gate resolved the client.
+            reply = await _client!.CallAsync(request).ConfigureAwait(false);
             if (reply.Copied == true) _copiedKeys.Add(request.Key!.Key);
         }
         if (LatencyStageForCheck is not null) TraceLatency("input-ack-" + request.Operation);
@@ -263,7 +315,7 @@ public sealed class RemoteTerminalSession : ITerminalSession
     }
     private async Task Poll()
     {
-        int failures = 0;
+        int failures = 0; var client = _client!;
         try
         {
             while (!_stop.IsCancellationRequested)
@@ -284,7 +336,7 @@ public sealed class RemoteTerminalSession : ITerminalSession
                         try
                         {
                             if (Volatile.Read(ref _viewers) > 0) continue;
-                            var pending = _client.ReadHiddenState(_pane, _state.Version, metadataStop.Token);
+                            var pending = client.ReadHiddenState(_pane, _state.Version, metadataStop.Token);
                             HiddenMetadataQueuedForCheck?.Invoke();
                             var state = await pending.ConfigureAwait(false);
                             if (state is not null) Accept(new() { State = state });
@@ -304,7 +356,7 @@ public sealed class RemoteTerminalSession : ITerminalSession
                         try
                         {
                             Interlocked.Increment(ref CapturesForCheck); TraceLatency("capture-request");
-                            var reply = await _client.CaptureAsync(request, _captureBuffer, _stop.Token, _captureReads).ConfigureAwait(false);
+                            var reply = await client.CaptureAsync(request, _captureBuffer, _stop.Token, _captureReads).ConfigureAwait(false);
                             TraceLatency("capture-reply"); CaptureReplyForCheck?.Invoke(reply); Cache(reply);
                             if (reply.BinaryLength > 0 && reply.Binary.Length <= 1024 * 1024) _captureBuffer = reply.Binary;
                         }
@@ -321,17 +373,17 @@ public sealed class RemoteTerminalSession : ITerminalSession
                     }
                     CaptureFailure = ex.ToString(); failures++;
                     if (Environment.GetEnvironmentVariable("TOIQTTY_SESSION_UI_PROBE") is not null)
-                        lock (CaptureTraceGate) try { File.AppendAllText(Path.Combine(_client.Folder, "capture-errors.jsonl"), System.Text.Json.JsonSerializer.Serialize(new { timestamp = DateTimeOffset.Now, pane = _pane, attempt = failures, error = CaptureFailure }) + Environment.NewLine); } catch (IOException) { }
-                    if (failures > 3 || !_client.IsRunning) throw;
+                        lock (CaptureTraceGate) try { File.AppendAllText(Path.Combine(client.Folder, "capture-errors.jsonl"), System.Text.Json.JsonSerializer.Serialize(new { timestamp = DateTimeOffset.Now, pane = _pane, attempt = failures, error = CaptureFailure }) + Environment.NewLine); } catch (IOException) { }
+                    if (failures > 3 || !client.IsRunning) throw;
                     await Task.Delay(50 * failures, _stop.Token).ConfigureAwait(false);
                     continue;
                 }
-                finally { Volatile.Write(ref _capturing, 0); if (visible) _client.OutputDemandChanged(); }
+                finally { Volatile.Write(ref _capturing, 0); if (visible) client.OutputDemandChanged(); }
                 // Hidden panes wait inside the batched metadata reader.
                 if (!visible) continue;
                 // Output watches wake visible captures; the short timers are only
                 // the fallback once repeated watch failures degrade the client.
-                int delay = !_client.OutputWatchDegraded ? 1000 : Environment.TickCount64 < Interlocked.Read(ref _interactiveUntil) ? 8 : 16;
+                int delay = !client.OutputWatchDegraded ? 1000 : Environment.TickCount64 < Interlocked.Read(ref _interactiveUntil) ? 8 : 16;
                 if (_snapshot is { } frame)
                     delay = (int)Math.Min(delay, frame.Frame.RenderHeld != 0 ? 16 : frame.Frame.AnimationDelay == uint.MaxValue ? delay : Math.Max(1, frame.Frame.AnimationDelay));
                 await _pollWake.WaitAsync(delay, _stop.Token).ConfigureAwait(false);
@@ -357,18 +409,19 @@ public sealed class RemoteTerminalSession : ITerminalSession
     // A rejected lookup or a lost/cancelled read means no link. Anything else (a
     // replaced host version, a malformed reply) is a fault, not a missing link.
     public async Task<string> HyperlinkAsync(ushort column, ushort row)
-    { try { return (await _client.CallAsync(HostRequests.Hyperlink(_pane, column, row), cancellation: _stop.Token).ConfigureAwait(false)).Text; } catch (Exception ex) when (ex is HostRejectedException or HostTransportException or OperationCanceledException) { return ""; } }
+    { if (_client is not { } client) return ""; try { return (await client.CallAsync(HostRequests.Hyperlink(_pane, column, row), cancellation: _stop.Token).ConfigureAwait(false)).Text; } catch (Exception ex) when (ex is HostRejectedException or HostTransportException or OperationCanceledException) { return ""; } }
     // Diagnostics only: a full capture after queued input has drained.
     internal async Task<TerminalSnapshot> ReadSnapshotAsync(TerminalCell[] cells)
     {
         ObjectDisposedException.ThrowIf(Volatile.Read(ref _closed) != 0, this);
+        await Ready.ConfigureAwait(false);
         await _input.Drain.ConfigureAwait(false);
         await _captureRequests.WaitAsync().ConfigureAwait(false);
         try
         {
             ObjectDisposedException.ThrowIf(Volatile.Read(ref _closed) != 0, this);
             HostRequest request; lock (_gate) request = HostRequests.Capture(_pane, knownStatusRevision: _captureStatusRevision, images: _images.Count == 0 ? null : _images.Keys.ToArray());
-            Cache(await _client.CallAsync(request).ConfigureAwait(false));
+            Cache(await _client!.CallAsync(request).ConfigureAwait(false));
             if (!TryReadSnapshot(cells, out var snapshot)) throw new IOException("Terminal snapshot is not ready.");
             return snapshot!;
         }
@@ -416,7 +469,7 @@ public sealed class RemoteTerminalSession : ITerminalSession
         lock (_resizeGate)
         {
             if (Volatile.Read(ref _closed) != 0) return;
-            _columns = columns; _rows = rows;
+            _columns = columns; _rows = rows; Volatile.Write(ref _sized, 1);
             _cellPixelWidth = width; _cellPixelHeight = height;
             _pendingResize = (columns, rows, width, height);
             if (_resizing) return;
@@ -475,8 +528,10 @@ public sealed class RemoteTerminalSession : ITerminalSession
     public async Task<int> DropAsync(int x, int y, IReadOnlyDictionary<string, byte[]> items, uint operations = 1, TimeSpan? timeout = null)
     {
         await _input.Drain.ConfigureAwait(false);
+        // Drain includes the open gate: no client now means the shell never started.
+        if (_client is not { } client) return 0;
         var request = HostRequests.DropCommit(_pane, x, y, operations, timeout ?? TimeSpan.FromSeconds(15), items);
-        try { return (int)((await _client.CallAsync(request, TimeSpan.FromSeconds(23), _stop.Token)).Value ?? 0); }
+        try { return (int)((await client.CallAsync(request, TimeSpan.FromSeconds(23), _stop.Token)).Value ?? 0); }
         catch (Exception ex) when (ex is IOException or OperationCanceledException) { return 0; }
     }
     public async Task<int> QueryDropAsync(int action, int x = 0, int y = 0, IReadOnlyDictionary<string, byte[]>? items = null, uint operations = 1)
@@ -510,8 +565,10 @@ public sealed class RemoteTerminalSession : ITerminalSession
     }
     private async Task FinishInput(bool close)
     {
-        _client.RemoveOutputListener(_pane, HostOutputChanged);
-        await _input.Complete().ConfigureAwait(false); _stop.Cancel();
+        _client?.RemoveOutputListener(_pane, HostOutputChanged);
+        // Draining includes the open gate, which declines once it sees the close.
+        await _input.Complete().ConfigureAwait(false);
+        var client = _client; client?.RemoveOutputListener(_pane, HostOutputChanged); _stop.Cancel();
         try { await _pollTask.ConfigureAwait(false); }
         finally
         {
@@ -529,6 +586,7 @@ public sealed class RemoteTerminalSession : ITerminalSession
             }
             finally { _captureRequests.Release(); _captureReads?.Dispose(); }
         }
-        if (close) try { await _client.CallAsync(HostRequests.Close(_pane)).ConfigureAwait(false); } catch (Exception ex) when (ex is IOException or OperationCanceledException) { }
+        // A pane that never reached the host (closed while queued, or failed to start) has nothing to close.
+        if (close && client is not null) try { await client.CallAsync(HostRequests.Close(_pane)).ConfigureAwait(false); } catch (Exception ex) when (ex is IOException or OperationCanceledException) { }
     }
 }

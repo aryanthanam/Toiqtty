@@ -14,7 +14,7 @@ internal static class ShutdownReplyChecks
             var shells = new List<RemoteTerminalSession>();
             try
             {
-                for (int i = 0; i < 4; i++) shells.Add(new RemoteTerminalSession(host, Guid.NewGuid().ToString("N"), "cmd.exe /Q /K", Environment.CurrentDirectory, new AppSettings()));
+                for (int i = 0; i < 4; i++) shells.Add(host.StartForTest(Guid.NewGuid().ToString("N"), "cmd.exe /Q /K", Environment.CurrentDirectory, new AppSettings()));
                 // Captures contend with output/state cleanup during shutdown.
                 var capture = host.CallAsync(HostRequests.Capture(host.PingForTest().Panes[0]));
                 host.ShutdownForTest();

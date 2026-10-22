@@ -24,7 +24,7 @@ internal static class MetadataBatchChecks
         void Pass(bool value,string text) { check(value,text); checks.Add(text); }
         string command=$"\"{Environment.ProcessPath}\" --persistent-shell-client";
         var ids=Enumerable.Range(0,16).Select(_=>Guid.NewGuid().ToString("N")).ToArray();
-        var sessions=ids.Select(id=>new RemoteTerminalSession(client,id,command,Environment.CurrentDirectory,new AppSettings())).ToArray();
+        var sessions=ids.Select(id=>client.StartForTest(id,command,Environment.CurrentDirectory,new AppSettings())).ToArray();
         RemoteTerminalSession? reattached=null;
         async Task Wait(Func<bool> condition)
         {
@@ -99,7 +99,7 @@ internal static class MetadataBatchChecks
             try { sessions[0].ReadSnapshotForTest(cells); } catch(ObjectDisposedException) { closedCapture=true; }
             Pass(closedCapture && !sessions[0].TryReadSnapshot(cells,out _),"Detached remote sessions reject new captures after releasing their cell buffers");
             Pass((await client.CallAsync(HostRequests.Ping())).Panes.Contains(ids[0]),"Releasing frontend buffers leaves the original hidden shell owned by the host");
-            reattached=new(client,ids[0],command,Environment.CurrentDirectory,new AppSettings()); reattached.AttachView();
+            reattached=client.StartForTest(ids[0],command,Environment.CurrentDirectory,new AppSettings()); reattached.AttachView();
             await Wait(()=>reattached.TryReadSnapshot(cells,out _) && string.Concat(cells.Select(cell=>cell.GetText())).Contains("PERSIST_MARK=1"));
             Pass(true,"Reattaching after pooled-buffer cleanup restores the original shell state");
             reattached.DetachView(); reattached.Detach(); await reattached.ClosedForCheck;
@@ -120,7 +120,7 @@ internal static class MetadataBatchChecks
             try { await client.CallAsync(HostRequests.States(Enumerable.Range(0,257).ToDictionary(i=>"pane"+i,_=>-1))); }
             catch(IOException) { invalid=true; }
             Pass(invalid && (await client.CallAsync(HostRequests.Ping())).Panes.Length==16,"Oversized metadata batches are rejected without changing any shell ownership");
-            var churn=new RemoteTerminalSession(client,ids[0],command,Environment.CurrentDirectory,new AppSettings());
+            var churn=client.StartForTest(ids[0],command,Environment.CurrentDirectory,new AppSettings());
             int transitions=0;
             try
             {

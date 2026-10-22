@@ -5,26 +5,30 @@ namespace Toiqtty.Hosting;
 /// <summary>Serial persistence of immutable layout snapshots, coalesced without dropping structural saves.</summary>
 internal sealed class SessionPersistenceQueue(Func<SavedSession, bool, SessionHostClient?, Task>? writer = null)
 {
-    private sealed record SaveRequest(SavedSession Snapshot, bool NavigationOnly, SessionHostClient? Host, long Revision);
+    private sealed record SaveRequest(SavedSession Snapshot, bool NavigationOnly, Task<SessionHostClient>? Host, TaskCompletionSource Committed);
     private readonly Lock _gate = new();
     private SaveRequest? _pending;
     private TaskCompletionSource? _drained;
 
-    internal Task Enqueue(SavedSession layout, bool navigationOnly, SessionHostClient? host)
+    /// <summary>Queue a snapshot of the layout. The task completes once this snapshot, or a
+    /// newer one that superseded it while pending, has been written; it faults if that write
+    /// failed. The host is awaited and the revision stamped in the serial worker, so a save
+    /// can be requested while the host connection is still being made.</summary>
+    internal Task Enqueue(SavedSession layout, bool navigationOnly, Task<SessionHostClient>? host)
     {
         // Capture runtime directories on the caller's UI thread, then detach
         // the entire graph before an await or background file/pipe operation.
         var snapshot = SavedSessionSnapshot.Capture(layout);
-        long revision = host?.NextLayoutRevision() ?? 0;
         lock (_gate)
         {
-            _pending = new(snapshot, navigationOnly && (_pending?.NavigationOnly ?? true), host, revision);
+            _pending = new(snapshot, navigationOnly && (_pending?.NavigationOnly ?? true), host,
+                _pending?.Committed ?? new(TaskCreationOptions.RunContinuationsAsynchronously));
             if (_drained is null)
             {
                 _drained = new(TaskCreationOptions.RunContinuationsAsynchronously);
                 _ = Task.Run(Run);
             }
-            return _drained.Task;
+            return _pending.Committed.Task;
         }
     }
 
@@ -41,22 +45,30 @@ internal sealed class SessionPersistenceQueue(Func<SavedSession, bool, SessionHo
                 if (_pending is null)
                 {
                     var drained = _drained!; _drained = null;
-                    if (failure is null) drained.TrySetResult(); else drained.TrySetException(failure);
+                    // Each request's own task reports its failure; a flush that nobody awaits is not unobserved.
+                    if (failure is null) drained.TrySetResult(); else { drained.TrySetException(failure); _ = drained.Task.Exception; }
                     return;
                 }
                 request = _pending; _pending = null;
             }
+            SessionHostClient? host = null;
             try
             {
-                if (writer is not null) await writer(request.Snapshot, request.NavigationOnly, request.Host).ConfigureAwait(false);
-                else if (request.Host is null) SessionStore.Save(request.Snapshot);
-                else if (request.NavigationOnly) await request.Host.SaveNavigationAsync(request.Snapshot).ConfigureAwait(false);
-                else await request.Host.SaveAsync(request.Snapshot, request.Revision).ConfigureAwait(false);
+                // A host that cannot be reached leaves the file as the only owner, as before it was known.
+                if (request.Host is not null) try { host = await request.Host.ConfigureAwait(false); } catch (Exception) { host = null; }
+                if (writer is not null) await writer(request.Snapshot, request.NavigationOnly, host).ConfigureAwait(false);
+                else if (host is null) SessionStore.Save(request.Snapshot);
+                else if (request.NavigationOnly) await host.SaveNavigationAsync(request.Snapshot).ConfigureAwait(false);
+                else await host.SaveAsync(request.Snapshot).ConfigureAwait(false);
+                request.Committed.TrySetResult();
             }
             catch (Exception ex) when ((ex is IOException or OperationCanceledException)
-                && request.Host is not null && request.Snapshot.Workspaces.SelectMany(w => w.AllPanes()).All(p => p.IsBrowser))
-            { try { SessionStore.Save(request.Snapshot); } catch (Exception persistException) { failure = persistException; } }
-            catch (Exception ex) { failure = ex; }
+                && host is not null && request.Snapshot.Workspaces.SelectMany(w => w.AllPanes()).All(p => p.IsBrowser))
+            {
+                try { SessionStore.Save(request.Snapshot); request.Committed.TrySetResult(); }
+                catch (Exception persistException) { failure = persistException; request.Committed.TrySetException(persistException); }
+            }
+            catch (Exception ex) { failure = ex; request.Committed.TrySetException(ex); }
         }
     }
 }

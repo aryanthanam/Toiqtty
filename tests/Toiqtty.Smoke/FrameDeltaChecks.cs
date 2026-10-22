@@ -9,7 +9,7 @@ internal static class FrameDeltaChecks
         string folder = Path.GetFullPath("artifacts/row-handoff-" + Guid.NewGuid().ToString("N"));
         var client = SessionHostClient.ConnectOrStart(folder, executable);
         string pane = Guid.NewGuid().ToString("N");
-        var session = new RemoteTerminalSession(client, pane, $"\"{Environment.ProcessPath}\" --delta-client", Environment.CurrentDirectory, new());
+        var session = client.StartForTest(pane, $"\"{Environment.ProcessPath}\" --delta-client", Environment.CurrentDirectory, new());
         var fast = new TerminalCell[3000]; var slow = new TerminalCell[3000];
         long fastRevision = -1, slowRevision = -1; TerminalSnapshot? latest = null;
         bool ReadFast() => session.TryReadSnapshot(fast, ref fastRevision, out latest);
@@ -70,7 +70,7 @@ internal static class FrameDeltaChecks
             await session.InputDrained;
             session.DetachView(); await session.DetachAsync();
             check((await client.CallAsync(HostRequests.Ping())).Panes.Contains(pane), "Retiring row caches detaches the frontend while preserving its host-owned shell");
-            session = new RemoteTerminalSession(client, pane, "ignored", Environment.CurrentDirectory, new());
+            session = client.StartForTest(pane, "ignored", Environment.CurrentDirectory, new());
             fastRevision = -1; session.AttachView(); session.QueueResize(100, 30, 8, 21);
             await Wait(() => ReadFast() && Row(fast, 4).Contains("DELTA_RECOVERED"));
             check(Row(fast, 2).Contains("DELTA_FIRST") && Row(fast, 3).Contains("DELTA_SECOND"),

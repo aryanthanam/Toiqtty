@@ -83,7 +83,7 @@ internal static class InteractionChecks
         }
         var host=SessionHostClient.ConnectOrStart(folder,helper);
         string paneId=Guid.NewGuid().ToString("N");
-        using var shell=new RemoteTerminalSession(host,paneId,ShellDefaults.Command+" -NoProfile",Environment.CurrentDirectory,new());
+        using var shell=host.StartForTest(paneId,ShellDefaults.Command+" -NoProfile",Environment.CurrentDirectory,new());
         shell.AttachView();
         string marker="RAW_"+Guid.NewGuid().ToString("N"); await shell.SendTextAsync("Write-Output ('"+marker[..20]+"'+'"+marker[20..]+"')\r");
         var cells=new Toiqtty.Terminal.TerminalCell[3000]; var deadline=DateTime.UtcNow.AddSeconds(10); bool found=false;

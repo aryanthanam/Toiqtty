@@ -81,7 +81,7 @@ internal static class PersistentSessionChecks
             Pass(clients.All(c=>c.Identity==client.Identity && c.ProcessId==client.ProcessId),"concurrent launches share one session host per data directory");
             string pane=Guid.NewGuid().ToString("N");
             string command="\""+Environment.ProcessPath+"\" --persistent-shell-client";
-            first=new(client,pane,command,Environment.CurrentDirectory,new AppSettings()); first.ResizeForTest(80,20,8,20); first.AttachView();
+            first=client.StartForTest(pane,command,Environment.CurrentDirectory,new AppSettings()); first.ResizeForTest(80,20,8,20); first.AttachView();
             var cells=new TerminalCell[1600];
             string Text(RemoteTerminalSession s)=>string.Concat(cells.Select(c=>c.GetText()));
             TerminalSnapshot Capture(RemoteTerminalSession s)=>s.ReadSnapshotForTest(cells);
@@ -102,7 +102,7 @@ internal static class PersistentSessionChecks
             first.Detach(); first=null; client.DetachForTest(); await Task.Delay(1200);
             var reconnected=SessionHostClient.TryConnect(folder)!;
             Pass(reconnected is not null && reconnected.Identity==client.Identity && reconnected.ProcessId==client.ProcessId,"detaching the frontend keeps the same host alive");
-            second=new(reconnected!,pane,"invalid-command-must-not-run",Environment.CurrentDirectory,new AppSettings()); second.ResizeForTest(80,20,8,20); second.AttachView();
+            second=reconnected!.StartForTest(pane,"invalid-command-must-not-run",Environment.CurrentDirectory,new AppSettings()); second.ResizeForTest(80,20,8,20); second.AttachView();
             await Wait(()=> { Capture(second); return Text(second).Contains("PERSIST_DETACHED_OUTPUT"); });
             Pass(true,"the host drains output while no window is attached");
             Pass(Capture(second).Graphics.Any(g=>g.ImageId==901 && g.Image.Pixels.SequenceEqual(pixels)),"graphics remain in Ghostty across frontend detach and reconnect");
@@ -114,7 +114,7 @@ internal static class PersistentSessionChecks
             var found=second.FindForTest("PERSIST_HISTORY_0",0);
             Pass(found.Count>0 && second.CopySelectionForTest().Contains("PERSIST_HISTORY_0"),"scrollback search and selection survive reconnect");
             second.FindForTest("",0); second.Select(-1,-1); second.Scroll(0);
-            var settingsAttach=new RemoteTerminalSession(reconnected!,pane,"invalid-command-must-not-run",Environment.CurrentDirectory,new AppSettings { ScrollbackLimitBytes=0 });
+            var settingsAttach=reconnected!.StartForTest(pane,"invalid-command-must-not-run",Environment.CurrentDirectory,new AppSettings { ScrollbackLimitBytes=0 });
             settingsAttach.Detach();
             Pass(second.FindForTest("PERSIST_HISTORY_0",0).Count==0,"reattaching applies new scrollback settings over IPC without restarting the shell");
             second.FindForTest("",0);
@@ -167,6 +167,7 @@ internal static class PersistentSessionChecks
                     && copy.ErrorCode==HostErrorCode.ReplyTooLarge && states.ErrorCode==HostErrorCode.ReplyTooLarge,
                     "an oversized reply for any operation is replaced by a framed, coded error before any header is sent");
             }
+            await AsyncCreate(reconnected!,folder,command,pane,Pass);
             await HostV2Wire.RunHost(folder,Pass);
             Pass(SessionHostClient.TryConnect(folder) is not null && !second.HasExited,"raw protocol-2 requests, shutdown included, leave the live host and its shell intact");
             using var owner=Process.GetProcessById(client.ProcessId);
@@ -175,7 +176,7 @@ internal static class PersistentSessionChecks
             Pass(!client.IsRunning,"an exited cached host is detected before creating another shell");
             client=SessionHostClient.ConnectOrStart(folder,hostExecutable);
             using var exitedOwner=Process.GetProcessById(client.ProcessId);
-            var exited=new RemoteTerminalSession(client,Guid.NewGuid().ToString("N"),"cmd.exe /c exit 0",Environment.CurrentDirectory,new AppSettings());
+            var exited=client.StartForTest(Guid.NewGuid().ToString("N"),"cmd.exe /c exit 0",Environment.CurrentDirectory,new AppSettings());
             await exitedOwner.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(12)); exited.Detach();
             Pass(true,"the host exits after its last child exits naturally");
             await ConnectorReconnects(folder,hostExecutable,command,Pass);
@@ -198,7 +199,7 @@ internal static class PersistentSessionChecks
         pass(attempts.All(c=>ReferenceEquals(c,connected)) && ReferenceEquals(connector.Current,connected) && connected.IsRunning,
             "concurrent connector callers share one connection attempt and host client");
         int exits=0; connected.Exited+=()=>Interlocked.Increment(ref exits);
-        var doomed=new RemoteTerminalSession(connected,Guid.NewGuid().ToString("N"),command,Environment.CurrentDirectory,new AppSettings());
+        var doomed=connected.StartForTest(Guid.NewGuid().ToString("N"),command,Environment.CurrentDirectory,new AppSettings());
         using (var victim=Process.GetProcessById(connected.ProcessId)) { victim.Kill(); await victim.WaitForExitAsync(); }
         await Wait(()=>Volatile.Read(ref exits)==1 && connector.Current is null);
         pass(connected.HostExited && !connected.IsRunning,"a killed host is detected from its process handle and dropped by the connector");
@@ -207,12 +208,74 @@ internal static class PersistentSessionChecks
         RemoteTerminalSession? revived=null;
         try
         {
-            var shell=revived=new(replacement,Guid.NewGuid().ToString("N"),command,Environment.CurrentDirectory,new AppSettings()); shell.ResizeForTest(80,20,8,20); shell.AttachView();
+            var shell=revived=replacement.StartForTest(Guid.NewGuid().ToString("N"),command,Environment.CurrentDirectory,new AppSettings()); shell.ResizeForTest(80,20,8,20); shell.AttachView();
             await Wait(()=> { if (!shell.TryReadSnapshot(cells,out _)) return false; return string.Concat(cells.Select(c=>c.GetText())).Contains("PERSIST_READY PID="); });
             pass(replacement.Identity!=connected.Identity && replacement.IsRunning && Volatile.Read(ref exits)==1,
                 "killing the host mid-session reconnects through the connector to a fresh, usable host");
         }
         finally { revived?.Dispose(); }
+    }
+    // Shell creation never blocks its caller: entry 0 of the session's input queue awaits the
+    // connection and the layout commit, then creates; input queued meanwhile follows in order.
+    private static async Task AsyncCreate(SessionHostClient client,string folder,string command,string owned,Action<bool,string> pass)
+    {
+        var connection=new TaskCompletionSource<SessionHostClient>(TaskCreationOptions.RunContinuationsAsynchronously);
+        string pane=Guid.NewGuid().ToString("N");
+        PaneNode Leaf(string id)=>new() { Id=id,Command=command,Directory=Environment.CurrentDirectory };
+        var layout=new SavedSession { Workspaces=[new() { Name="owned",Root=Leaf(owned) },new() { Name="async",Root=Leaf(pane) }] };
+        var persistence=new SessionPersistenceQueue();
+        var timer=Stopwatch.StartNew();
+        var shell=RemoteTerminalSession.Start(connection.Task,pane,command,Environment.CurrentDirectory,new AppSettings(),persistence.Enqueue(layout,false,connection.Task));
+        shell.QueueResize(90,24,8,20); shell.Paste("mark"); shell.Key(13,0); shell.Focus(true);
+        long started=timer.ElapsedMilliseconds;
+        await Task.Delay(100);
+        pass(started<50 && !shell.Ready.IsCompleted && shell.PendingInput==4 && !(await client.CallAsync(HostRequests.Ping())).Panes.Contains(pane) && shell.StatusSummary.StartsWith("Starting"),
+            "starting a shell returns at once with a placeholder state while the host connection is pending, and queues its input");
+        connection.SetResult(client);
+        await shell.Ready.WaitAsync(TimeSpan.FromSeconds(15));
+        string saved=File.ReadAllText(Path.Combine(folder,"session.json"));
+        pass(saved.Contains(pane) && (await client.CallAsync(HostRequests.Ping())).Panes.Contains(pane),
+            "the layout naming a new pane is durable before its shell exists, so a crash before the first frame restores it");
+        var cells=new TerminalCell[90*24]; shell.AttachView();
+        await Wait(()=>shell.TryReadSnapshot(cells,out var frame) && frame!.Frame.Columns==90 && frame.Frame.Rows==24 && string.Concat(cells.Select(c=>c.GetText())).Contains("PERSIST_MARK=1"));
+        await shell.InputDrained;
+        pass(!shell.StatusSummary.Contains("fail",StringComparison.OrdinalIgnoreCase),"resize, paste, key and focus queued before the create arrive after it, in order");
+        // The frontend dies without closing it: a restarted app reads the host's layout, restores
+        // the pane by identity and reattaches the running shell (the launch command never reruns).
+        shell.DetachView(); await shell.DetachAsync();
+        var restarted=SessionHostClient.TryConnect(folder)!;
+        bool restoredLayout=restarted.Layout?.Workspaces.Any(w=>w.AllPanes().Any(p=>p.Id==pane))==true && restarted.Panes.Contains(pane);
+        var restored=restarted.StartForTest(pane,"invalid-command-must-not-run",Environment.CurrentDirectory,new AppSettings());
+        restored.ResizeForTest(90,24,8,20); restored.AttachView();
+        await Wait(()=>restored.TryReadSnapshot(cells,out _) && string.Concat(cells.Select(c=>c.GetText())).Contains("PERSIST_MARK=1"));
+        pass(restoredLayout && !restored.HasExited,"a frontend lost after create restarts, restores the pane from the host layout and reattaches its shell");
+        restored.DetachView(); await restored.CloseAsync();
+
+        var parked=new TaskCompletionSource<SessionHostClient>(TaskCreationOptions.RunContinuationsAsynchronously);
+        string abandoned=Guid.NewGuid().ToString("N");
+        var queued=RemoteTerminalSession.Start(parked.Task,abandoned,command,Environment.CurrentDirectory,new AppSettings(),Task.CompletedTask);
+        var typed=queued.SendTextAsync("never sent");
+        var closing=queued.CloseAsync().AsTask();
+        parked.SetResult(client);
+        await closing.WaitAsync(TimeSpan.FromSeconds(10));
+        bool refused=false; try { await typed; } catch (SessionHostException ex) { refused=ex.Code==HostErrorCode.ShuttingDown; }
+        pass(queued.Ready.IsCanceled && refused && !(await client.CallAsync(HostRequests.Ping())).Panes.Contains(abandoned),
+            "closing a shell whose create is still queued spawns nothing and answers its queued input without sending it");
+
+        string unstartable=Guid.NewGuid().ToString("N");
+        var failed=RemoteTerminalSession.Start(Task.FromResult(client),unstartable,"toiqtty-missing-shell-"+unstartable+".exe",Environment.CurrentDirectory,new AppSettings(),Task.CompletedTask);
+        HostErrorCode startCode=HostErrorCode.None; try { await failed.Ready.WaitAsync(TimeSpan.FromSeconds(10)); } catch (SessionHostException ex) { startCode=ex.Code; }
+        bool rejected=false; try { await failed.SendTextAsync("x"); } catch (SessionHostException ex) { rejected=ex.Code==HostErrorCode.ShellStartFailed; }
+        pass(startCode==HostErrorCode.ShellStartFailed && rejected && failed.StatusSummary.Length>0 && !failed.StatusSummary.StartsWith("Starting")
+            && !(await client.CallAsync(HostRequests.Ping())).Panes.Contains(unstartable),"a failed create faults Ready with its code and closes input with the same reason");
+        await failed.CloseAsync();
+
+        // A burst beyond the client's create admission, one with a failed layout save.
+        var burst=Enumerable.Range(0,6).Select(i=>RemoteTerminalSession.Start(Task.FromResult(client),Guid.NewGuid().ToString("N"),"cmd.exe /d /q /k",Environment.CurrentDirectory,new AppSettings(),
+            i==0?Task.FromException(new IOException("fixture save failure")):Task.CompletedTask)).ToArray();
+        await Task.WhenAll(burst.Select(s=>s.Ready)).WaitAsync(TimeSpan.FromSeconds(20));
+        pass(client.CreateAdmission.CurrentCount==4,"six concurrent creates pass the four-way admission, and a failed layout save still lets its shell start");
+        foreach (var session in burst) await session.CloseAsync();
     }
     // Every protocol-3 operation once against the live host, on a disposable cmd pane,
     // plus the payload faults. Sync and shutdown are covered by the scheduling and

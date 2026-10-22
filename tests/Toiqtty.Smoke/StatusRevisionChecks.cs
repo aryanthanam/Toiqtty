@@ -9,7 +9,7 @@ internal static class StatusRevisionChecks
     {
         string folder = Path.GetFullPath("artifacts/status-revisions-" + Guid.NewGuid().ToString("N"));
         var client = SessionHostClient.ConnectOrStart(folder, executable); string pane = Guid.NewGuid().ToString("N");
-        var session = new RemoteTerminalSession(client, pane, $"\"{Environment.ProcessPath}\" --status-snapshot-client", Environment.CurrentDirectory, new AppSettings());
+        var session = client.StartForTest(pane, $"\"{Environment.ProcessPath}\" --status-snapshot-client", Environment.CurrentDirectory, new AppSettings());
         var cells = new TerminalCell[3000];
         async Task Wait(Func<bool> condition)
         {

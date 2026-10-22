@@ -2,11 +2,14 @@ using System.Text;
 
 namespace Toiqtty.Hosting;
 
-/// <summary>Bounded FIFO admission; acknowledgements never block the caller.</summary>
-internal sealed class OrderedHostInput(Func<HostRequest,Task<HostReply>> send)
+/// <summary>Bounded FIFO admission; acknowledgements never block the caller. An optional
+/// open gate is entry 0: input admitted while it runs is delivered after it succeeds, in
+/// order, and is answered without sending if it fails or declines.</summary>
+internal sealed class OrderedHostInput
 {
     internal const int MaxRequests=2048, MaxBytes=8*1024*1024;
     private sealed record Entry(HostRequest Request,int Bytes,TaskCompletionSource<HostReply> Completion);
+    private readonly Func<HostRequest,Task<HostReply>> _send;
     private readonly Lock _gate =new();
     private readonly Queue<Entry> _queue=[];
     private readonly HashSet<uint> _pressed=[];
@@ -14,7 +17,17 @@ internal sealed class OrderedHostInput(Func<HostRequest,Task<HostReply>> send)
     private bool _running,_completed;
     // None while deliverable; otherwise the transport code that closed delivery.
     private HostErrorCode _failure;
+    private string _failureText="Host delivery failed; input was not retried.";
+    // Runs once before any request; false means the target was closed before it opened.
+    private Func<Task<bool>>? _open;
     private TaskCompletionSource _drained=Ready();
+    internal OrderedHostInput(Func<HostRequest,Task<HostReply>> send,Func<Task<bool>>? open=null)
+    {
+        _send=send;
+        if(open is null) return;
+        _open=open; _running=true; _drained=new(TaskCreationOptions.RunContinuationsAsynchronously);
+        _=Task.Run(Run);
+    }
     internal int Pending { get { lock(_gate) return _count; } }
     internal int PendingBytes { get { lock(_gate) return _bytes; } }
     private static TaskCompletionSource Ready() { var result=new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously); result.SetResult(); return result; }
@@ -31,7 +44,7 @@ internal sealed class OrderedHostInput(Func<HostRequest,Task<HostReply>> send)
         {
             // Synthetic replies are coded like host replies: a closing session is
             // ShuttingDown, a failed channel repeats the transport code that closed it.
-            if(_failure!=HostErrorCode.None) return Task.FromResult(new HostReply { Error="Host delivery failed; input was not retried.",ErrorCode=_failure });
+            if(_failure!=HostErrorCode.None) return Task.FromResult(new HostReply { Error=_failureText,ErrorCode=_failure });
             if(_completed) return Task.FromResult(new HostReply { Error="Input delivery is closed; input was not sent.",ErrorCode=HostErrorCode.ShuttingDown });
             // Only key and copy-or-key carry KeyArgs.
             bool key=request.Key is { Key: not 0 };
@@ -57,6 +70,19 @@ internal sealed class OrderedHostInput(Func<HostRequest,Task<HostReply>> send)
     internal Task Complete() { lock(_gate) { _completed=true; return _drained.Task; } }
     private async Task Run()
     {
+        if(_open is { } open)
+        {
+            _open=null;
+            HostErrorCode code=HostErrorCode.ShuttingDown; string text="Input delivery is closed; input was not sent.";
+            try { if(await open().ConfigureAwait(false)) code=HostErrorCode.None; }
+            catch(Exception ex)
+            {
+                code=ex switch { SessionHostException { Code: not HostErrorCode.None } coded => coded.Code, OperationCanceledException => HostErrorCode.Timeout,
+                    IOException => HostErrorCode.Disconnected, _ => HostErrorCode.ShellStartFailed };
+                text=ex.Message;
+            }
+            if(code!=HostErrorCode.None) Abandon(code,text,code!=HostErrorCode.ShuttingDown);
+        }
         while(true)
         {
             Entry entry;
@@ -66,7 +92,7 @@ internal sealed class OrderedHostInput(Func<HostRequest,Task<HostReply>> send)
                 entry=_queue.Dequeue();
             }
             HostReply reply;
-            try { reply=await send(entry.Request).ConfigureAwait(false); }
+            try { reply=await _send(entry.Request).ConfigureAwait(false); }
             // The host answered: this request was rejected, the transport is intact.
             catch(HostRejectedException ex) { reply=new() { Error=ex.Message,ErrorCode=ex.Code }; }
             catch(Exception ex) when(ex is IOException or OperationCanceledException or ObjectDisposedException)
@@ -82,6 +108,18 @@ internal sealed class OrderedHostInput(Func<HostRequest,Task<HostReply>> send)
             }
             lock(_gate) { _count--; _bytes-=entry.Bytes; }
             entry.Completion.TrySetResult(reply);
+        }
+    }
+    // The gate failed or declined: nothing queued behind it is sent. A failure also
+    // answers later input with the same code and text, as a failed channel does.
+    private void Abandon(HostErrorCode code,string text,bool failed)
+    {
+        lock(_gate)
+        {
+            if(failed) { _failure=code; _failureText=text; }
+            else _completed=true;
+            while(_queue.TryDequeue(out var abandoned))
+            { _count--; _bytes-=abandoned.Bytes; abandoned.Completion.TrySetResult(new() { Error=text,ErrorCode=code }); }
         }
     }
 }

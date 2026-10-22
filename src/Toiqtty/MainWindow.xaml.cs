@@ -31,6 +31,7 @@ public sealed partial class MainWindow : Window
     private bool _sessionsRestored;
     private readonly bool _persistent;
     private readonly bool _reattached;
+    private readonly HashSet<string> _durablePanes=[];
     // One single-flight connection; _host is whichever client it has resolved.
     private readonly SessionHostConnector _connector = new(SessionStore.Folder);
     private SessionHostClient? _host => _connector.Current;
@@ -80,7 +81,11 @@ public sealed partial class MainWindow : Window
         _persistent=diagnostics.Persistent; _luaEnabled=diagnostics.LuaEnabled;
         StartupTrace.Mark("window-host-probe-begin");
         if (_persistent && runningHost is { } running && running.Panes.Length>0)
-        { _connector.Adopt(running); _saved=running.Layout??_saved; _reattached=true; }
+        {
+            _connector.Adopt(running); _saved=running.Layout??_saved; _reattached=true;
+            // Restored from the host's own layout: these panes are already durable there.
+            _durablePanes=_saved.Workspaces.SelectMany(w=>w.AllPanes()).Select(p=>p.Id).ToHashSet();
+        }
         StartupTrace.Mark("window-host-probe-end");
         // A reconnect after a host exit can meet a newer or older host version.
         _connector.VersionMismatch += ex => DispatcherQueue.TryEnqueue(() =>
@@ -143,6 +148,7 @@ public sealed partial class MainWindow : Window
                 try { EnsureShell(pane,workspace); } catch (Exception ex) { SetStatusMessage("Could not restore shell: "+ex.Message, problem: true); }
             UpdateChrome();
             StartupTrace.Mark("sessions-restored");
+            if (StartupTrace.Enabled) _ = MarkSessionsReady();
             _metadataTimer.Start();
             _sessionsRestored = true;
             if (_pendingNavigation is { } pending) { _pendingNavigation = null; NavigateNotification(pending.Workspace, pending.Pane); }
@@ -192,6 +198,13 @@ public sealed partial class MainWindow : Window
                 GC.Collect();GC.WaitForPendingFinalizers();GC.Collect();
             }
         };
+    }
+    // Restore no longer waits for shells; this marks when every restored one has started (or failed).
+    private async Task MarkSessionsReady()
+    {
+        try { await Task.WhenAll(_saved.Workspaces.SelectMany(w => w.AllPanes()).Select(p => p.Session?.Ready).OfType<Task>()); }
+        catch (Exception) { }
+        StartupTrace.Mark("sessions-ready");
     }
     private static string? FindOnPath(string name) => (Environment.GetEnvironmentVariable("PATH") ?? "").Split(Path.PathSeparator)
         .Select(p => Path.Combine(p, name)).FirstOrDefault(File.Exists);
@@ -320,20 +333,18 @@ public sealed partial class MainWindow : Window
             if (node.IsBrowser) return WrapPane(BuildBrowser(node, workspace),node);
             try
             {
+                // A remote shell starts asynchronously; its failure later swaps in this panel.
                 EnsureShell(node,workspace);
+                if (node.Session is null && _shellFailures.TryGetValue(node.Id,out var failure)) return ShellFailurePanel(node,workspace,failure);
                 var view=GetTerminalView(node,workspace);
                 view.ShowFocusMarker=!_zoomed && workspace.Root.Leaves().Skip(1).Any();
                 _views.Add(view); return WrapPane(view,node);
             }
             catch (Exception ex)
             {
+                // Local (diagnostic) sessions still spawn synchronously.
                 TraceTabLayout("build-error",node.Id,ex.ToString());
-                var panel = new StackPanel { Spacing = 12, Margin = new Thickness(28), VerticalAlignment = VerticalAlignment.Center };
-                panel.Children.Add(new TextBlock { Text = "Couldn’t start this shell", FontSize = 18, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
-                panel.Children.Add(new TextBlock { Text = ex.Message + "\n\n" + node.Command, TextWrapping = TextWrapping.Wrap, IsTextSelectionEnabled = true });
-                var retry = new Button { Content = "Retry" }; retry.Click += (_, _) => { _connector.Retry(); ForgetTabLayout(workspace.ActiveTab.Id); RebuildPanes(node.Id); }; panel.Children.Add(retry);
-                var settings = new Button { Content = "Edit shell settings" }; settings.Click += SettingsClick; panel.Children.Add(settings);
-                return panel;
+                return ShellFailurePanel(node,workspace,ex.Message);
             }
         }
         var grid = new Grid();
@@ -415,6 +426,7 @@ public sealed partial class MainWindow : Window
     private void ApplyRemoval(Workspace owner, SessionLayout.Removal removal, bool activeTab)
     {
         ForgetTerminalViews(removal.Closed);
+        foreach (var pane in removal.Closed) _shellFailures.Remove(pane.Id);
         _sessionLifetimes.ClosePanes(removal.Closed);
         if (removal.RemovedWorkspace is { } removed)
         {
@@ -475,13 +487,25 @@ public sealed partial class MainWindow : Window
             if(_persistent && _saved.Workspaces.SelectMany(w=>w.AllPanes()).All(p=>p.IsBrowser)) _connector.Reset();
             SavePreferences();
             if (_sessionThemesLoaded) _ = ObserveSave(_sessionThemes.SaveAsync(_saved.Workspaces));
-            _=ObserveSave(_sessionPersistence.Enqueue(_saved,navigationOnly,_persistent?_host:null));
+            ObservePersistence(_sessionPersistence.Enqueue(_saved,navigationOnly,_persistent?PersistenceHost():null));
         }
         catch(Exception ex) when(ex is IOException or UnauthorizedAccessException)
         { if(!_closed) SetStatusMessage("Could not save session: "+ex.Message, problem: true); }
     }
+    // The connected host owns the layout, and so does the one a starting shell is still
+    // connecting to. Otherwise the file is written directly; a save never starts a host.
+    private Task<SessionHostClient>? PersistenceHost()
+        => _connector.Current is { } current ? Task.FromResult(current)
+            : _saved.Workspaces.Any(w => w.AllPanes().Any(p => p.Session is RemoteTerminalSession { Ready.IsCompleted: false })) ? _connector.ConnectAsync() : null;
     private readonly SessionPersistenceQueue _sessionPersistence=new();
     private readonly SessionLifetimeCoordinator _sessionLifetimes=new();
+    // Coalesced saves share one commit task; report each failed write once.
+    private Task? _observedPersistence;
+    private void ObservePersistence(Task commit)
+    {
+        if (ReferenceEquals(commit,_observedPersistence)) return;
+        _observedPersistence=commit; _=ObserveSave(commit);
+    }
     private async Task ObserveSave(Task save)
     {
         try

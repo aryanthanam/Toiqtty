@@ -83,7 +83,7 @@ internal static class HostTransportSoakChecks
             foreach (var tab in workspace.Tabs)
             {
                 var pane = tab.Root;
-                var remote = new RemoteTerminalSession(host, pane.Id, pane.Command, pane.Directory, layout.Settings, layout);
+                var remote = host.StartForTest(pane.Id, pane.Command, pane.Directory, layout.Settings);
                 remote.AttachView();
                 // Rapid view churn must coalesce wakeups without losing the
                 // final attachment or replacing its persistent shell.

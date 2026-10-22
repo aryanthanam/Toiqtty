@@ -47,7 +47,7 @@ public sealed partial class MainWindow
         var sourceTab = source.ActiveTab;
         NewTab(); var destination = source; var destinationTab = source.ActiveTab;
         NewWorkspace("cmd.exe /Q /K", "Other session"); var other = _selected!;
-        SelectWorkspace(source);
+        SelectWorkspace(source); await AllShellsReady();
         var objects = _saved.Workspaces.SelectMany(w => w.AllPanes()).ToDictionary(p => p.Id, p => p.Session);
         var hostPanes = _host!.CallForCheck(Hosting.HostRequests.Ping()).Panes.ToHashSet();
         check(WorkspaceList.CanDragItems && WorkspaceList.CanReorderItems && WorkspaceList.AllowDrop, "session list enables WinUI's native drag reordering");
