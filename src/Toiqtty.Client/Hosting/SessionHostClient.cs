@@ -217,7 +217,7 @@ public sealed partial class SessionHostClient
         // inaccessible existing pipe still follows the bounded connection path.
         if (!WaitNamedPipeW(@"\\.\pipe\" + HostProtocol.PipeName(folder), 1) && Marshal.GetLastWin32Error() == 2) return null;
         var client = new SessionHostClient(folder);
-        try { client.Accept(client.Call(new(), timeout)); return client; }
+        try { client.Accept(client.Call(HostRequests.Ping(), timeout)); return client; }
         catch (SessionHostVersionException) { throw; }
         catch (Exception ex) when (ex is IOException or OperationCanceledException or TimeoutException) { return null; }
     }
@@ -284,6 +284,8 @@ public sealed partial class SessionHostClient
         try { return CallAsync(request, timeout).GetAwaiter().GetResult(); }
         catch (OperationCanceledException ex) { throw new HostTransportException(HostErrorCode.Timeout, "Session host request timed out. Input was not retried.", ex); }
     }
+    /// <summary>Blocking diagnostics call, for smoke checks only. Product code awaits CallAsync.</summary>
+    internal HostReply CallForCheck(HostRequest request, TimeSpan? timeout = null) => Call(request, timeout);
     public Task<HostReply> CallAsync(HostRequest request, TimeSpan? timeout = null, CancellationToken cancellation = default)
         => CallCoreAsync(request, timeout, cancellation, null);
     internal Task<HostReply> CaptureAsync(HostRequest request, byte[] reuse, CancellationToken cancellation, CaptureReadLease? lease = null)

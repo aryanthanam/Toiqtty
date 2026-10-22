@@ -10,7 +10,7 @@ internal static class InputDispatchChecks
         var sent=new List<HostRequest>();
         var queue=new OrderedHostInput(async request=> { await gate.Task; lock(sent) sent.Add(request); return new(); });
         var watch=Stopwatch.StartNew();
-        var pending=Enumerable.Range(0,500).Select(i=>queue.Enqueue(new() { Operation="paste",Text=i.ToString() })).ToArray();
+        var pending=Enumerable.Range(0,500).Select(i=>queue.Enqueue(HostRequests.Paste("p",i.ToString()))).ToArray();
         watch.Stop();
         check(watch.ElapsedMilliseconds<500 && pending.All(t=>!t.IsCompleted),"500 input admissions return while the transport is deliberately stalled");
         gate.SetResult(); await Task.WhenAll(pending); await queue.Drain;
@@ -26,24 +26,33 @@ internal static class InputDispatchChecks
         var focus=bounded.Enqueue(HostRequests.Focus("p",false));
         check(!release.IsCompleted && !focus.IsCompleted && bounded.Pending<=OrderedHostInput.MaxRequests,"Held-key releases and focus loss retain reserved admission under backpressure");
         paused.SetResult(); await Task.WhenAll(admitted.Append(release).Append(focus)); await bounded.Drain;
-        check((await bounded.Enqueue(new() { Operation="paste",Text="retry" })).Error is null,"Admission resumes after recoverable backpressure has drained");
+        check((await bounded.Enqueue(HostRequests.Paste("p","retry"))).Error is null,"Admission resumes after recoverable backpressure has drained");
 
         int pasteCalls=0;
         var atomic=new OrderedHostInput(_=> { Interlocked.Increment(ref pasteCalls); return Task.FromResult(new HostReply()); });
-        var oversized=await atomic.Enqueue(new() { Operation="paste",Text=new string('x',OrderedHostInput.MaxBytes) });
+        var oversized=await atomic.Enqueue(HostRequests.Paste("p",new string('x',OrderedHostInput.MaxBytes)));
         check(oversized.Error is not null && pasteCalls==0,"An oversized paste is rejected whole before any transport write");
         var largeItems=await atomic.Enqueue(HostRequests.DropQuery("p",1,0,0,1,new Dictionary<string,byte[]> { ["text/plain"]=new byte[OrderedHostInput.MaxBytes] }));
         check(largeItems.Error is not null && pasteCalls==0,"Binary input representations also obey the queue's byte budget");
-        var accepted=await atomic.Enqueue(new() { Operation="paste",Text="bracketed paste café 中🙂" });
+        var accepted=await atomic.Enqueue(HostRequests.Paste("p","bracketed paste café 中🙂"));
         check(accepted.Error is null && pasteCalls==1,"An admitted paste remains one host request");
 
         int attempts=0;
         var uncertain=new OrderedHostInput(_=> { Interlocked.Increment(ref attempts); throw new IOException("Lost acknowledgement"); });
         var failed=await uncertain.Enqueue(HostRequests.Key("p",13,0));
-        var later=await uncertain.Enqueue(new() { Operation="paste",Text="must-not-replay" });
+        var later=await uncertain.Enqueue(HostRequests.Paste("p","must-not-replay"));
         check(attempts==1 && failed.Error is not null && later.Error is not null,"An uncertain transport failure stops admission and never replays input");
+        check(failed.ErrorCode==HostErrorCode.Disconnected && later.ErrorCode==HostErrorCode.Disconnected,"A raw transport failure and the admissions it closes are coded Disconnected");
+        var changed=new OrderedHostInput(_=>Task.FromException<HostReply>(new HostTransportException(HostErrorCode.HostChanged,"replaced")));
+        var timedOut=new OrderedHostInput(_=>Task.FromException<HostReply>(new OperationCanceledException()));
+        check((await changed.Enqueue(HostRequests.Key("p",13,0))).ErrorCode==HostErrorCode.HostChanged && (await changed.Enqueue(HostRequests.Paste("p","x"))).ErrorCode==HostErrorCode.HostChanged
+            && (await timedOut.Enqueue(HostRequests.Key("p",13,0))).ErrorCode==HostErrorCode.Timeout && (await timedOut.Enqueue(HostRequests.Paste("p","x"))).ErrorCode==HostErrorCode.Timeout,
+            "A failed channel keeps answering with the transport code that closed it");
         await atomic.Complete();
-        check((await atomic.Enqueue(new() { Operation="paste",Text="late" })).Error is not null,"A completed dispatcher rejects new input");
+        var late=await atomic.Enqueue(HostRequests.Paste("p","late"));
+        check(late.Error is not null && late.ErrorCode==HostErrorCode.ShuttingDown,"A completed dispatcher rejects new input as ShuttingDown");
+        check(oversized.ErrorCode==HostErrorCode.InputBusy && admitted.First(t=>t.IsCompleted && t.Result.Error is not null).Result.ErrorCode==HostErrorCode.InputBusy,
+            "Admission rejections are coded InputBusy, so the session's busy notice clears on the code");
         // Held-key and focus reserves come from the typed payloads: a copy-or-key press
         // is a held key like any other, and only a focus loss skips its own reserve.
         var held=new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);

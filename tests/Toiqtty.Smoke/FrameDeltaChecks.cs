@@ -69,7 +69,7 @@ internal static class FrameDeltaChecks
                 "A truncated delta repairs its spare through full-frame recovery without losing earlier rows or image ownership");
             await session.InputDrained;
             session.DetachView(); await session.DetachAsync();
-            check((await client.CallAsync(new())).Panes.Contains(pane), "Retiring row caches detaches the frontend while preserving its host-owned shell");
+            check((await client.CallAsync(HostRequests.Ping())).Panes.Contains(pane), "Retiring row caches detaches the frontend while preserving its host-owned shell");
             session = new RemoteTerminalSession(client, pane, "ignored", Environment.CurrentDirectory, new());
             fastRevision = -1; session.AttachView(); session.QueueResize(100, 30, 8, 21);
             await Wait(() => ReadFast() && Row(fast, 4).Contains("DELTA_RECOVERED"));

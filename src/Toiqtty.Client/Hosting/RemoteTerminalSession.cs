@@ -358,8 +358,10 @@ public sealed class RemoteTerminalSession : ITerminalSession
     }
     private async Task ObserveQueuedInput(Task<HostReply> request)
     { ObserveInputReply(await request.ConfigureAwait(false)); }
+    // A rejected lookup or a lost/cancelled read means no link. Anything else (a
+    // replaced host version, a malformed reply) is a fault, not a missing link.
     public async Task<string> HyperlinkAsync(ushort column, ushort row)
-    { try { return (await _client.CallAsync(HostRequests.Hyperlink(_pane, column, row), cancellation: _stop.Token).ConfigureAwait(false)).Text; } catch (Exception ex) when (ex is IOException or OperationCanceledException) { return ""; } }
+    { try { return (await _client.CallAsync(HostRequests.Hyperlink(_pane, column, row), cancellation: _stop.Token).ConfigureAwait(false)).Text; } catch (Exception ex) when (ex is HostRejectedException or HostTransportException or OperationCanceledException) { return ""; } }
     public TerminalFrame ReadFrame(TerminalCell[] cells) => ReadSnapshot(cells).Frame;
     public TerminalSnapshot ReadSnapshot(TerminalCell[] cells)
     {

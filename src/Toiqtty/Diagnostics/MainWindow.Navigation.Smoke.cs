@@ -49,7 +49,7 @@ public sealed partial class MainWindow
         NewWorkspace("cmd.exe /Q /K", "Other session"); var other = _selected!;
         SelectWorkspace(source);
         var objects = _saved.Workspaces.SelectMany(w => w.AllPanes()).ToDictionary(p => p.Id, p => p.Session);
-        var hostPanes = _host!.Call(new Hosting.HostRequest()).Panes.ToHashSet();
+        var hostPanes = _host!.CallForCheck(Hosting.HostRequests.Ping()).Panes.ToHashSet();
         check(WorkspaceList.CanDragItems && WorkspaceList.CanReorderItems && WorkspaceList.AllowDrop, "session list enables WinUI's native drag reordering");
         string ownerLayout = JsonSerializer.Serialize(_saved);
         check(!MovePane(pane, other.Id, other.ActiveTab.Id, false) && JsonSerializer.Serialize(_saved) == ownerLayout,
@@ -138,7 +138,7 @@ public sealed partial class MainWindow
         await wait(()=>_focused?.PaneId==surviving && _focused.InputHasFocus);
         check(source.Root.IsLeaf,"closing the focused split pane restores input to its surviving sibling");
         NavigateNotification(destination.Id, pane); await wait(() => _focused?.PaneId == pane);
-        check(hostPanes.SetEquals(_host.Call(new Hosting.HostRequest()).Panes)
+        check(hostPanes.SetEquals(_host.CallForCheck(Hosting.HostRequests.Ping()).Panes)
             && objects.All(pair => ReferenceEquals(SessionLayout.Find(_saved, pair.Key)!.Value.Pane.Session, pair.Value)),
             "all shell session objects and host pane IDs remain unchanged after moves and reordering");
         check(shell.Find("MOVE_HISTORY_1", 0).Count > 0, "the moved shell retains scrollback from before its first move");

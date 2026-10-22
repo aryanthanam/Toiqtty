@@ -124,7 +124,9 @@ internal static class OutputWatchChecks
             await noticed.Task.WaitAsync(TimeSpan.FromSeconds(5));
             // The only wake is the output watch. Input bypasses this remote
             // owner's input queue, and the held reply contains no new frame.
-            var elapsed = Stopwatch.StartNew(); release.Set(); await Wait(() => session.Title == "PING_RACE_WAKE", 600);
+            // Read frames like a view: an unread echo frame would otherwise hold
+            // the title's later capture behind the one-second backpressure wait.
+            var elapsed = Stopwatch.StartNew(); release.Set(); await Wait(() => { session.TryReadSnapshot(cells, out _); return session.Title == "PING_RACE_WAKE"; }, 600);
             check(elapsed.ElapsedMilliseconds < 600, "Output arriving during an unchanged capture wakes the next capture without the one-second idle fallback");
         }
         finally { release.Set(); client.RemoveOutputListener(pane, watch); session.DetachView(); await session.CloseAsync(); }

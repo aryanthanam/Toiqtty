@@ -149,7 +149,7 @@ internal static class PersistentSessionChecks
             Pass(missingError=="This shell session no longer exists." && missingCode==HostErrorCode.SessionMissing && unknownError=="Unknown session operation." && unknownCode==HostErrorCode.UnknownOperation
                 && limitError=="Shell creation exceeds the session limits." && limitCode==HostErrorCode.LimitExceeded,"host error replies carry structured codes beside their unchanged messages");
             Pass(syncError?.StartsWith("Invalid session")==true && createError?.StartsWith("Invalid session")==true && syncCode==HostErrorCode.InvalidRequest && createCode==HostErrorCode.InvalidRequest && !second.HasExited
-                && reconnected!.CallForTest(new()).Panes.SequenceEqual([pane]),"malformed layouts with null workspaces or tabs get an error reply, not EOF, and change no shells");
+                && reconnected!.CallForTest(HostRequests.Ping()).Panes.SequenceEqual([pane]),"malformed layouts with null workspaces or tabs get an error reply, not EOF, and change no shells");
             Pass(GhosttyTerminal.Saturate(0)==0 && GhosttyTerminal.Saturate(int.MaxValue)==int.MaxValue && GhosttyTerminal.Saturate((nuint)int.MaxValue+1)==int.MaxValue
                 && GhosttyTerminal.Saturate(nuint.MaxValue)==int.MaxValue && second.Find("PERSIST_MARK",0).Count>0,"find saturates match counts beyond int instead of failing the request");
             second.Find("",0); second.Select(-1,-1);

@@ -25,7 +25,7 @@ public sealed partial class MainWindow
         check(deltaFrames>=20,"Sparse updates reach the renderer through the negotiated snapshot path");
         check(view.ImageTextureCount==1 && remote.FullFrameRecoveriesForCheck==0,"Sparse updates preserve Kitty image generations without recovery failures");
         long fullBefore=remote.FullFramesForCheck;
-        _host.Call(HostRequests.Capture(view.PaneId));
+        _host.CallForCheck(HostRequests.Capture(view.PaneId));
         string token=Guid.NewGuid().ToString("N")[..12];
         remote.Paste("set 4 "+token); remote.Key(13,0);
         await wait(()=>view.RenderedRowForCheck(3).Contains("DELTA_"+token) && remote.FullFramesForCheck>fullBefore);

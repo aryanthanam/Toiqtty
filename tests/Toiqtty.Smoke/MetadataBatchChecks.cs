@@ -98,7 +98,7 @@ internal static class MetadataBatchChecks
             bool closedCapture=false;
             try { sessions[0].ReadSnapshot(cells); } catch(ObjectDisposedException) { closedCapture=true; }
             Pass(closedCapture && !sessions[0].TryReadSnapshot(cells,out _),"Detached remote sessions reject new captures after releasing their cell buffers");
-            Pass((await client.CallAsync(new())).Panes.Contains(ids[0]),"Releasing frontend buffers leaves the original hidden shell owned by the host");
+            Pass((await client.CallAsync(HostRequests.Ping())).Panes.Contains(ids[0]),"Releasing frontend buffers leaves the original hidden shell owned by the host");
             reattached=new(client,ids[0],command,Environment.CurrentDirectory,new AppSettings()); reattached.AttachView();
             await Wait(()=>reattached.TryReadSnapshot(cells,out _) && string.Concat(cells.Select(cell=>cell.GetText())).Contains("PERSIST_MARK=1"));
             Pass(true,"Reattaching after pooled-buffer cleanup restores the original shell state");
@@ -119,7 +119,7 @@ internal static class MetadataBatchChecks
             bool invalid=false;
             try { await client.CallAsync(HostRequests.States(Enumerable.Range(0,257).ToDictionary(i=>"pane"+i,_=>-1))); }
             catch(IOException) { invalid=true; }
-            Pass(invalid && (await client.CallAsync(new())).Panes.Length==16,"Oversized metadata batches are rejected without changing any shell ownership");
+            Pass(invalid && (await client.CallAsync(HostRequests.Ping())).Panes.Length==16,"Oversized metadata batches are rejected without changing any shell ownership");
             var churn=new RemoteTerminalSession(client,ids[0],command,Environment.CurrentDirectory,new AppSettings());
             int transitions=0;
             try

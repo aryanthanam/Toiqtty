@@ -161,7 +161,7 @@ public sealed partial class MainWindow
         check(timer.Elapsed.TotalSeconds>=seconds,"Sessionized endurance completed its requested active stress duration, excluding external suspension");
         check(_terminalViewsCreated==created && _terminalViewsEvicted==0,"Repeated tab/split/zoom/minimize transitions retained all five views without recreating controls");
         check(shells.All(s=>s.DeltaFramesForCheck>0 && s.FullFrameRecoveriesForCheck==0),"Changed-row transfers remained synchronized without unexpected full-frame recovery");
-        check(_host.Identity==hostIdentity && _host.Call(new()).Panes.Length==5,"The original host and all five shell panes survived the endurance run");
+        check(_host.Identity==hostIdentity && _host.CallForCheck(Hosting.HostRequests.Ping()).Panes.Length==5,"The original host and all five shell panes survived the endurance run");
         check(process.PrivateMemorySize64-initialPrivate<256L*1024*1024 && process.HandleCount-initialHandles<300,
             "Private-memory and handle growth stayed within the explicit endurance guardrails (256MiB and 300 handles)");
         foreach(var view in retained)

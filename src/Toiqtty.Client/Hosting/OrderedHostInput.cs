@@ -11,7 +11,9 @@ internal sealed class OrderedHostInput(Func<HostRequest,Task<HostReply>> send)
     private readonly Queue<Entry> _queue=[];
     private readonly HashSet<uint> _pressed=[];
     private int _count,_bytes;
-    private bool _running,_completed,_failed;
+    private bool _running,_completed;
+    // None while deliverable; otherwise the transport code that closed delivery.
+    private HostErrorCode _failure;
     private TaskCompletionSource _drained=Ready();
     internal int Pending { get { lock(_gate) return _count; } }
     internal int PendingBytes { get { lock(_gate) return _bytes; } }
@@ -27,7 +29,10 @@ internal sealed class OrderedHostInput(Func<HostRequest,Task<HostReply>> send)
         int bytes=(int)cost;
         lock(_gate)
         {
-            if(_completed || _failed) return Task.FromResult(new HostReply { Error="Input delivery is closed; input was not retried.",ErrorCode=HostErrorCode.Disconnected });
+            // Synthetic replies are coded like host replies: a closing session is
+            // ShuttingDown, a failed channel repeats the transport code that closed it.
+            if(_failure!=HostErrorCode.None) return Task.FromResult(new HostReply { Error="Host delivery failed; input was not retried.",ErrorCode=_failure });
+            if(_completed) return Task.FromResult(new HostReply { Error="Input delivery is closed; input was not sent.",ErrorCode=HostErrorCode.ShuttingDown });
             // Only key and copy-or-key carry KeyArgs.
             bool key=request.Key is { Key: not 0 };
             uint code=key?request.Key!.Key:0;
@@ -66,12 +71,13 @@ internal sealed class OrderedHostInput(Func<HostRequest,Task<HostReply>> send)
             catch(HostRejectedException ex) { reply=new() { Error=ex.Message,ErrorCode=ex.Code }; }
             catch(Exception ex) when(ex is IOException or OperationCanceledException or ObjectDisposedException)
             {
-                reply=new() { Error="Host delivery failed; input may have been sent and was not retried. "+ex.Message,ErrorCode=ex is SessionHostException { Code: not HostErrorCode.None } coded ? coded.Code : ex is OperationCanceledException ? HostErrorCode.Timeout : HostErrorCode.Disconnected };
+                var code=ex is SessionHostException { Code: not HostErrorCode.None } coded ? coded.Code : ex is OperationCanceledException ? HostErrorCode.Timeout : HostErrorCode.Disconnected;
+                reply=new() { Error="Host delivery failed; input may have been sent and was not retried. "+ex.Message,ErrorCode=code };
                 lock(_gate)
                 {
-                    _failed=true;
+                    _failure=code;
                     while(_queue.TryDequeue(out var abandoned))
-                    { _count--; _bytes-=abandoned.Bytes; abandoned.Completion.TrySetResult(new() { Error="Host delivery failed; pending input was not sent.",ErrorCode=HostErrorCode.Disconnected }); }
+                    { _count--; _bytes-=abandoned.Bytes; abandoned.Completion.TrySetResult(new() { Error="Host delivery failed; pending input was not sent.",ErrorCode=code }); }
                 }
             }
             lock(_gate) { _count--; _bytes-=entry.Bytes; }

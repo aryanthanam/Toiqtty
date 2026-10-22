@@ -27,7 +27,7 @@ public sealed partial class MainWindow
         _saved.Workspaces.AddRange(others); Save();
         foreach(var workspace in others) foreach(var pane in workspace.AllPanes()) EnsureShell(pane,workspace);
         await wait(()=>others.SelectMany(w=>w.AllPanes()).All(p=>p.Session!.Performance.BytesRead>0));
-        check(_host.Call(new()).Panes.Length==80,"One host owns sixteen visible panes and sixty-four shells across thirty-two additional sessions");
+        check(_host.CallForCheck(Hosting.HostRequests.Ping()).Panes.Length==80,"One host owns sixteen visible panes and sixty-four shells across thirty-two additional sessions");
         await wait(()=>!_polling); int branchLookups=_branchLookupsForCheck;
         await PollMetadata();
         check(_branchLookupsForCheck-branchLookups==1,"Thirty-three sessions sharing a directory require only one asynchronous Git lookup per metadata pass");
@@ -49,7 +49,7 @@ public sealed partial class MainWindow
             "Visiting all sixty-four tabs bounds retained terminal views and complete layouts");
         SelectWorkspace(primary);
         await wait(()=>_views.Count==16 && _views.All(v=>v.FramesPainted>0 && !v.ResizePendingForCheck));
-        check(_host.Identity==host && _host.Call(new()).Panes.Length==80 && leaves.Select(p=>p.Session).SequenceEqual(sessions),
+        check(_host.Identity==host && _host.CallForCheck(Hosting.HostRequests.Ping()).Panes.Length==80 && leaves.Select(p=>p.Session).SequenceEqual(sessions),
             "Returning to sixteen panes after cache eviction preserves all eighty shell identities and their host");
         foreach(var shell in sessions) { shell.Paste("scale-image"); shell.Key(13,0); }
         await wait(()=>_views.All(v=>v.HasImage(1002)));

@@ -23,7 +23,7 @@ public sealed partial class MainWindow
         check(_selected!.AllPanes().Select(p=>p.Session).OfType<RemoteTerminalSession>().All(s=>s.ViewersForCheck==1 && s.FrameListenersForCheck==1),
             "Splitting detaches the original view and retains exactly one viewer and frame listener per pane");
         var identity=_host!.Identity;
-        var paneIds=_host.Call(new()).Panes.Order().ToArray();
+        var paneIds=_host.CallForCheck(Hosting.HostRequests.Ping()).Panes.Order().ToArray();
         var view=_views[0];
         var remote=(RemoteTerminalSession)_selected!.AllPanes().Single(p=>p.Id==view.PaneId).Session!;
         long sent=Interlocked.Read(ref remote.ResizeRequestsSent);
@@ -86,7 +86,7 @@ public sealed partial class MainWindow
             }
             paneSession.Select(-1,-1);
         }
-        check(_host.Identity==identity && _host.Call(new()).Panes.Order().SequenceEqual(paneIds),"Resizing preserves the host and all shell pane identities");
+        check(_host.Identity==identity && _host.CallForCheck(Hosting.HostRequests.Ping()).Panes.Order().SequenceEqual(paneIds),"Resizing preserves the host and all shell pane identities");
         foreach(var pane in _views)
             check(await pane.CheckRenderedImage(901,Windows.UI.Color.FromArgb(255,255,0,0),Path.Combine(Models.SessionStore.Folder,"resized-"+pane.PaneId+".png")),"Shell input and Kitty image rendering work after rapid pane resizing: "+pane.PaneId);
 

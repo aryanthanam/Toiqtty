@@ -88,7 +88,7 @@ public sealed partial class MainWindow
                 Check(true,"the same PowerShell PID and in-memory variable survive window closure");
                 var second=session.Tabs.Single(t=>t.Id==value.GetProperty("second").GetString());
                 RemoveTab(session,second);
-                var live=_host!.Call(new Hosting.HostRequest()).Panes;
+                var live=_host!.CallForCheck(Hosting.HostRequests.Ping()).Panes;
                 Check(second.Root.Leaves().All(p=>!live.Contains(p.Id)) && live.Contains(first.Root.Id),"closing a tab ends only its split shells");
                 string previousHost = _host.Identity;
                 using var previousOwner = System.Diagnostics.Process.GetProcessById(_host.ProcessId);

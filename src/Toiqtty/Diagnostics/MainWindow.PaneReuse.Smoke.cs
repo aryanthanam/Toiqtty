@@ -92,7 +92,7 @@ public sealed partial class MainWindow
         var hidden=_terminalViews.Values.Where(item=>!visible.Contains(item.View)).ToArray();
         check(hidden.Length<=MaxHiddenTerminalViews && hidden.Sum(item=>item.View.RetainedGpuBytes)<=MaxHiddenTerminalGpuBytes && _terminalViewsEvicted>evictedBefore,
             "Hidden-view retention obeys both the count limit and estimated GPU-memory budget");
-        var live=_host!.Call(new()).Panes;
+        var live=_host!.CallForCheck(Hosting.HostRequests.Ping()).Panes;
         check(workspace.AllPanes().All(p=>live.Contains(p.Id)) && other.AllPanes().All(p=>live.Contains(p.Id)),
             "Evicting hidden views leaves all of their shells owned by the session host");
         check(workspace.AllPanes().Select(p=>p.Session).OfType<RemoteTerminalSession>().All(s=>s.ViewersForCheck is 0 or 1 && s.FrameListenersForCheck is 0 or 1),

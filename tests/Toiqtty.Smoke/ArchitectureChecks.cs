@@ -47,13 +47,13 @@ internal static class ArchitectureChecks
             string late = Guid.NewGuid().ToString("N");
             var created = new RemoteTerminalSession(client, late, $"\"{Environment.ProcessPath}\" --persistent-shell-client", Environment.CurrentDirectory, new());
             await client.SaveAsync(Only(id), stale);
-            check((await client.CallAsync(new())).Panes.Contains(late), "A layout snapshot taken before a shell was created never removes that shell");
+            check((await client.CallAsync(HostRequests.Ping())).Panes.Contains(late), "A layout snapshot taken before a shell was created never removes that shell");
             await client.SaveAsync(Only(id));
-            check(!(await client.CallAsync(new())).Panes.Contains(late) && (await client.CallAsync(new())).Panes.Contains(id),
+            check(!(await client.CallAsync(HostRequests.Ping())).Panes.Contains(late) && (await client.CallAsync(HostRequests.Ping())).Panes.Contains(id),
                 "A newer layout snapshot still removes shells it no longer lists");
             await created.DetachAsync();
             session.DetachView(); await session.DetachAsync();
-            check((await client.CallAsync(new())).Panes.Contains(id), "Awaited detach completes frontend cleanup while preserving the owned shell");
+            check((await client.CallAsync(HostRequests.Ping())).Panes.Contains(id), "Awaited detach completes frontend cleanup while preserving the owned shell");
             var attached = new RemoteTerminalSession(client, id, "ignored", Environment.CurrentDirectory, new());
             Task close = attached.CloseAsync().AsTask();
             check(ReferenceEquals(close, attached.CloseAsync().AsTask()), "Repeated explicit closure shares one teardown completion");
@@ -102,17 +102,17 @@ internal static class ArchitectureChecks
         while (full.Root.Leaves().Count() < SessionLayout.MaxPanesPerTab) SessionLayout.SplitPane(model, full, full.Root.Leaves().Last().Id, true, "cmd.exe", out _);
         check(!SessionLayout.SplitPane(model, full, full.Root.Leaves().Last().Id, true, "cmd.exe", out string limit) && limit.StartsWith("Pane limit"),
             "Splitting beyond the per-tab pane limit is rejected with a reason");
-        var rejecting = new OrderedHostInput(request => request.Operation == "busy"
+        var rejecting = new OrderedHostInput(request => request.Pane == "busy"
             ? Task.FromException<HostReply>(new HostRejectedException(HostErrorCode.InputBusy, "Input busy: fixture")) : Task.FromResult(new HostReply()));
-        var busy = await rejecting.Enqueue(new() { Operation = "busy" });
-        var after = await rejecting.Enqueue(new() { Operation = "send-text", Text = "x" });
+        var busy = await rejecting.Enqueue(HostRequests.SendText("busy", "x"));
+        var after = await rejecting.Enqueue(HostRequests.SendText("p", "x"));
         check(busy.Error == "Input busy: fixture" && busy.ErrorCode == HostErrorCode.InputBusy && after.Error is null, "A request the host rejected leaves later input deliverable and keeps its code");
         check(new HostRejectedException(HostErrorCode.InputBusy, "x") is SessionHostException and IOException && new HostTransportException(HostErrorCode.Disconnected, "x") is SessionHostException and IOException
             && new SessionHostVersionException() is SessionHostException { Code: HostErrorCode.ProtocolMismatch } and IOException,
             "Coded host exceptions stay IOExceptions so existing catch sites keep working");
         var broken = new OrderedHostInput(_ => Task.FromException<HostReply>(new IOException("pipe broke")));
-        var ambiguous = await broken.Enqueue(new() { Operation = "send-text", Text = "x" });
-        var closed = await broken.Enqueue(new() { Operation = "send-text", Text = "y" });
+        var ambiguous = await broken.Enqueue(HostRequests.SendText("p", "x"));
+        var closed = await broken.Enqueue(HostRequests.SendText("p", "y"));
         check(ambiguous.Error is not null && ambiguous.ErrorCode == HostErrorCode.Disconnected && closed.Error is not null && closed.ErrorCode == HostErrorCode.Disconnected,
             "A transport failure still closes input without replay; its synthetic replies carry codes");
         var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
