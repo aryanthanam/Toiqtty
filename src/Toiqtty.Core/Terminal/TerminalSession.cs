@@ -216,9 +216,9 @@ public sealed class TerminalSession : ITerminalSession, IAsyncDisposable
         if (System.Text.Encoding.UTF8.GetByteCount(text) > 65536) throw new ArgumentException("Literal input exceeds 64 KiB.");
         lock (_gate)
         {
-            if (_disposed || HasExited) throw new IOException("The terminal has exited; literal input was not sent.");
+            if (_disposed || HasExited) throw new Hosting.SessionExitedException("The terminal has exited; literal input was not sent.");
             _terminal.Scroll(0);
-            if (!_process.TryWrite(System.Text.Encoding.UTF8.GetBytes(text))) { InputBusy(); throw new IOException("Input busy: literal input was not queued."); }
+            if (!_process.TryWrite(System.Text.Encoding.UTF8.GetBytes(text))) { InputBusy(); throw new Hosting.InputBusyException("Input busy: literal input was not queued."); }
             Interlocked.Increment(ref _version);
         }
     }
@@ -226,7 +226,7 @@ public sealed class TerminalSession : ITerminalSession, IAsyncDisposable
     {
         lock (_gate)
         {
-            if (_disposed || HasExited) throw new IOException("The terminal has exited; paste was not sent.");
+            if (_disposed || HasExited) throw new Hosting.SessionExitedException("The terminal has exited; paste was not sent.");
             if (System.Text.Encoding.UTF8.GetByteCount(text) > TerminalClipboardLimits.MaxBytes) throw new ArgumentException("Paste exceeds its size limit.");
             PasteCore(() => _terminal.Paste(text, false), true);
         }
@@ -265,7 +265,7 @@ public sealed class TerminalSession : ITerminalSession, IAsyncDisposable
         // Bracketed-paste markers and content must enter the writer together.
         if (requireAdmission)
         {
-            if (_pasteOverflow || !_process.TryWrite(output.ToArray())) { InputBusy(); throw new IOException("Input busy: the complete paste was not queued."); }
+            if (_pasteOverflow || !_process.TryWrite(output.ToArray())) { InputBusy(); throw new Hosting.InputBusyException("Input busy: the complete paste was not queued."); }
         }
         else if (_pasteOverflow) InputBusy(); else WriteInput(output.ToArray());
         Interlocked.Increment(ref _version);

@@ -103,14 +103,18 @@ internal static class ArchitectureChecks
         check(!SessionLayout.SplitPane(model, full, full.Root.Leaves().Last().Id, true, "cmd.exe", out string limit) && limit.StartsWith("Pane limit"),
             "Splitting beyond the per-tab pane limit is rejected with a reason");
         var rejecting = new OrderedHostInput(request => request.Operation == "busy"
-            ? Task.FromException<HostReply>(new HostRejectedException("Input busy: fixture")) : Task.FromResult(new HostReply()));
+            ? Task.FromException<HostReply>(new HostRejectedException(HostErrorCode.InputBusy, "Input busy: fixture")) : Task.FromResult(new HostReply()));
         var busy = await rejecting.Enqueue(new() { Operation = "busy" });
         var after = await rejecting.Enqueue(new() { Operation = "send-text", Text = "x" });
-        check(busy.Error == "Input busy: fixture" && after.Error is null, "A request the host rejected leaves later input deliverable");
+        check(busy.Error == "Input busy: fixture" && busy.ErrorCode == HostErrorCode.InputBusy && after.Error is null, "A request the host rejected leaves later input deliverable and keeps its code");
+        check(new HostRejectedException(HostErrorCode.InputBusy, "x") is SessionHostException and IOException && new HostTransportException(HostErrorCode.Disconnected, "x") is SessionHostException and IOException
+            && new SessionHostVersionException() is SessionHostException { Code: HostErrorCode.ProtocolMismatch } and IOException,
+            "Coded host exceptions stay IOExceptions so existing catch sites keep working");
         var broken = new OrderedHostInput(_ => Task.FromException<HostReply>(new IOException("pipe broke")));
         var ambiguous = await broken.Enqueue(new() { Operation = "send-text", Text = "x" });
         var closed = await broken.Enqueue(new() { Operation = "send-text", Text = "y" });
-        check(ambiguous.Error is not null && closed.Error is not null && closed.Error.Contains("closed"), "A transport failure still closes input without replay");
+        check(ambiguous.Error is not null && ambiguous.ErrorCode == HostErrorCode.Disconnected && closed.Error is not null && closed.ErrorCode == HostErrorCode.Disconnected,
+            "A transport failure still closes input without replay; its synthetic replies carry codes");
         var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var writes = new List<(SavedSession Layout, bool Navigation)>();

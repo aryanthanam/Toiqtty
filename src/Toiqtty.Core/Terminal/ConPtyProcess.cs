@@ -145,7 +145,7 @@ public sealed class ConPtyProcess : IDisposable
     }
     public void Write(byte[] bytes)
     {
-        if (!TryWrite(bytes)) throw new IOException("Terminal input is busy; the input was not queued. Try again after the application resumes reading.");
+        if (!TryWrite(bytes)) throw new Hosting.InputBusyException("Terminal input is busy; the input was not queued. Try again after the application resumes reading.");
     }
     public bool TryWrite(byte[] bytes)
     {

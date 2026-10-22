@@ -7,7 +7,12 @@ public sealed partial class SessionHostServer
 {
     // Serializes layout commits, not input/capture or the registry lock.
     private readonly SemaphoreSlim _layoutWrites = new(1, 1);
-    private static Task WriteLayoutAsync(SavedSession snapshot) => Task.Run(() => SessionStore.Save(snapshot));
+    private static Task WriteLayoutAsync(SavedSession snapshot) => Task.Run(() =>
+    {
+        try { SessionStore.Save(snapshot); }
+        catch (Exception ex) when (ex is (IOException and not SessionHostException) or UnauthorizedAccessException)
+        { throw new SessionHostException(HostErrorCode.StorageFailed, ex.Message, ex); }
+    });
 
     private void RefreshDirectories(SavedSession layout)
     {
@@ -85,13 +90,18 @@ public sealed partial class SessionHostServer
             {
                 _sessions.TryGetValue(request.Pane, out entry);
                 if (entry is null && (_sessions.Count >= 256 || request.Text.Length is < 1 or > 32768 || request.Directory.Length > 32768))
-                    throw new ArgumentException("Shell creation exceeds the session limits.");
+                    throw new SessionHostException(HostErrorCode.LimitExceeded, "Shell creation exceeds the session limits.");
                 if (entry is null) _creating++;
             }
             if (entry is not null) return Reattach(entry, request);
             try
             {
-                entry = new(new TerminalSession(request.Text, request.Directory, request.Settings)) { CreatedEpoch = request.LayoutEpoch, CreatedRevision = request.LayoutRevision };
+                TerminalSession session;
+                try { session = new(request.Text, request.Directory, request.Settings); }
+                // Only the expected spawn failures; anything else stays Internal and is logged.
+                catch (Exception ex) when (ex is (IOException and not SessionHostException) or InvalidOperationException or UnauthorizedAccessException or System.ComponentModel.Win32Exception)
+                { throw new SessionHostException(HostErrorCode.ShellStartFailed, ex.Message, ex); }
+                entry = new(session) { CreatedEpoch = request.LayoutEpoch, CreatedRevision = request.LayoutRevision };
                 var observed = entry;
                 entry.Session.Attention += () => { Interlocked.Increment(ref observed.Attention); Volatile.Write(ref observed.PendingAttention, 1); };
                 entry.Session.OutputChanged += () => OutputChanged(observed);

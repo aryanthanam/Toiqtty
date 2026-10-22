@@ -102,6 +102,7 @@ public sealed class RemoteTerminalSession : ITerminalSession
     private TerminalStatusSnapshot? _captureStatus;
     private DateTimeOffset _notice;
     private string _failure = "";
+    private HostErrorCode _failureCode;
     public RemoteTerminalSession(SessionHostClient client, string pane, string command, string directory, AppSettings settings, SavedSession? layout = null)
     {
         _client = client; _pane = pane;
@@ -362,7 +363,7 @@ public sealed class RemoteTerminalSession : ITerminalSession
         }
         catch (OperationCanceledException) when (_stop.IsCancellationRequested) { }
         catch (Exception ex) when (ex is IOException or OperationCanceledException)
-        { CaptureFailure = ex.ToString(); if (!_state.HasExited) _failure = "Session host disconnected · reopen toiqtty to reconnect"; Interlocked.Increment(ref _version); }
+        { CaptureFailure = ex.ToString(); if (!_state.HasExited) { _failureCode = HostErrorCode.Disconnected; _failure = "Session host disconnected · reopen toiqtty to reconnect"; } Interlocked.Increment(ref _version); }
     }
     private HostReply Send(HostRequest request)
     {
@@ -371,14 +372,14 @@ public sealed class RemoteTerminalSession : ITerminalSession
         ObserveInputReply(reply); return reply;
     }
     private void ObserveInputReply(HostReply reply)
-    { if (reply.Error is { } error) { _failure = error; Interlocked.Increment(ref _version); FrameAvailable?.Invoke(); } }
+    { if (reply.Error is { } error) { _failureCode = reply.ErrorCode; _failure = error; Interlocked.Increment(ref _version); FrameAvailable?.Invoke(); } }
     private void QueueInput(HostRequest request)
     {
         if (Volatile.Read(ref _closed) != 0) return;
         MarkInteractive();
         var admitted = _input.Enqueue(request);
-        if (_failure.StartsWith("Input busy", StringComparison.Ordinal) && (!admitted.IsCompleted || admitted.Result.Error is null))
-        { _failure = ""; Interlocked.Increment(ref _version); FrameAvailable?.Invoke(); }
+        if (_failureCode == HostErrorCode.InputBusy && (!admitted.IsCompleted || admitted.Result.Error is null))
+        { _failureCode = HostErrorCode.None; _failure = ""; Interlocked.Increment(ref _version); FrameAvailable?.Invoke(); }
         _ = ObserveQueuedInput(admitted);
     }
     private async Task ObserveQueuedInput(Task<HostReply> request)
@@ -477,7 +478,7 @@ public sealed class RemoteTerminalSession : ITerminalSession
         {
             lock (_resizeGate) { _resizing = false; _pendingResize = null; }
             if (Volatile.Read(ref _closed) == 0)
-            { _failure = "Session host unavailable · resize was not retried"; Interlocked.Increment(ref _version); }
+            { _failureCode = HostErrorCode.Disconnected; _failure = "Session host unavailable · resize was not retried"; Interlocked.Increment(ref _version); }
         }
     }
     public void Key(uint key, uint modifiers, string text = "", TerminalKeyAction action = TerminalKeyAction.Press, uint? unshiftedCodepoint = null, uint consumedModifiers = 0)
@@ -499,7 +500,7 @@ public sealed class RemoteTerminalSession : ITerminalSession
     private async Task AdmitText(HostRequest request)
     {
         var reply = await _input.Enqueue(request).ConfigureAwait(false); ObserveInputReply(reply);
-        if (reply.Error is not null) throw new IOException(reply.Error);
+        if (reply.Error is not null) throw new SessionHostException(reply.ErrorCode, reply.Error);
     }
     public void PasteClipboard() => QueueInput(Request("clipboard"));
     public void Scroll(int delta) => QueueInput(Request("scroll", [delta]));

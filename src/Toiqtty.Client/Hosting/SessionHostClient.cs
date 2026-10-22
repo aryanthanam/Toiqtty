@@ -5,14 +5,16 @@ using Toiqtty.Models;
 
 namespace Toiqtty.Hosting;
 
-public sealed class SessionHostVersionException : IOException
-{
-    public SessionHostVersionException() : base("A different toiqtty session-host version is still running. In the installed version, choose ‘Quit toiqtty and stop all sessions’, then open this version again. Your running shells have been left intact.") { }
-}
+public sealed class SessionHostVersionException() : SessionHostException(HostErrorCode.ProtocolMismatch,
+    "A different toiqtty session-host version is still running. In the installed version, choose ‘Quit toiqtty and stop all sessions’, then open this version again. Your running shells have been left intact.");
 
 /// <summary>The host received and answered the request with an error. Unlike a
 /// transport failure this is unambiguous, so later requests remain deliverable.</summary>
-public sealed class HostRejectedException(string message) : IOException(message);
+public sealed class HostRejectedException(HostErrorCode code, string message) : SessionHostException(code, message);
+
+/// <summary>No usable reply: connect failure, EOF, broken pipe or a different host.
+/// Whether the request ran is unknown, so an input channel must not continue.</summary>
+public sealed class HostTransportException(HostErrorCode code, string message, Exception? inner = null) : SessionHostException(code, message, inner);
 
 public sealed partial class SessionHostClient
 {
@@ -318,7 +320,7 @@ public sealed partial class SessionHostClient
     public HostReply Call(HostRequest request, TimeSpan? timeout = null)
     {
         try { return CallAsync(request, timeout).GetAwaiter().GetResult(); }
-        catch (OperationCanceledException ex) { throw new IOException("Session host request timed out. Input was not retried.", ex); }
+        catch (OperationCanceledException ex) { throw new HostTransportException(HostErrorCode.Timeout, "Session host request timed out. Input was not retried.", ex); }
     }
     public Task<HostReply> CallAsync(HostRequest request, TimeSpan? timeout = null, CancellationToken cancellation = default)
         => CallCoreAsync(request, timeout, cancellation, null);
@@ -329,10 +331,16 @@ public sealed partial class SessionHostClient
     {
         request.Host = Identity;
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellation); deadline.CancelAfter(timeout ?? TimeSpan.FromSeconds(5));
-        if (captureLease is not null) return await captureLease.SendAsync(request, reuse, deadline.Token).ConfigureAwait(false);
-        if (readConnection is not null) return await readConnection.SendAsync(request, reuse, deadline.Token).ConfigureAwait(false);
-        using var pipe = CreatePipe(); await pipe.ConnectAsync(deadline.Token).ConfigureAwait(false); PipeServerTrust.Verify(pipe.SafePipeHandle);
-        return await ExchangeAsync(pipe, request, reuse, deadline.Token).ConfigureAwait(false);
+        try
+        {
+            if (captureLease is not null) return await captureLease.SendAsync(request, reuse, deadline.Token).ConfigureAwait(false);
+            if (readConnection is not null) return await readConnection.SendAsync(request, reuse, deadline.Token).ConfigureAwait(false);
+            using var pipe = CreatePipe(); await pipe.ConnectAsync(deadline.Token).ConfigureAwait(false); PipeServerTrust.Verify(pipe.SafePipeHandle);
+            return await ExchangeAsync(pipe, request, reuse, deadline.Token).ConfigureAwait(false);
+        }
+        // Classified once here, after the read channel's stale-pipe retry has seen
+        // the raw exception. Cancellation stays an OperationCanceledException.
+        catch (IOException ex) when (ex is not SessionHostException) { throw new HostTransportException(HostErrorCode.Disconnected, ex.Message, ex); }
     }
     private NamedPipeClientStream CreatePipe() => new(".", _pipeName, PipeDirection.InOut, PipeOptions.Asynchronous | PipeOptions.CurrentUserOnly);
     private async Task<HostReply> ExchangeAsync(NamedPipeClientStream pipe, HostRequest request, byte[]? reuse, CancellationToken cancellation)
@@ -340,8 +348,8 @@ public sealed partial class SessionHostClient
         await HostProtocol.WriteJson(pipe, request, cancellation).ConfigureAwait(false);
         var reply = await HostProtocol.ReadJson<HostReply>(pipe, cancellation).ConfigureAwait(false);
         if (reply.Protocol != HostProtocol.Version) throw new SessionHostVersionException();
-        if (Identity.Length > 0 && reply.Host != Identity) throw new IOException("The session host changed; input was not replayed.");
-        if (reply.Error is not null) throw new HostRejectedException(reply.Error);
+        if (Identity.Length > 0 && reply.Host != Identity) throw new HostTransportException(HostErrorCode.HostChanged, "The session host changed; input was not replayed.");
+        if (reply.Error is not null) throw new HostRejectedException(HostProtocol.ErrorCodeOf(reply), reply.Error);
         if (reply.BinaryLength is < 0 or > HostProtocol.MaxSnapshotBytes) throw new IOException("Invalid snapshot length.");
         if (reply.BinaryLength > 0)
         {

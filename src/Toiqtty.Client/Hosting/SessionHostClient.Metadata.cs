@@ -71,11 +71,11 @@ public sealed partial class SessionHostClient
             foreach(var request in pending[pane])
             {
                 if(request.Cancellation.IsCancellationRequested) request.Completion.TrySetCanceled(request.Cancellation);
-                else if(reply.Panes.Contains(pane)) request.Completion.TrySetException(new IOException("This shell session no longer exists."));
+                else if(reply.Panes.Contains(pane)) request.Completion.TrySetException(new HostRejectedException(HostErrorCode.SessionMissing,"This shell session no longer exists."));
                 else request.Completion.TrySetResult(reply.States.GetValueOrDefault(pane));
             }
         }
-        catch(IOException ex) when(ex.Message==HostProtocol.MetadataBatchTooLarge && versions.Count>1)
+        catch(HostRejectedException ex) when(ex.Code==HostErrorCode.ReplyTooLarge && versions.Count>1)
         {
             MetadataOverflowForCheck?.Invoke();
             // Reads are safe to subdivide. A byte-limit failure never replays

@@ -150,6 +150,8 @@ internal static class HostV2Wire
             new() { Host = Identity, ProcessId = 1, Numbers = [1] },
             new() { Host = Identity, ProcessId = 1, Text = "copied" },
             new() { Host = Identity, ProcessId = 1, Error = "Incompatible session-host protocol." },
+            new() { Host = Identity, ProcessId = 1, Error = "This shell session no longer exists.", ErrorCode = HostErrorCode.SessionMissing },
+            HostProtocol.OversizedReply("states", Identity, 1),
         ];
     }
     // A v2 host's mismatch and identity replies, as the current client must read them.
@@ -199,6 +201,23 @@ internal static class HostV2Wire
         check(replies, "current reply bytes parse as protocol 2 with the envelope, error, binary length and state intact");
         var mismatch = JsonSerializer.Deserialize(V2MismatchReply, reply)!;
         check(mismatch.Protocol == 2 && mismatch.Error is not null && mismatch.Host == Identity, "a protocol-2 host's error reply stays readable by the current client");
+        // ErrorCode is additive: a string, omitted when None, unknown or malformed values read
+        // as None, and a host that predates codes still classifies through its fixed messages.
+        var coded = new HostReply { Host = Identity, Error = "busy", ErrorCode = HostErrorCode.InputBusy };
+        string codedJson = Encoding.UTF8.GetString(JsonSerializer.SerializeToUtf8Bytes(coded, reply));
+        bool omitted = !Encoding.UTF8.GetString(JsonSerializer.SerializeToUtf8Bytes(new HostReply(), reply)).Contains("ErrorCode");
+        var future = JsonSerializer.Deserialize("""{"Protocol":2,"Error":"x","ErrorCode":"FutureCode"}""", reply)!;
+        var numeric = JsonSerializer.Deserialize("""{"Protocol":2,"Error":"x","ErrorCode":7,"Text":"kept"}""", reply)!;
+        var nested = JsonSerializer.Deserialize("""{"Protocol":2,"Error":"x","ErrorCode":{"a":[1]},"Text":"kept"}""", reply)!;
+        check(codedJson.Contains("\"ErrorCode\":\"InputBusy\"") && omitted && JsonSerializer.Deserialize(codedJson, reply)!.ErrorCode == HostErrorCode.InputBusy
+            && JsonSerializer.Deserialize(codedJson, v2Reply)!.Error == "busy" && future.ErrorCode == HostErrorCode.None && numeric.ErrorCode == HostErrorCode.None
+            && numeric.Text == "kept" && nested.ErrorCode == HostErrorCode.None && nested.Text == "kept",
+            "ErrorCode is a string a protocol-2 reply parser ignores, omitted when None, and unknown values read as None");
+        check(HostProtocol.ErrorCodeOf(mismatch) == HostErrorCode.ProtocolMismatch && HostProtocol.ErrorCodeOf(new() { Error = HostProtocol.MetadataBatchTooLarge }) == HostErrorCode.ReplyTooLarge
+            && HostProtocol.ErrorCodeOf(new() { Error = "This shell session no longer exists." }) == HostErrorCode.SessionMissing
+            && HostProtocol.ErrorCodeOf(new() { Error = "Input busy: the complete paste was not queued." }) == HostErrorCode.InputBusy
+            && HostProtocol.ErrorCodeOf(new() { Error = "x", ErrorCode = HostErrorCode.StorageFailed }) == HostErrorCode.StorageFailed && HostProtocol.ErrorCodeOf(new()) == HostErrorCode.None,
+            "replies from hosts without codes classify through their fixed protocol-2 messages");
         check(Compatible(v2Request, request) && Compatible(v2Reply, reply) && Compatible(HostV2WireContext.Default.GetTypeInfo(typeof(V2ShellState))!, HostJsonContext.Default.GetTypeInfo(typeof(ShellState))!),
             "no current envelope property reuses a protocol-2 name with a different JSON type");
     }
@@ -241,10 +260,13 @@ internal static class HostV2Wire
                 // Only a v2 ping from the right protocol is served; everything else is
                 // refused by the protocol or identity check before any dispatch.
                 bool served = label == "ping" && HostProtocol.Version == 2;
-                if (parsed.Protocol != HostProtocol.Version || (parsed.Error is null) != served) { answered = false; Console.Error.WriteLine($"v2 {label}: protocol {parsed.Protocol}, error {parsed.Error}"); }
+                var code = JsonSerializer.Deserialize(body, HostJsonContext.Default.HostReply)!.ErrorCode;
+                if (parsed.Protocol != HostProtocol.Version || (parsed.Error is null) != served || served != (code == HostErrorCode.None)
+                    || !served && code is not (HostErrorCode.HostChanged or HostErrorCode.ProtocolMismatch))
+                { answered = false; Console.Error.WriteLine($"v2 {label}: protocol {parsed.Protocol}, error {parsed.Error}, code {code}"); }
             }
             catch (Exception ex) when (ex is IOException or OperationCanceledException or JsonException) { answered = false; Console.Error.WriteLine($"v2 {label}: {ex.Message}"); }
         }
-        check(answered, "a live host answers raw protocol-2 bytes for every operation with a framed reply a v2 client parses");
+        check(answered, "a live host answers raw protocol-2 bytes for every operation with a framed reply a v2 client parses, refusals coded");
     }
 }

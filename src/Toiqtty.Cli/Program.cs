@@ -89,4 +89,4 @@ try
     return 0;
 }
 catch (Exception ex) when (ex is ArgumentException or IOException or OperationCanceledException or UnauthorizedAccessException or System.ComponentModel.Win32Exception)
-{ Console.Error.WriteLine("toiq: " + ex.Message); return 1; }
+{ Console.Error.WriteLine("toiq: " + (ex is SessionHostException { Code: not HostErrorCode.None } host ? "[" + host.Code + "] " : "") + ex.Message); return 1; }

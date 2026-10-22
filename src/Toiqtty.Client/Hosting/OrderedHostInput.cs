@@ -23,11 +23,11 @@ internal sealed class OrderedHostInput(Func<HostRequest,Task<HostReply>> send)
         if(request.Items is not null) foreach(var item in request.Items) cost+=Encoding.UTF8.GetByteCount(item.Key)+item.Value.LongLength;
         if(request.Settings is not null) cost+=System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(request.Settings).LongLength;
         if(request.Layout is not null) cost+=System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(request.Layout).LongLength;
-        if(cost>MaxBytes) return Task.FromResult(new HostReply { Error="Input busy · the complete request exceeds the queue limit." });
+        if(cost>MaxBytes) return Task.FromResult(new HostReply { Error="Input busy · the complete request exceeds the queue limit.",ErrorCode=HostErrorCode.InputBusy });
         int bytes=(int)cost;
         lock(_gate)
         {
-            if(_completed || _failed) return Task.FromResult(new HostReply { Error="Input delivery is closed; input was not retried." });
+            if(_completed || _failed) return Task.FromResult(new HostReply { Error="Input delivery is closed; input was not retried.",ErrorCode=HostErrorCode.Disconnected });
             bool key=request.Operation is "key" or "copy-key" && request.Numbers.Length>=3 && request.Numbers[0]!=0;
             long code=key?request.Numbers[0]:0;
             bool release=key && request.Numbers[2]==0;
@@ -36,7 +36,7 @@ internal sealed class OrderedHostInput(Func<HostRequest,Task<HostReply>> send)
             // Each admitted held key reserves a release, plus one final focus
             // loss. A paste is admitted as one complete request or rejected.
             if(_count+1+held+focusReserve>MaxRequests || _bytes+(long)bytes+(held+focusReserve)*256L>MaxBytes)
-                return Task.FromResult(new HostReply { Error="Input busy · input was not queued. Retry when the host resumes." });
+                return Task.FromResult(new HostReply { Error="Input busy · input was not queued. Retry when the host resumes.",ErrorCode=HostErrorCode.InputBusy });
             if(key) { if(release) _pressed.Remove(code); else _pressed.Add(code); }
             var completion=new TaskCompletionSource<HostReply>(TaskCreationOptions.RunContinuationsAsynchronously);
             _queue.Enqueue(new(request,bytes,completion)); _count++; _bytes+=bytes;
@@ -62,15 +62,15 @@ internal sealed class OrderedHostInput(Func<HostRequest,Task<HostReply>> send)
             HostReply reply;
             try { reply=await send(entry.Request).ConfigureAwait(false); }
             // The host answered: this request was rejected, the transport is intact.
-            catch(HostRejectedException ex) { reply=new() { Error=ex.Message }; }
+            catch(HostRejectedException ex) { reply=new() { Error=ex.Message,ErrorCode=ex.Code }; }
             catch(Exception ex) when(ex is IOException or OperationCanceledException or ObjectDisposedException)
             {
-                reply=new() { Error="Host delivery failed; input may have been sent and was not retried. "+ex.Message };
+                reply=new() { Error="Host delivery failed; input may have been sent and was not retried. "+ex.Message,ErrorCode=ex is SessionHostException { Code: not HostErrorCode.None } coded ? coded.Code : ex is OperationCanceledException ? HostErrorCode.Timeout : HostErrorCode.Disconnected };
                 lock(_gate)
                 {
                     _failed=true;
                     while(_queue.TryDequeue(out var abandoned))
-                    { _count--; _bytes-=abandoned.Bytes; abandoned.Completion.TrySetResult(new() { Error="Host delivery failed; pending input was not sent." }); }
+                    { _count--; _bytes-=abandoned.Bytes; abandoned.Completion.TrySetResult(new() { Error="Host delivery failed; pending input was not sent.",ErrorCode=HostErrorCode.Disconnected }); }
                 }
             }
             lock(_gate) { _count--; _bytes-=entry.Bytes; }

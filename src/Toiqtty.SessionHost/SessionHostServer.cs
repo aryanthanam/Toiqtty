@@ -152,9 +152,9 @@ public sealed partial class SessionHostServer(string folder) : IAsyncDisposable
                     HostReply reply;
                     try
                     {
-                        if (request.Protocol != HostProtocol.Version) throw new IOException("Incompatible session-host protocol. Stop existing sessions before upgrading the host.");
+                        if (request.Protocol != HostProtocol.Version) throw new SessionHostException(HostErrorCode.ProtocolMismatch, "Incompatible session-host protocol. Stop existing sessions before upgrading the host.");
                         if (request.Numbers is null || request.Images is null || request.Pane is null || request.Text is null || request.Directory is null) throw new ArgumentException("Invalid session request.");
-                        if (request.Operation != "ping" && request.Host != _identity) throw new IOException("The session host changed. Reconnect explicitly; input was not sent.");
+                        if (request.Operation != "ping" && request.Host != _identity) throw new SessionHostException(HostErrorCode.HostChanged, "The session host changed. Reconnect explicitly; input was not sent.");
                         if (request.Operation == "shutdown")
                         {
                             lock (_gate) { _shutdownPending = true; Interlocked.Increment(ref _shutdownReplies); }
@@ -174,9 +174,9 @@ public sealed partial class SessionHostServer(string folder) : IAsyncDisposable
                     catch (Exception ex) when (ex is not OperationCanceledException { CancellationToken.IsCancellationRequested: true })
                     {
                         if (ex is not (IOException or ArgumentException or InvalidOperationException or UnauthorizedAccessException or System.ComponentModel.Win32Exception)) LogFault(ex);
-                        reply = new() { Error = ex.Message };
+                        reply = new() { Error = ex.Message, ErrorCode = ErrorCodeFor(ex) };
                     }
-                    if (reply.Binary.Length > HostProtocol.MaxSnapshotBytes) reply = new() { Error = HostProtocol.ReplyTooLarge };
+                    if (reply.Binary.Length > HostProtocol.MaxSnapshotBytes) reply = new() { Error = HostProtocol.ReplyTooLarge, ErrorCode = HostErrorCode.ReplyTooLarge };
                     reply.Host = _identity; reply.ProcessId = Environment.ProcessId; reply.BinaryLength = reply.Binary.Length;
                     bool reusable = request.ReuseReadConnection && (request.Operation is "capture" or "watch" or "states") && reply.Error is null;
                     if (reusable && !persistentRead) persistentRead = _persistentReads.Wait(0);
@@ -205,6 +205,17 @@ public sealed partial class SessionHostServer(string folder) : IAsyncDisposable
             }
         }
     }
+    // Typed faults carry their own code; the rest map by exception kind. Only error replies pay for this.
+    private static HostErrorCode ErrorCodeFor(Exception ex) => ex switch
+    {
+        SessionHostException coded => coded.Code,
+        HostMessageTooLargeException => HostErrorCode.ReplyTooLarge,
+        ArgumentException => HostErrorCode.InvalidRequest,
+        TimeoutException or OperationCanceledException => HostErrorCode.Timeout,
+        System.ComponentModel.Win32Exception => HostErrorCode.ConsoleFailed,
+        InvalidOperationException => HostErrorCode.TerminalFailed,
+        _ => HostErrorCode.Internal
+    };
     private static async Task ObserveWatchDisconnect(NamedPipeServerStream pipe, CancellationTokenSource watchStop)
     {
         try { await pipe.ReadAsync(new byte[1], watchStop.Token).ConfigureAwait(false); watchStop.Cancel(); }
@@ -301,7 +312,7 @@ public sealed partial class SessionHostServer(string folder) : IAsyncDisposable
             try { Remove(r.Pane); return new(); }
             finally { _layoutWrites.Release(); }
         }
-        Entry e; lock (_gate) e = _sessions.GetValueOrDefault(r.Pane) ?? throw new IOException("This shell session no longer exists.");
+        Entry e; lock (_gate) e = _sessions.GetValueOrDefault(r.Pane) ?? throw new PaneNotFoundException();
         var s = e.Session;
         long N(int index, long fallback = 0) => r.Numbers.Length > index ? r.Numbers[index] : fallback;
         switch (r.Operation)
@@ -310,7 +321,7 @@ public sealed partial class SessionHostServer(string folder) : IAsyncDisposable
             case "capture":
                 lock (e.CaptureGate)
                 {
-                    if (e.Closed) throw new IOException("This shell session has closed.");
+                    if (e.Closed) throw new SessionExitedException("This shell session has closed.");
                     if (r.KnownStatusRevision is < -1) throw new ArgumentException("Invalid terminal status revision.");
                     int version = s.Version;
                     if (N(0, -1) == version && N(1, -1) == e.FrameRevision && Environment.TickCount64 < e.AnimationDue) return CaptureStatus(r, new() { State = State(e) });
@@ -335,7 +346,7 @@ public sealed partial class SessionHostServer(string folder) : IAsyncDisposable
                 if (N(0) is < 2 or > 1000 || N(1) is < 1 or > 500 || N(2) is < 1 or > 1024 || N(3) is < 1 or > 1024) throw new ArgumentException("Invalid terminal size.");
                 lock (e.CaptureGate)
                 {
-                    if (e.Closed) throw new IOException("This shell session has closed.");
+                    if (e.Closed) throw new SessionExitedException("This shell session has closed.");
                     ushort columns = (ushort)N(0), rows = (ushort)N(1);
                     var replacement = e.Cells.Length == columns * rows ? e.Cells : new Utf8TerminalBuffer(columns * rows);
                     s.Resize(columns, rows, (uint)N(2), (uint)N(3)); s.Select(-1, -1);
@@ -359,7 +370,7 @@ public sealed partial class SessionHostServer(string folder) : IAsyncDisposable
             case "find": var found = s.Find(r.Text, (int)N(0)); return new() { Numbers = [found.Count, found.Index] };
             case "mouse": return new() { Numbers = [s.Mouse((int)N(0), (int)N(1), (uint)N(2), N(3) / 1000f, N(4) / 1000f) ? 1 : 0] };
             case "settings": s.ApplySettings(r.Settings ?? throw new ArgumentException("Settings are required.")); break;
-            default: throw new ArgumentException("Unknown session operation.");
+            default: throw new SessionHostException(HostErrorCode.UnknownOperation, "Unknown session operation.");
         }
         return new() { State = State(e) };
     }
