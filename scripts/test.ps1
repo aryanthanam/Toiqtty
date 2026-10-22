@@ -70,6 +70,8 @@ if ($Ui -or $Published) {
         if ($LASTEXITCODE -ne 0) { throw 'Persistent pane resize checks failed.' }
         & "$smokeFolder/Toiqtty.Smoke.exe" --input-ui "$appFolder/toiqtty.exe"
         if ($LASTEXITCODE -ne 0) { throw 'Persistent input and frame notification checks failed.' }
+        & "$smokeFolder/Toiqtty.Smoke.exe" --pane-reuse-ui "$appFolder/toiqtty.exe"
+        if ($LASTEXITCODE -ne 0) { throw 'Retained pane and tab layout checks failed.' }
     }
     if ($Browser) {
         & "$PSScriptRoot/test-browser.ps1" -AppDirectory $appFolder -TestDirectory $smokeFolder -SkipBuild

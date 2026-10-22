@@ -206,7 +206,7 @@ public sealed partial class MainWindow
     {
         if (!session.Tabs.Contains(tab)) return;
         bool selected=_selected==session && session.ActiveTab==tab;
-        if (selected) DetachViews();
+        if (selected) SuspendActiveLayout();
         ForgetTerminalViews(tab.Root.Leaves());
         _sessionLifetimes.ClosePanes(tab.Root.Leaves());
         int index=session.Tabs.IndexOf(tab); session.Tabs.Remove(tab);

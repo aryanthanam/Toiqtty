@@ -9,10 +9,14 @@ public sealed partial class MainWindow
 {
     private sealed record RetainedTabLayout(string Signature, FrameworkElement Root,
         TerminalView[] Terminals, BrowserView[] Browsers,
-        Dictionary<string,(Grid Host, Grid HitArea, Border Preview, ContentControl Handle)> DragSurfaces);
+        Dictionary<string,(Grid Host, Grid HitArea, Border Preview, ContentControl Handle)> DragSurfaces)
+    {
+        public long LastShown { get; set; }
+    }
     private readonly Dictionary<string,RetainedTabLayout> _tabLayouts=[];
     private RetainedTabLayout? _activeLayout;
     private int _tabLayoutsCreated;
+    private long _tabLayoutShowSequence;
     private void RecordSplitLayout(Workspace workspace)
     {
         if(_activeLayout is not { } active || !_tabLayouts.TryGetValue(workspace.ActiveTab.Id,out var cached) || !ReferenceEquals(active,cached)) return;
@@ -67,7 +71,8 @@ public sealed partial class MainWindow
                 ForgetTabLayout(pair.Key);
         }
         // Browser-only roots also need a bound, independent of terminal GPU budgets.
-        foreach(var id in _tabLayouts.Where(p=>!ReferenceEquals(p.Value,_activeLayout)).Select(p=>p.Key)
+        // Evict the least recently shown roots, not the oldest created.
+        foreach(var id in _tabLayouts.Where(p=>!ReferenceEquals(p.Value,_activeLayout)).OrderBy(p=>p.Value.LastShown).Select(p=>p.Key)
             .Take(Math.Max(0,_tabLayouts.Count-1-MaxHiddenTerminalViews)).ToArray()) ForgetTabLayout(id);
     }
 
@@ -102,7 +107,7 @@ public sealed partial class MainWindow
             }
             foreach(var pair in layout.DragSurfaces) _paneDragSurfaces.Add(pair.Key,pair.Value);
         }
-        _activeLayout=layout;
+        _activeLayout=layout; layout.LastShown=++_tabLayoutShowSequence;
         TraceTabLayout("show",id,signature);
     }
 }

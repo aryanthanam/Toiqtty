@@ -72,6 +72,12 @@ public sealed partial class MainWindow
             await wait(()=>_views.Count==previous+1 && _focused?.InputHasFocus==true && _views.All(v=>v.IsLoaded && !v.ResizePendingForCheck));
         }
         check(_views.Count==4 && _views.Contains(firstView) && _views.Contains(secondView),"Repeated nested splits keep all four retained panes loaded and focusable");
+        var otherLayout=_tabLayouts[other.ActiveTab.Id].Root;
+        var closing=_views.First(v=>!ReferenceEquals(v,firstView) && !ReferenceEquals(v,secondView));
+        ClosePane(closing.PaneId);
+        await wait(()=>_views.Count==3 && _views.All(v=>v.IsLoaded && !v.ResizePendingForCheck));
+        check(_tabLayouts.TryGetValue(other.ActiveTab.Id,out var keptLayout) && ReferenceEquals(keptLayout.Root,otherLayout),
+            "Closing a pane keeps the retained layout roots of unaffected tabs");
         File.WriteAllText(Path.Combine(SessionStore.Folder,"pane-reuse-opacities.json"),JsonSerializer.Serialize(
             _views.Select(view=>new { view.PaneId,view.IsActive,opacity=view.ContentOpacityForCheck }),new JsonSerializerOptions { WriteIndented=true }));
         check(_views.All(view=>Math.Abs(view.ContentOpacityForCheck-(view.IsActive?1:.65))<.000001),

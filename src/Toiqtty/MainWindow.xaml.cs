@@ -395,8 +395,9 @@ public sealed partial class MainWindow : Window
     private void ClosePane(string id)
     {
         if (_selected is null) return;
-        // Detach views before disposing sessions they may still draw on this frame.
-        DetachViews();
+        // Suspend views before disposing sessions they may still draw on this frame.
+        // Only layouts containing the closed pane are forgotten; other tabs keep theirs.
+        SuspendActiveLayout();
         ForgetTerminalViews(_selected.Root.Leaves().Where(p=>p.Id==id));
         _sessionLifetimes.ClosePanes(_selected.Root.Leaves().Where(p=>p.Id==id));
         var root = PaneNode.Remove(_selected.Root, id);
@@ -405,7 +406,7 @@ public sealed partial class MainWindow : Window
     }
     private void RemoveWorkspace(Workspace workspace)
     {
-        if (_selected == workspace) DetachViews();
+        if (_selected == workspace) SuspendActiveLayout();
         ForgetTerminalViews(workspace.AllPanes());
         _sessionLifetimes.ClosePanes(workspace.AllPanes());
         var index = _saved.Workspaces.IndexOf(workspace); _saved.Workspaces.Remove(workspace);
