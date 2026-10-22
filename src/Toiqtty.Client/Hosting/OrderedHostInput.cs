@@ -32,12 +32,13 @@ internal sealed class OrderedHostInput
     internal int PendingBytes { get { lock(_gate) return _bytes; } }
     private static TaskCompletionSource Ready() { var result=new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously); result.SetResult(); return result; }
     internal Task Drain { get { lock(_gate) return _drained.Task; } }
-    internal Task<HostReply> Enqueue(HostRequest request)
+    /// <summary>payloadBytes is the serialized size of an object payload (Settings) that the
+    /// caller already measured; nothing is serialized here, on the caller's thread.</summary>
+    internal Task<HostReply> Enqueue(HostRequest request,long payloadBytes=0)
     {
-        long cost=128L+Encoding.UTF8.GetByteCount(request.Text);
+        System.Diagnostics.Debug.Assert(request.Layout is null && (request.Settings is null || payloadBytes>0),"Queued object payloads arrive with their measured size.");
+        long cost=128L+Encoding.UTF8.GetByteCount(request.Text)+payloadBytes;
         if((request.DropQuery?.Items ?? request.DropCommit?.Items) is { } items) foreach(var item in items) cost+=Encoding.UTF8.GetByteCount(item.Key)+item.Value.LongLength;
-        if(request.Settings is not null) cost+=System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(request.Settings,HostJsonContext.Default.AppSettings).LongLength;
-        if(request.Layout is not null) cost+=System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(request.Layout,HostJsonContext.Default.SavedSession).LongLength;
         if(cost>MaxBytes) return Task.FromResult(new HostReply { Error="Input busy · the complete request exceeds the queue limit.",ErrorCode=HostErrorCode.InputBusy });
         int bytes=(int)cost;
         lock(_gate)

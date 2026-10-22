@@ -25,7 +25,7 @@ internal static class IdleMetadataBenchmark
             Healthy();
             self.Refresh();host.Refresh();
             double uiCpu=self.TotalProcessorTime.TotalMilliseconds,hostCpu=host.TotalProcessorTime.TotalMilliseconds;
-            long allocated=GC.GetTotalAllocatedBytes(true),batches=client.MetadataBatchesForCheck,panes=client.MetadataPanesForCheck;
+            long allocated=GC.GetTotalAllocatedBytes(true),batches=client.MetadataBatchesForCheck,panes=client.MetadataPanesForCheck,opens=client.ReadConnectionsOpenedForCheck;
             var timer=Stopwatch.StartNew();var samples=new List<object>();
             while(timer.Elapsed.TotalSeconds<seconds)
             {
@@ -40,9 +40,11 @@ internal static class IdleMetadataBenchmark
             measurement=new {seconds=elapsed,clientCpuCores=(self.TotalProcessorTime.TotalMilliseconds-uiCpu)/elapsed/1000,
                 hostCpuCores=(host.TotalProcessorTime.TotalMilliseconds-hostCpu)/elapsed/1000,
                 allocatedMiBPerSecond=(GC.GetTotalAllocatedBytes(true)-allocated)/elapsed/1048576,
-                metadataBatches=client.MetadataBatchesForCheck-batches,metadataPanes=client.MetadataPanesForCheck-panes,samples};
+                metadataBatches=client.MetadataBatchesForCheck-batches,metadataPanes=client.MetadataPanesForCheck-panes,
+                readConnectionsOpened=client.ReadConnectionsOpenedForCheck-opens,samples};
             check(sessions.All(s=>s.CapturesForCheck==0),"Sixty-four hidden shells remain healthy without visible frame captures during idle measurement");
             check(client.MetadataBatchesForCheck>batches,"Idle measurement uses batched hidden-pane metadata");
+            check(client.ReadConnectionsOpenedForCheck-opens<=2,"Sustained hidden-pane metadata reuses its read channel instead of opening a pipe per batch");
             var active=sessions[0];var cells=new TerminalCell[3000];var wake=Stopwatch.StartNew();
             active.AttachView();active.Paste("mark");active.Key(13,0);
             await Wait(()=>active.TryReadSnapshot(cells,out _) && string.Concat(cells.Select(c=>c.GetText())).Contains("PERSIST_MARK=1"));

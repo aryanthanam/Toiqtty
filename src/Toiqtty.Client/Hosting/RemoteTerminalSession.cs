@@ -418,11 +418,11 @@ public sealed class RemoteTerminalSession : ITerminalSession
     }
     private void ObserveInputReply(HostReply reply)
     { if (reply.Error is { } error) { _failureCode = reply.ErrorCode; _failure = error; Interlocked.Increment(ref _version); FrameAvailable?.Invoke(); } }
-    private void QueueInput(HostRequest request)
+    private void QueueInput(HostRequest request, long payloadBytes = 0)
     {
         if (Volatile.Read(ref _closed) != 0) return;
         MarkInteractive();
-        var admitted = _input.Enqueue(request);
+        var admitted = _input.Enqueue(request, payloadBytes);
         if (_failureCode == HostErrorCode.InputBusy && (!admitted.IsCompleted || admitted.Result.Error is null))
         { _failureCode = HostErrorCode.None; _failure = ""; Interlocked.Increment(ref _version); FrameAvailable?.Invoke(); }
         _ = ObserveQueuedInput(admitted);
@@ -485,8 +485,12 @@ public sealed class RemoteTerminalSession : ITerminalSession
         }
         finally { Monitor.Exit(_gate); }
     }
+    // One source-generated serialization gives both the detached copy and its queue cost.
     public void ApplySettings(AppSettings settings)
-    { QueueInput(HostRequests.Settings(_pane, System.Text.Json.JsonSerializer.Deserialize<AppSettings>(System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(settings))!)); }
+    {
+        var bytes = System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(settings, HostJsonContext.Default.AppSettings);
+        QueueInput(HostRequests.Settings(_pane, System.Text.Json.JsonSerializer.Deserialize(bytes, HostJsonContext.Default.AppSettings)!), bytes.Length);
+    }
     public void QueueResize(ushort columns, ushort rows, uint width, uint height)
     {
         lock (_resizeGate)

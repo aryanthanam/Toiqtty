@@ -79,10 +79,12 @@ internal static class MetadataBatchChecks
             string missing=Guid.NewGuid().ToString("N"); versions.Add(missing,-1);
             var absent=await client.CallAsync(HostRequests.States(versions)); versions.Remove(missing);
             Pass(absent.Panes.SequenceEqual([missing]),"Batched metadata distinguishes a missing pane from an unchanged pane");
-            long batches=client.MetadataBatchesForCheck,panes=client.MetadataPanesForCheck;
+            long batches=client.MetadataBatchesForCheck,panes=client.MetadataPanesForCheck,opens=client.ReadConnectionsOpenedForCheck,reuses=client.ReadConnectionsReusedForCheck;
             await Task.Delay(1300);
             long batchCount=client.MetadataBatchesForCheck-batches,paneCount=client.MetadataPanesForCheck-panes;
             Pass(batchCount is >=2 and <=5 && paneCount>=32,"Sixteen hidden panes share a bounded number of metadata requests instead of one request per pane");
+            Pass(client.ReadConnectionsOpenedForCheck-opens<=1 && client.ReadConnectionsReusedForCheck-reuses>=batchCount-1,
+                "Consecutive metadata batches reuse one read channel instead of opening a pipe per batch");
 
             // Leave the next metadata batch far in the future. Activating a
             // pane must cancel its queued state read rather than waiting for it.

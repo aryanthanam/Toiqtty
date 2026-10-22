@@ -27,6 +27,9 @@ public sealed partial class SessionHostClient
 
     private async Task ReadPendingMetadata()
     {
+        // This worker is single-flight and sends its batches one at a time, so it owns
+        // one reusable read channel for its run instead of opening a pipe per batch.
+        using var reads=new HostReadConnection(this);
         while(true)
         {
             await Task.Delay(MetadataIntervalForCheck).ConfigureAwait(false);
@@ -46,7 +49,7 @@ public sealed partial class SessionHostClient
             }
             if(versions.Count==0) continue;
             if(versions.Count<=HostProtocol.MaxMetadataPanes)
-                await ReadMetadataBatch(versions,pending).ConfigureAwait(false);
+                await ReadMetadataBatch(versions,pending,reads).ConfigureAwait(false);
             else
             {
                 // Closing panes can leave queued reads while replacements are
@@ -54,18 +57,18 @@ public sealed partial class SessionHostClient
                 foreach(var chunk in versions.Chunk(HostProtocol.MaxMetadataPanes))
                 {
                     var batch=chunk.ToDictionary(pair=>pair.Key,pair=>pair.Value);
-                    await ReadMetadataBatch(batch,pending).ConfigureAwait(false);
+                    await ReadMetadataBatch(batch,pending,reads).ConfigureAwait(false);
                 }
             }
         }
     }
 
-    private async Task ReadMetadataBatch(Dictionary<string,int> versions,Dictionary<string,List<MetadataRequest>> pending)
+    private async Task ReadMetadataBatch(Dictionary<string,int> versions,Dictionary<string,List<MetadataRequest>> pending,HostReadConnection reads)
     {
         try
         {
             Interlocked.Increment(ref MetadataBatchesForCheck); Interlocked.Add(ref MetadataPanesForCheck,versions.Count);
-            var reply=await CallAsync(HostRequests.States(versions)).ConfigureAwait(false);
+            var reply=await CallCoreAsync(HostRequests.States(versions),null,default,null,readConnection: DisableReusableReadsForCheck?null:reads).ConfigureAwait(false);
             if(reply.States is null) throw new IOException("The host omitted its batched metadata response.");
             foreach(var pane in versions.Keys)
             foreach(var request in pending[pane])
@@ -85,7 +88,7 @@ public sealed partial class SessionHostClient
                 if(request.Cancellation.IsCancellationRequested) request.Completion.TrySetCanceled(request.Cancellation);
             var active=versions.Where(pair=>pending[pair.Key].Any(request=>!request.Cancellation.IsCancellationRequested));
             foreach(var chunk in active.Chunk((versions.Count+1)/2))
-                await ReadMetadataBatch(chunk.ToDictionary(pair=>pair.Key,pair=>pair.Value),pending).ConfigureAwait(false);
+                await ReadMetadataBatch(chunk.ToDictionary(pair=>pair.Key,pair=>pair.Value),pending,reads).ConfigureAwait(false);
         }
         catch(Exception ex)
         {
