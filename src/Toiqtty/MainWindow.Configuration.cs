@@ -29,7 +29,7 @@ public sealed partial class MainWindow
         ConfigurationSettings.Apply(_userSettings, _saved.Settings);
         await ReloadLua(initial: true);
         _luaInitialized = true; SavePreferences();
-        try { _luaWatcher = new(LuaConfigService.ConfigPath, () => DispatcherQueue.TryEnqueue(() => _ = ReloadLua())); }
+        try { _luaWatcher = new(LuaConfigService.ConfigPath, () => DispatcherQueue.TryEnqueue(() => UiTasks.Observe(ReloadLua()))); }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException) { ConfigError("Could not watch Lua configuration: " + ex.Message); }
     }
     private async Task ReloadLua(bool initial = false)
@@ -142,7 +142,7 @@ public sealed partial class MainWindow
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Runtime.InteropServices.COMException) { ConfigError(ex.Message); }
     }
-    private async void LuaConfigStatusClick(object _1, RoutedEventArgs _2) => await ShowLuaStatus();
+    private void LuaConfigStatusClick(object _1, RoutedEventArgs _2) => UiTasks.Observe(ShowLuaStatus());
     private async Task ShowLuaStatus()
     {
         var text = new TextBlock { Text = "Config: " + LuaConfigService.ConfigPath + "\n\n" + (_luaError ??
@@ -155,7 +155,7 @@ public sealed partial class MainWindow
     {
         var panel = new StackPanel { Spacing = 8 };
         panel.Children.Add(new TextBlock { Text = "Lua config: " + LuaConfigService.ConfigPath + "\nSettings controlled by Lua are read-only here. Edit the file to change them.", TextWrapping = TextWrapping.Wrap, FontSize = 12 });
-        var edit = new Button { Content = "Edit Lua configuration" }; edit.Click += async (_, _) => await OpenLuaConfiguration(); panel.Children.Add(edit);
+        var edit = new Button { Content = "Edit Lua configuration" }; edit.Click += (_, _) => UiTasks.Observe(OpenLuaConfiguration()); panel.Children.Add(edit);
         return panel;
     }
 }

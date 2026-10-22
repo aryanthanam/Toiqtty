@@ -50,7 +50,7 @@ public sealed partial class MainWindow
         handle.GotFocus+=(_,_)=>handle.Opacity=1;
         handle.LostFocus+=(_,_)=>handle.Opacity=hovering ? .85 : 0;
         handle.Tapped+=(_,_)=>FocusPane(pane.Id);
-        handle.KeyDown+=(_,e)=> { if(e.Key is VirtualKey.Enter or VirtualKey.Space){e.Handled=true; _=MovePaneDialog(pane.Id);} };
+        handle.KeyDown+=(_,e)=> { if(e.Key is VirtualKey.Enter or VirtualKey.Space){e.Handled=true; UiTasks.Observe(MovePaneDialog(pane.Id));} };
         handle.DragStarting+=(_,e)=>
         {
             if(!BeginPaneDrag(pane.Id,e.Data)){e.Cancel=true;return;}

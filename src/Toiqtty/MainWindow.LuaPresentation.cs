@@ -20,7 +20,8 @@ public sealed partial class MainWindow
         if (runtime is null || !_luaConfig.Hooks.Any(h => h is "format_status" or "format_tab_title")) _luaPresentationTimer.Stop(); else _luaPresentationTimer.Start();
         ApplyLuaTabTitles(); QueueLuaPresentation();
     }
-    private async void QueueLuaPresentation()
+    private void QueueLuaPresentation() => UiTasks.Observe(QueueLuaPresentationAsync());
+    private async Task QueueLuaPresentationAsync()
     {
         if (_closed || _closing || _luaRuntime is null || !WindowRenderingActive || !_luaConfig.Hooks.Any(h => h is "format_status" or "format_tab_title")) return;
         if (_luaPresentationBusy) { _luaPresentationPending=true; return; }

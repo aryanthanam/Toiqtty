@@ -17,7 +17,8 @@ public sealed partial class TerminalView
         Drop += DropOnView;
     }
 
-    private async void DragOverOnView(object sender, DragEventArgs e)
+    private void DragOverOnView(object sender, DragEventArgs e) => UiTasks.Observe(DragOverOnViewAsync(sender, e));
+    private async Task DragOverOnViewAsync(object sender, DragEventArgs e)
     {
         e.AcceptedOperation = _dropAccepted;
         if (_dropHoverPending || _session is null) return;
@@ -46,14 +47,16 @@ public sealed partial class TerminalView
         finally { _dropHoverPending = false; deferral.Complete(); }
     }
 
-    private async void DragLeaveOnView(object sender, DragEventArgs e)
+    private void DragLeaveOnView(object sender, DragEventArgs e) => UiTasks.Observe(DragLeaveOnViewAsync(sender, e));
+    private async Task DragLeaveOnViewAsync(object sender, DragEventArgs e)
     {
         _dropGeneration++; _dropAccepted = DataPackageOperation.None;
         try { if (_session is not null) await _session.QueryDropAsync(2); }
         catch (Exception ex) when (ex is IOException or OperationCanceledException) { System.Diagnostics.Debug.WriteLine(ex); }
     }
 
-    private async void DropOnView(object sender, DragEventArgs e)
+    private void DropOnView(object sender, DragEventArgs e) => UiTasks.Observe(DropOnViewAsync(sender, e));
+    private async Task DropOnViewAsync(object sender, DragEventArgs e)
     {
         _dropGeneration++; _dropAccepted = DataPackageOperation.None;
         var deferral = e.GetDeferral();

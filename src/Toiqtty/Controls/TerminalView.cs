@@ -955,7 +955,7 @@ public sealed partial class TerminalView : Grid, IDisposable
             if (_canvas.CapturePointer(e.Pointer)) BeginMiddleScroll(point.Position);
             e.Handled = true; return;
         }
-        if (point.Properties.IsRightButtonPressed) { _ = PasteClipboard(); e.Handled = true; return; }
+        if (point.Properties.IsRightButtonPressed) { UiTasks.Observe(PasteClipboard()); e.Handled = true; return; }
         if (!point.Properties.IsLeftButtonPressed) return;
         _dragPosition = point.Position;
         Gesture(0, point.Position);
@@ -1094,7 +1094,7 @@ public sealed partial class TerminalView : Grid, IDisposable
         if (!endBeforeTextChange) EndComposition();
     }
     public void CopySelection()
-        => _ = CopySelectionAsync();
+        => UiTasks.Observe(CopySelectionAsync());
     internal async Task CopySelectionAsync()
     { if (_session is not null) SetClipboardText(await _session.CopySelectionAsync()); }
     private static void SetClipboardText(string text)
@@ -1138,12 +1138,12 @@ public sealed partial class TerminalView : Grid, IDisposable
         uint shortcutModifiers = (shift ? 1u : 0) | (ctrl ? 2u : 0) | (alt ? 4u : 0) | (Down(VirtualKey.LeftWindows) || Down(VirtualKey.RightWindows) ? 8u : 0);
         var binding = altGr ? null : Keybindings.Match(_settings, virtualKey, shortcutModifiers);
         if (binding == "copy") { CopySelection(); e.Handled = true; return; }
-        if (binding == "paste" || (shift && e.Key == VirtualKey.Insert)) { _ = PasteClipboard(); e.Handled = true; return; }
+        if (binding == "paste" || (shift && e.Key == VirtualKey.Insert)) { UiTasks.Observe(PasteClipboard()); e.Handled = true; return; }
         if (ctrl && !alt && e.Key == VirtualKey.C && _session is Hosting.RemoteTerminalSession remote)
         {
             var (Text, Unshifted) = WindowsKeyboard.Translate(virtualKey, e.KeyStatus.ScanCode);
             var copyKey = new PendingKey(key, CurrentModifiers(), e.KeyStatus.WasKeyDown ? TerminalKeyAction.Repeat : TerminalKeyAction.Press, Unshifted, shift ? 1u : 0);
-            _pressedKeys[key] = copyKey; _ = CopyOrInterrupt(remote, copyKey, Text); e.Handled = true; return;
+            _pressedKeys[key] = copyKey; UiTasks.Observe(CopyOrInterrupt(remote, copyKey, Text)); e.Handled = true; return;
         }
         if (ctrl && !alt && e.Key == VirtualKey.C && !string.IsNullOrEmpty(_session?.CopySelection())) { CopySelection(); ClearSelection(); _canvas.Invalidate(); e.Handled = true; return; }
         if (binding is "scrollUp" or "scrollDown") { _session?.Scroll(binding == "scrollUp" ? -GridRows : GridRows); e.Handled = true; return; }

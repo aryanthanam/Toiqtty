@@ -40,5 +40,5 @@ public sealed partial class MainWindow
         { SetStatusMessage("Could not open folder in Windows Explorer: " + ex.Message, problem: true); }
     }
 
-    private async void OpenDirectoryClick(object _1, RoutedEventArgs _2) => await OpenDirectory();
+    private void OpenDirectoryClick(object _1, RoutedEventArgs _2) => UiTasks.Observe(OpenDirectory());
 }

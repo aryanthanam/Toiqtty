@@ -70,6 +70,7 @@ public sealed partial class MainWindow : Window
             }
         });
         Title = "toiqtty " + BuildInfo.Version;
+        UiTasks.Faulted += ReportUiFault;
         var diagnostics=Diagnostics.WindowDiagnosticOptions.Read();
         bool browserSmoke=diagnostics.Browser, configSmoke=diagnostics.Config, designSmoke=diagnostics.Design;
         bool dpiSmoke=diagnostics.Dpi, startupProbe=diagnostics.Startup, uiSmoke=diagnostics.Ui, hardwareCheck=diagnostics.Hardware;
@@ -100,7 +101,7 @@ public sealed partial class MainWindow : Window
             item.Click += (_, _) => NewTab(Command, Name);
             shellProfiles.Items.Add(item);
         }
-        Root.Loaded += async (_, _) =>
+        Root.Loaded += (_, _) => UiTasks.Observe(async () =>
         {
             StartupTrace.Mark("root-loaded");
             StartupTrace.Mark("lua-begin");
@@ -151,12 +152,12 @@ public sealed partial class MainWindow : Window
 #if DIAGNOSTICS
             if (hardwareCheck) _ = PrepareHardwareChecks();
 #endif
-        };
-        _metadataTimer.Tick += async (_, _) => await PollMetadata();
+        });
+        _metadataTimer.Tick += (_, _) => UiTasks.Observe(PollMetadata());
         _luaPresentationTimer.Tick += (_, _) => QueueLuaPresentation();
         Closed += (_, _) =>
         {
-            _closed = true;
+            _closed = true; UiTasks.Faulted -= ReportUiFault;
             _startupLua?.Dispose();
             _startupGraphics?.Dispose();
             if (_controlServer is { } control) _ = control.DisposeAsync();
@@ -250,11 +251,11 @@ public sealed partial class MainWindow : Window
             Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(item, "Session " + workspace.Name + ", " + leaves.Count + " panes" + (workspace.Attention ? ", needs attention" : ""));
             ToolTipService.SetToolTip(item, directory);
             var menu = new MenuFlyout();
-            var rename = new MenuFlyoutItem { Text = "Rename session" }; rename.Click += async (_, _) => await Rename(workspace);
-            var theme = new MenuFlyoutItem { Text = "Session theme…" }; theme.Click += async (_, _) => await EditSessionTheme(workspace);
-            var close = new MenuFlyoutItem { Text = "Close session" }; close.Click += async (_, _) => await CloseWorkspace(workspace);
+            var rename = new MenuFlyoutItem { Text = "Rename session" }; rename.Click += (_, _) => UiTasks.Observe(Rename(workspace));
+            var theme = new MenuFlyoutItem { Text = "Session theme…" }; theme.Click += (_, _) => UiTasks.Observe(EditSessionTheme(workspace));
+            var close = new MenuFlyoutItem { Text = "Close session" }; close.Click += (_, _) => UiTasks.Observe(CloseWorkspace(workspace));
             var openDirectory = new MenuFlyoutItem { Text = "Open in Windows Explorer" };
-            openDirectory.Click += async (_, _) => await OpenDirectory(workspace);
+            openDirectory.Click += (_, _) => UiTasks.Observe(OpenDirectory(workspace));
             menu.Items.Add(openDirectory); menu.Items.Add(theme); menu.Items.Add(rename); menu.Items.Add(close); item.ContextFlyout = menu;
             AddSessionOrderMenu(menu, workspace);
             WorkspaceList.Items.Add(item);
@@ -471,6 +472,8 @@ public sealed partial class MainWindow : Window
         catch(Exception ex) when(ex is IOException or OperationCanceledException or UnauthorizedAccessException)
         { if(!_closed) SetStatusMessage("Could not save session: "+ex.Message, problem: true); }
     }
+    private void ReportUiFault(Exception ex)
+        => DispatcherQueue.TryEnqueue(() => { if (!_closed) SetStatusMessage(ex.Message, problem: true); });
     private void UpdateStatus()
     {
         UpdateChrome();
@@ -521,7 +524,8 @@ public sealed partial class MainWindow : Window
     private void SplitRightClick(object _1, RoutedEventArgs _2) => Split(true);
     private void SplitDownClick(object _1, RoutedEventArgs _2) => Split(false);
     private void ZoomClick(object _1, RoutedEventArgs _2) { if ((ActivePaneId??_selected?.FocusedPaneId) is not { } id) return; _zoomed = !_zoomed; RebuildPanes(id); }
-    private async void SettingsClick(object sender, RoutedEventArgs e)
+    private void SettingsClick(object sender, RoutedEventArgs e) => UiTasks.Observe(SettingsClickAsync(sender, e));
+    private async Task SettingsClickAsync(object sender, RoutedEventArgs e)
     {
         var shell = new TextBox { Header = "Default shell command", Text = _saved.Settings.Shell, PlaceholderText = "pwsh.exe -NoLogo" };
         var directory = new TextBox { Header = "Starting directory", Text = _saved.Settings.StartDirectory };
@@ -572,7 +576,7 @@ public sealed partial class MainWindow : Window
         foreach (var workspace in _saved.Workspaces) foreach (var pane in workspace.AllPanes()) pane.Session?.ApplySettings(_saved.Settings.WithTerminalTheme(workspace.Theme));
         foreach (var view in _views) view.ApplySettings(); UpdateStatusBar(); Save();
     }
-    private async void PaletteClick(object _1, RoutedEventArgs _2) => await ShowCommandPalette();
+    private void PaletteClick(object _1, RoutedEventArgs _2) => UiTasks.Observe(ShowCommandPalette());
     private async Task ShowCommandPalette()
     {
             if (_dialogOpen) return;
@@ -585,25 +589,25 @@ public sealed partial class MainWindow : Window
             (ShortcutLabel("New browser tab", "newBrowser"), () => NewBrowser()),
             ("Split browser right", () => NewBrowser(split: true)),
             ("Split browser down", () => NewBrowser(split: true, vertical: false)),
-            ("Browser profiles and cookie sharing", () => _ = BrowserSettingsDialog()),
+            ("Browser profiles and cookie sharing", () => UiTasks.Observe(BrowserSettingsDialog())),
             ("Close current tab", () => { if (_selected is { } s) RemoveTab(s,s.ActiveTab); }),
-            ("Quit toiqtty and stop all sessions", () => _ = QuitSessions()),
+            ("Quit toiqtty and stop all sessions", () => UiTasks.Observe(QuitSessions())),
             (ShortcutLabel("Split right", "splitRight"), () => Split(true)),
             (ShortcutLabel("Split down", "splitDown"), () => Split(false)),
             (ShortcutLabel("Zoom focused pane", "zoom"), () => ZoomClick(this, new())),
             (ShortcutLabel("Close focused pane", "closePane"), () => { if (ActivePaneId is { } id) ClosePane(id); }),
-            (ShortcutLabel("Move focused pane…", "movePane"), () => { if (ActivePaneId is { } id) _ = MovePaneDialog(id); }),
+            (ShortcutLabel("Move focused pane…", "movePane"), () => { if (ActivePaneId is { } id) UiTasks.Observe(MovePaneDialog(id)); }),
             (ShortcutLabel("Open current folder in Windows Explorer", "openDirectory"), () => _ = OpenDirectory()),
             (ShortcutLabel("Toggle sidebar", "sidebar"), ToggleSidebar),
             ("Settings", () => SettingsClick(this, new())) };
         commands.AddRange([("Next wallpaper",()=>CycleWallpaper(1)),("Previous wallpaper",()=>CycleWallpaper(-1)),
-            ("Random wallpaper",()=>CycleWallpaper(1,true)),("Toggle wallpaper focus mode",ToggleWallpaper),("Choose wallpaper",()=>_ = ChooseWallpaper())]);
-        commands.Add(("Session theme…", () => { if (_selected is { } workspace) _ = EditSessionTheme(workspace); }));
-        commands.Add(("Edit Lua configuration", () => _ = OpenLuaConfiguration()));
-        commands.Add((ShortcutLabel("Switch session", "switchSession"), () => _ = SwitchSession()));
+            ("Random wallpaper",()=>CycleWallpaper(1,true)),("Toggle wallpaper focus mode",ToggleWallpaper),("Choose wallpaper",()=>UiTasks.Observe(ChooseWallpaper()))]);
+        commands.Add(("Session theme…", () => { if (_selected is { } workspace) UiTasks.Observe(EditSessionTheme(workspace)); }));
+        commands.Add(("Edit Lua configuration", () => UiTasks.Observe(OpenLuaConfiguration())));
+        commands.Add((ShortcutLabel("Switch session", "switchSession"), () => UiTasks.Observe(SwitchSession())));
         commands.Add(("Toggle fullscreen", ToggleFullscreen));
-        commands.Add(("Reload Lua configuration", () => _ = ReloadLua()));
-        commands.Add(("Lua configuration status", () => _ = ShowLuaStatus()));
+        commands.Add(("Reload Lua configuration", () => UiTasks.Observe(ReloadLua())));
+        commands.Add(("Lua configuration status", () => UiTasks.Observe(ShowLuaStatus())));
         commands.Add(("Create configured startup sessions", CreateConfiguredSessions));
         commands.Add((ShortcutLabel("Find in terminal", "find"), () => FindClick(this, new())));
         commands.Add(("Terminal activity and notifications", () => ActivityClick()));
@@ -644,7 +648,7 @@ public sealed partial class MainWindow : Window
         SidebarColumn.Width = TitleSidebarColumn.Width = new GridLength(show ? SidebarWidth : 0);
         UpdateChrome(); QueueTitleRegions();
     }
-    private async void FindClick(object _1, RoutedEventArgs _2) => await ShowFind();
+    private void FindClick(object _1, RoutedEventArgs _2) => UiTasks.Observe(ShowFind());
     private async Task ShowFind()
     {
         if (_dialogOpen || _selected is null || _focused is null) return;
@@ -671,9 +675,9 @@ public sealed partial class MainWindow : Window
             catch (Exception ex) when (ex is IOException or OperationCanceledException or InvalidOperationException)
             { if (current == generation) count.Text = "Search unavailable: " + ex.Message; }
         }
-        input.TextChanged += async (_, _) => await Search(0);
-        input.KeyDown += async (_, args) => { if (args.Key == VirtualKey.Enter) { args.Handled = true; await Search(TerminalView.Down(VirtualKey.Shift) ? -1 : 1); } };
-        next.Click += async (_, _) => await Search(1); previous.Click += async (_, _) => await Search(-1);
+        input.TextChanged += (_, _) => UiTasks.Observe(Search(0));
+        input.KeyDown += (_, args) => UiTasks.Observe(async () => { if (args.Key == VirtualKey.Enter) { args.Handled = true; await Search(TerminalView.Down(VirtualKey.Shift) ? -1 : 1); } });
+        next.Click += (_, _) => UiTasks.Observe(Search(1)); previous.Click += (_, _) => UiTasks.Observe(Search(-1));
         var dialog = new ContentDialog { Title = "Find in terminal", Content = panel, CloseButtonText = "Done" };
         dialog.Opened += (_, _) => input.Focus(FocusState.Programmatic);
         await ShowDialog(dialog);
@@ -681,7 +685,8 @@ public sealed partial class MainWindow : Window
         try { await session.FindAsync("",0); session.Select(-1,-1); }
         catch (Exception ex) when (ex is IOException or OperationCanceledException or InvalidOperationException) { System.Diagnostics.Debug.WriteLine(ex); }
     }
-    private async void ActivityClick()
+    private void ActivityClick() => UiTasks.Observe(ActivityClickAsync());
+    private async Task ActivityClickAsync()
     {
         if (_dialogOpen || _selected is null || _focused is null) return;
         var session = _selected.Root.Leaves().FirstOrDefault(p => p.Id == _focused.PaneId)?.Session;

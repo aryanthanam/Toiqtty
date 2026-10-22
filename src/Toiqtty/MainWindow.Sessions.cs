@@ -152,17 +152,17 @@ public sealed partial class MainWindow
             AutomationProperties.SetHelpText(select,leaves.Count+" pane"+(leaves.Count==1?"":"s"));
             ToolTipService.SetToolTip(select,tab.Name+" · "+leaves.Count+" pane"+(leaves.Count==1?"":"s"));
             var menu=new MenuFlyout(); var rename=new MenuFlyoutItem { Text="Rename tab" };
-            rename.Click+=async (_,_)=>
+            rename.Click+=(_,_) => UiTasks.Observe(async () =>
             {
                 var input=new TextBox { Text=tab.Name,MaxLength=60 };
                 if (await ShowDialog(new ContentDialog { Title="Rename tab",Content=input,PrimaryButtonText="Save",CloseButtonText="Cancel" })==ContentDialogResult.Primary && !string.IsNullOrWhiteSpace(input.Text))
                 { tab.Name=input.Text.Trim(); RefreshTabs(); Save(); }
-            };
+            });
             menu.Items.Add(rename);
             var move=new MenuFlyoutItem { Text="Move focused pane…" };
-            move.Click+=(_,_)=> { var id=tab.FocusedPaneId??tab.Root.Leaves().First().Id; _=MovePaneDialog(id); };
+            move.Click+=(_,_)=> { var id=tab.FocusedPaneId??tab.Root.Leaves().First().Id; UiTasks.Observe(MovePaneDialog(id)); };
             var openDirectory = new MenuFlyoutItem { Text = "Open in Windows Explorer" };
-            openDirectory.Click += async (_, _) => await OpenDirectory(session, tab);
+            openDirectory.Click += (_, _) => UiTasks.Observe(OpenDirectory(session, tab));
             menu.Items.Add(move); menu.Items.Add(openDirectory); AddTabOrderMenu(menu, session, tab); select.ContextFlyout=menu;
             var close = new Button
             {

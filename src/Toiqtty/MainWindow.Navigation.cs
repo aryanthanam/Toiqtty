@@ -16,7 +16,8 @@ public sealed partial class MainWindow
     private bool _tabActivationPending;
     private TerminalTab? _pendingTabActivation;
 
-    private async void WorkspaceDoubleTapped(object _1, DoubleTappedRoutedEventArgs e)
+    private void WorkspaceDoubleTapped(object _1, DoubleTappedRoutedEventArgs e) => UiTasks.Observe(WorkspaceDoubleTappedAsync(_1, e));
+    private async Task WorkspaceDoubleTappedAsync(object _1, DoubleTappedRoutedEventArgs e)
     {
         if (_closed || _closing || _dialogOpen || _draggingSessions || _draggedPaneId is not null) return;
         for (var node = e.OriginalSource as DependencyObject; node is not null && node != WorkspaceList; node = VisualTreeHelper.GetParent(node))
@@ -156,7 +157,7 @@ public sealed partial class MainWindow
     private void RestorePaneFocusAfterDrag() => QueuePaneFocus();
     private void MovePaneClick(object _1, RoutedEventArgs _2)
     {
-        if (ActivePaneId is { } id) _ = MovePaneDialog(id);
+        if (ActivePaneId is { } id) UiTasks.Observe(MovePaneDialog(id));
     }
 
     private async Task MovePaneDialog(string paneId)

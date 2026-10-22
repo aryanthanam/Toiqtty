@@ -37,7 +37,7 @@ public sealed partial class MainWindow
         view.CloseRequested += ClosePane;
         view.NewWindowRequested += url => NewBrowser(url, sourceId: view.SourceId);
         view.LocationChanged += Save;
-        view.ProfileRequested += () => _ = ChangeBrowserProfile(view);
+        view.ProfileRequested += () => UiTasks.Observe(ChangeBrowserProfile(view));
         view.RecoveryRequested += () => RecreateBrowser(view);
         view.PermissionRequested += async (uri, kind) => !_closed && await ShowDialog(new ContentDialog {
             Title = "Allow site permission?", Content = $"{uri}\n\nRequested permission: {kind}", PrimaryButtonText = "Allow once", CloseButtonText = "Block"
@@ -66,7 +66,7 @@ public sealed partial class MainWindow
     private void NewBrowserClick(object _1, RoutedEventArgs _2) => NewBrowser();
     private void SplitBrowserRightClick(object _1, RoutedEventArgs _2) => NewBrowser(split: true);
     private void SplitBrowserDownClick(object _1, RoutedEventArgs _2) => NewBrowser(split: true, vertical: false);
-    private async void BrowserSettingsClick(object _1, RoutedEventArgs _2) => await BrowserSettingsDialog();
+    private void BrowserSettingsClick(object _1, RoutedEventArgs _2) => UiTasks.Observe(BrowserSettingsDialog());
     private void NewBrowser(string? url = null, bool split = false, bool vertical = true, string? sourceId = null)
     {
         if (_selected is null) NewWorkspace();

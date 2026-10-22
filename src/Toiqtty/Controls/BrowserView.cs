@@ -65,7 +65,7 @@ internal sealed class BrowserView : Grid, IDisposable
         var navigation = new StackPanel { Orientation = Orientation.Horizontal };
         _back = Button("\uE72B", "Back", () => { if (_web.CoreWebView2?.CanGoBack == true) _web.GoBack(); });
         _forward = Button("\uE72A", "Forward", () => { if (_web.CoreWebView2?.CanGoForward == true) _web.GoForward(); });
-        _reload = Button("\uE72C", "Reload", () => { if (_processFailed) RecoveryRequested?.Invoke(); else if (_web.CoreWebView2 is not null) _web.Reload(); else _ = Initialize(); });
+        _reload = Button("\uE72C", "Reload", () => { if (_processFailed) RecoveryRequested?.Invoke(); else if (_web.CoreWebView2 is not null) _web.Reload(); else UiTasks.Observe(Initialize()); });
         _back.IsEnabled = _forward.IsEnabled = false;
         navigation.Children.Add(_back); navigation.Children.Add(_forward); navigation.Children.Add(_reload);
         bar.Children.Add(navigation); SetColumn(_address, 1); bar.Children.Add(_address);
@@ -76,7 +76,7 @@ internal sealed class BrowserView : Grid, IDisposable
         var forwardMenu=new MenuFlyoutItem { Text="Forward" }; forwardMenu.Click+=(_,_)=> { if (_web.CoreWebView2?.CanGoForward==true) _web.GoForward(); }; menu.Items.Add(forwardMenu);
         SizeChanged+=(_,_)=> { bool compact=ActualWidth<360; _forward.Visibility=compact?Visibility.Collapsed:Visibility.Visible; forwardMenu.Visibility=compact?Visibility.Visible:Visibility.Collapsed; };
         var profile = new MenuFlyoutItem { Text = "Change browser profile…" }; profile.Click += (_, _) => ProfileRequested?.Invoke(); menu.Items.Add(profile);
-        var external = new MenuFlyoutItem { Text = "Open in default browser" }; external.Click += async (_, _) => { if (BrowserAddress.IsAllowed(_pane.BrowserUrl) && _pane.BrowserUrl != "about:blank") await Launcher.LaunchUriAsync(new(_pane.BrowserUrl)); }; menu.Items.Add(external);
+        var external = new MenuFlyoutItem { Text = "Open in default browser" }; external.Click += (_, _) => UiTasks.Observe(async () => { if (BrowserAddress.IsAllowed(_pane.BrowserUrl) && _pane.BrowserUrl != "about:blank") await Launcher.LaunchUriAsync(new(_pane.BrowserUrl)); }); menu.Items.Add(external);
         var devtools = new MenuFlyoutItem { Text = "Developer tools" }; devtools.Click += (_, _) => _web.CoreWebView2?.OpenDevToolsWindow(); menu.Items.Add(devtools);
         var clear = new MenuFlyoutItem { Text = "Clear this profile’s cookies" }; clear.Click += (_, _) => { _web.CoreWebView2?.CookieManager.DeleteAllCookies(); _status.Text = "Cookies cleared. Connected sources may sync them again."; }; menu.Items.Add(clear);
         more.Flyout = menu; tools.Children.Add(more);
@@ -88,7 +88,7 @@ internal sealed class BrowserView : Grid, IDisposable
         _address.KeyDown += (_, e) => { if (e.Key == VirtualKey.Enter) { Navigate(_address.Text); e.Handled = true; } };
         GotFocus += (_, _) => Activated?.Invoke(this);
         _web.GotFocus += (_, _) => Activated?.Invoke(this);
-        Loaded += async (_, _) => await Initialize();
+        Loaded += (_, _) => UiTasks.Observe(Initialize());
         IsActive = false;
     }
     private static Button Button(string glyph, string name, Action click)
@@ -124,7 +124,7 @@ internal sealed class BrowserView : Grid, IDisposable
             core.HistoryChanged += (_, _) => { _back.IsEnabled = core.CanGoBack; _forward.IsEnabled = core.CanGoForward; };
             core.NavigationCompleted += (_, args) => _status.Text = args.IsSuccess ? ProfileLabel() : "Could not load page: " + args.WebErrorStatus;
             core.NewWindowRequested += (_, args) => { args.Handled = true; if (BrowserAddress.IsAllowed(args.Uri)) NewWindowRequested?.Invoke(args.Uri); };
-            core.PermissionRequested += async (_, args) =>
+            core.PermissionRequested += (_, args) => UiTasks.Observe(async () =>
             {
                 using var deferral = args.GetDeferral();
                 try
@@ -133,7 +133,7 @@ internal sealed class BrowserView : Grid, IDisposable
                     args.State = allow ? CoreWebView2PermissionState.Allow : CoreWebView2PermissionState.Deny;
                 }
                 finally { deferral.Complete(); }
-            };
+            });
             core.ProcessFailed += (_, args) =>
             {
                 if (args.ProcessFailedKind is CoreWebView2ProcessFailedKind.BrowserProcessExited or CoreWebView2ProcessFailedKind.RenderProcessExited or CoreWebView2ProcessFailedKind.RenderProcessUnresponsive) _processFailed = true;

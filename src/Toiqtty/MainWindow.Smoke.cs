@@ -22,6 +22,11 @@ public sealed partial class MainWindow
         try
         {
             await CheckCaptionInsetRecovery(Check);
+            UiTasks.Observe(Task.FromException(new InvalidOperationException("ui-fault-probe")));
+            UiTasks.Observe(async () => { await Task.Yield(); throw new IOException("ui-fault-probe-async"); });
+            for (int i = 0; i < 100 && StatusNotice.Message != "ui-fault-probe-async"; i++) await Task.Delay(20);
+            Check(StatusNotice.IsOpen && StatusNotice.Message == "ui-fault-probe-async", "Faulted UI tasks are reported in the window instead of ending the process");
+            StatusNotice.IsOpen = false;
             var toast = Notifications.DesktopNotifications.Build("workspace-1", "pane-1", "Workspace", new(DateTimeOffset.Now, "Build <done> & ready", "café 中"));
             var toastXml = System.Xml.Linq.XDocument.Parse(toast.Payload);
             Check(toastXml.Descendants("text").Select(item => item.Value).SequenceEqual(["Build <done> & ready", "café 中"]),
