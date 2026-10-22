@@ -61,6 +61,8 @@ internal sealed class OrderedHostInput(Func<HostRequest,Task<HostReply>> send)
             }
             HostReply reply;
             try { reply=await send(entry.Request).ConfigureAwait(false); }
+            // The host answered: this request was rejected, the transport is intact.
+            catch(HostRejectedException ex) { reply=new() { Error=ex.Message }; }
             catch(Exception ex) when(ex is IOException or OperationCanceledException or ObjectDisposedException)
             {
                 reply=new() { Error="Host delivery failed; input may have been sent and was not retried. "+ex.Message };

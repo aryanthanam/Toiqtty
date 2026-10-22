@@ -31,17 +31,22 @@ public sealed partial class MainWindow
         // Re-enter Close only after this native Closing callback has returned.
         DispatcherQueue.TryEnqueue(async ()=>
         {
-            await Task.WhenAll(drains);
-            await ObserveSave(_sessionPersistence.FlushAsync());
-            await ObserveSave(_sessionThemes.FlushAsync());
-            await _sessionLifetimes.DrainAsync();
-            if(_persistent)
+            // Any failure still closes the window: shells stay owned by the host.
+            try
             {
-                await SessionLifetimeCoordinator.DetachAsync(_saved.Workspaces.SelectMany(w=>w.AllPanes()));
-                try { if(_host is not null) await _host.CallAsync(new() { Operation="detach" }); }
-                catch(Exception ex) when(ex is IOException or OperationCanceledException) { System.Diagnostics.Debug.WriteLine(ex); }
+                await Task.WhenAll(drains);
+                await ObserveSave(_sessionPersistence.FlushAsync());
+                await ObserveSave(_sessionThemes.FlushAsync());
+                await _sessionLifetimes.DrainAsync();
+                if(_persistent)
+                {
+                    await SessionLifetimeCoordinator.DetachAsync(_saved.Workspaces.SelectMany(w=>w.AllPanes()));
+                    try { if(_host is not null) await _host.CallAsync(new() { Operation="detach" }); }
+                    catch(Exception ex) when(ex is IOException or OperationCanceledException) { System.Diagnostics.Debug.WriteLine(ex); }
+                }
             }
-            _inputCloseReady=true; base.Close();
+            catch(Exception ex) { System.Diagnostics.Debug.WriteLine(ex); }
+            finally { _inputCloseReady=true; base.Close(); }
         });
     }
 }

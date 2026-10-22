@@ -44,6 +44,8 @@ internal sealed unsafe class DirectXRenderer : IDisposable
     internal void Resize(uint width, uint height, float dpi, bool transparent)
     {
         if (_width != 0 && width == _width && height == _height && dpi == _dpi && transparent == _transparent) return;
+        // A failed resize may have released the buffers; never skip the retry.
+        _width = 0;
         Check(Native.Resize(_handle, width, height, dpi, transparent ? 1 : 0));
         _presentation.Resize(width, height);
         _width = width; _height = height; _dpi = dpi; _transparent = transparent;

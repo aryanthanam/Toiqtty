@@ -42,6 +42,16 @@ internal static class ArchitectureChecks
                 "A delayed frame with unchanged rows/columns but obsolete pixel metrics is rejected without capture backpressure");
             await Wait(() => session.TryReadSnapshot(cells, out var frame) && frame!.Frame.CellWidth == 16 && frame.Frame.CellHeight == 42);
             check(true, "The next frame publishes the new physical geometry without recreating the shell");
+            SavedSession Only(string pane) => new() { Workspaces = [new() { Name = "ordering", Root = new() { Id = pane, Command = "ignored", Directory = Environment.CurrentDirectory } }] };
+            long stale = client.NextLayoutRevision();
+            string late = Guid.NewGuid().ToString("N");
+            var created = new RemoteTerminalSession(client, late, $"\"{Environment.ProcessPath}\" --persistent-shell-client", Environment.CurrentDirectory, new());
+            await client.SaveAsync(Only(id), stale);
+            check((await client.CallAsync(new())).Panes.Contains(late), "A layout snapshot taken before a shell was created never removes that shell");
+            await client.SaveAsync(Only(id));
+            check(!(await client.CallAsync(new())).Panes.Contains(late) && (await client.CallAsync(new())).Panes.Contains(id),
+                "A newer layout snapshot still removes shells it no longer lists");
+            await created.DetachAsync();
             session.DetachView(); await session.DetachAsync();
             check((await client.CallAsync(new())).Panes.Contains(id), "Awaited detach completes frontend cleanup while preserving the owned shell");
             var attached = new RemoteTerminalSession(client, id, "ignored", Environment.CurrentDirectory, new());
@@ -58,6 +68,15 @@ internal static class ArchitectureChecks
         check(typeof(GhosttyTerminal).Assembly.GetName().Name == "Toiqtty.Core"
             && typeof(RemoteTerminalSession).Assembly.GetName().Name == "Toiqtty.Client",
             "Core and client checks exercise the shared production assemblies");
+        var rejecting = new OrderedHostInput(request => request.Operation == "busy"
+            ? Task.FromException<HostReply>(new HostRejectedException("Input busy: fixture")) : Task.FromResult(new HostReply()));
+        var busy = await rejecting.Enqueue(new() { Operation = "busy" });
+        var after = await rejecting.Enqueue(new() { Operation = "send-text", Text = "x" });
+        check(busy.Error == "Input busy: fixture" && after.Error is null, "A request the host rejected leaves later input deliverable");
+        var broken = new OrderedHostInput(_ => Task.FromException<HostReply>(new IOException("pipe broke")));
+        var ambiguous = await broken.Enqueue(new() { Operation = "send-text", Text = "x" });
+        var closed = await broken.Enqueue(new() { Operation = "send-text", Text = "y" });
+        check(ambiguous.Error is not null && closed.Error is not null && closed.Error.Contains("closed"), "A transport failure still closes input without replay");
         var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var writes = new List<(SavedSession Layout, bool Navigation)>();

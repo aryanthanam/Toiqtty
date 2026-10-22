@@ -10,6 +10,10 @@ public sealed class SessionHostVersionException : IOException
     public SessionHostVersionException() : base("A different toiqtty session-host version is still running. In the installed version, choose ‘Quit toiqtty and stop all sessions’, then open this version again. Your running shells have been left intact.") { }
 }
 
+/// <summary>The host received and answered the request with an error. Unlike a
+/// transport failure this is unambiguous, so later requests remain deliverable.</summary>
+public sealed class HostRejectedException(string message) : IOException(message);
+
 public sealed partial class SessionHostClient
 {
     public string Folder { get; }
@@ -304,7 +308,7 @@ public sealed partial class SessionHostClient
         var reply = await HostProtocol.ReadJson<HostReply>(pipe, cancellation).ConfigureAwait(false);
         if (reply.Protocol != HostProtocol.Version) throw new SessionHostVersionException();
         if (Identity.Length > 0 && reply.Host != Identity) throw new IOException("The session host changed; input was not replayed.");
-        if (reply.Error is not null) throw new IOException(reply.Error);
+        if (reply.Error is not null) throw new HostRejectedException(reply.Error);
         if (reply.BinaryLength is < 0 or > HostProtocol.MaxSnapshotBytes) throw new IOException("Invalid snapshot length.");
         if (reply.BinaryLength > 0)
         {
@@ -316,14 +320,20 @@ public sealed partial class SessionHostClient
         }
         return reply;
     }
+    private readonly string _layoutEpoch = Guid.NewGuid().ToString("N");
+    private long _layoutRevision;
+    /// <summary>Stamp a layout snapshot or shell creation at the moment it is taken.</summary>
+    internal long NextLayoutRevision() => Interlocked.Increment(ref _layoutRevision);
+    internal string LayoutEpoch => _layoutEpoch;
     public void Save(SavedSession layout)
         => SaveAsync(layout).GetAwaiter().GetResult();
-    public async Task SaveAsync(SavedSession layout)
+    public Task SaveAsync(SavedSession layout) => SaveAsync(layout, NextLayoutRevision());
+    internal async Task SaveAsync(SavedSession layout, long revision)
     {
         await _layoutSaveGate.WaitAsync().ConfigureAwait(false);
         List<TaskCompletionSource> pending;
         lock (_navigationGate) { _pendingNavigation = null; pending = _navigationCompletions; _navigationCompletions = []; }
-        try { await CallAsync(new() { Operation = "sync", Layout = layout }).ConfigureAwait(false); foreach (var completion in pending) completion.TrySetResult(); }
+        try { await CallAsync(new() { Operation = "sync", Layout = layout, LayoutEpoch = _layoutEpoch, LayoutRevision = revision }).ConfigureAwait(false); foreach (var completion in pending) completion.TrySetResult(); }
         catch (Exception ex) { foreach (var completion in pending) completion.TrySetException(ex); throw; }
         finally { _layoutSaveGate.Release(); }
     }

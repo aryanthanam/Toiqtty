@@ -34,14 +34,23 @@ internal static class BrowserChecks
             check(restored.First!.IsBrowser && restored.First.BrowserSourceId == "profile-a" && restored.Second!.Command == "cmd.exe", "saved sessions restore mixed browser and terminal layouts");
             using var bridge = new BrowserCookieBridge(folder);
             using var client = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{bridge.Port}"), Timeout = TimeSpan.FromSeconds(5) };
-            async Task<HttpResponseMessage> Send(string path, string token, object? body = null, string? origin = null)
+            int unproven = 0;
+            async Task<HttpResponseMessage> SendWith(HttpClient http, string path, string token, object? body = null, string? origin = null)
             {
                 var request = new HttpRequestMessage(body is null ? HttpMethod.Get : HttpMethod.Post, path);
-                request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+                byte[] bytes = body is null ? [] : JsonSerializer.SerializeToUtf8Bytes(body, new JsonSerializerOptions(JsonSerializerDefaults.Web));
+                string nonce = Convert.ToHexString(System.Security.Cryptography.RandomNumberGenerator.GetBytes(32));
+                string key = token.Length == 64 ? token : new string('0', 64);
+                request.Headers.TryAddWithoutValidation("Authorization", BrowserCookieBridge.RequestAuthorization(key, request.Method.Method, path, nonce, bytes));
                 if (origin is not null) request.Headers.Add("Origin", origin);
-                if (body is not null) request.Content = new StringContent(JsonSerializer.Serialize(body, new JsonSerializerOptions(JsonSerializerDefaults.Web)), System.Text.Encoding.UTF8, "application/json");
-                return await client.SendAsync(request);
+                if (body is not null) { request.Content = new ByteArrayContent(bytes); request.Content.Headers.ContentType = new("application/json") { CharSet = "utf-8" }; }
+                var response = await http.SendAsync(request);
+                byte[] reply = await response.Content.ReadAsByteArrayAsync();
+                if (response.IsSuccessStatusCode && (!response.Headers.TryGetValues("X-Toiqtty-Proof", out var proofs) ||
+                    proofs.Single() != BrowserCookieBridge.ResponseProof(key, nonce, (int)response.StatusCode, reply))) unproven++;
+                return response;
             }
+            Task<HttpResponseMessage> Send(string path, string token, object? body = null, string? origin = null) => SendWith(client, path, token, body, origin);
             var code = JsonDocument.Parse(Convert.FromBase64String(bridge.BeginPairing()));
             string pairing = code.RootElement.GetProperty("token").GetString()!;
             check(code.RootElement.GetProperty("port").GetInt32() == bridge.Port, "pairing code points only to the active loopback bridge");
@@ -90,9 +99,13 @@ internal static class BrowserChecks
             int port = bridge.Port; bridge.Dispose();
             using var reopened = new BrowserCookieBridge(folder);
             using var reconnectedClient = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{reopened.Port}") };
-            reconnectedClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", secondToken);
-            using var resumed = await reconnectedClient.GetAsync("/config");
+            using var resumed = await SendWith(reconnectedClient, "/config", secondToken);
             check(reopened.Port == port && resumed.IsSuccessStatusCode, "paired profiles reconnect after Toiqtty restarts without new pairing");
+            using var bearer = new HttpRequestMessage(HttpMethod.Get, "/config");
+            bearer.Headers.Authorization = new AuthenticationHeaderValue("Bearer", secondToken);
+            using var bearerReply = await reconnectedClient.SendAsync(bearer);
+            check(bearerReply.StatusCode == HttpStatusCode.Unauthorized, "the bridge never accepts a bearer token sent over the socket");
+            check(unproven == 0, "every successful bridge reply proves the connection key to the extension");
             string legacyFolder = Path.Combine(folder, "old-host");
             using var oldPipe = new NamedPipeServerStream(HostProtocol.PipeName(legacyFolder), PipeDirection.InOut, 1, PipeTransmissionMode.Byte, PipeOptions.Asynchronous | PipeOptions.CurrentUserOnly);
             var oldReply = Task.Run(async () =>

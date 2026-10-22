@@ -28,6 +28,7 @@ public sealed partial class MainWindow : Window
     private readonly Notifications.DesktopNotifications? _notifications;
     private bool _windowActive;
     private (string Workspace, string Pane)? _pendingNavigation;
+    private bool _sessionsRestored;
     private readonly bool _persistent;
     private readonly bool _reattached;
     private SessionHostClient? _host;
@@ -131,6 +132,7 @@ public sealed partial class MainWindow : Window
             UpdateChrome();
             StartupTrace.Mark("sessions-restored");
             _metadataTimer.Start();
+            _sessionsRestored = true;
             if (_pendingNavigation is { } pending) { _pendingNavigation = null; NavigateNotification(pending.Workspace, pending.Pane); }
             if (startupProbe) _ = RunStartupProbe();
             else if (dpiSmoke) _ = RunDpiSmoke();
@@ -180,7 +182,8 @@ public sealed partial class MainWindow : Window
     internal void NavigateNotification(string workspaceId, string paneId)
     {
         if (_closed) return;
-        if (_views.Count == 0) { _pendingNavigation = (workspaceId, paneId); return; }
+        // Browser-only tabs and empty windows have no terminal views; only defer until restore.
+        if (!_sessionsRestored) { _pendingNavigation = (workspaceId, paneId); return; }
         var workspace = SessionLayout.Find(_saved, paneId)?.Workspace ?? _saved.Workspaces.FirstOrDefault(item => item.Id == workspaceId);
         if (workspace is not null)
         {
@@ -652,9 +655,14 @@ public sealed partial class MainWindow : Window
             int current = ++generation; string text = input.Text;
             if (direction == 0) await Task.Delay(180);
             if (current != generation) return;
-            var result = await session.FindAsync(text,direction);
-            if (current != generation) return;
-            count.Text = result.Count == 0 ? "No matches" : $"{result.Index + 1} of {result.Count} matches";
+            try
+            {
+                var result = await session.FindAsync(text,direction);
+                if (current != generation) return;
+                count.Text = result.Count == 0 ? "No matches" : $"{result.Index + 1} of {result.Count} matches";
+            }
+            catch (Exception ex) when (ex is IOException or OperationCanceledException or InvalidOperationException)
+            { if (current == generation) count.Text = "Search unavailable: " + ex.Message; }
         }
         input.TextChanged += async (_, _) => await Search(0);
         input.KeyDown += async (_, args) => { if (args.Key == VirtualKey.Enter) { args.Handled = true; await Search(TerminalView.Down(VirtualKey.Shift) ? -1 : 1); } };
@@ -662,14 +670,19 @@ public sealed partial class MainWindow : Window
         var dialog = new ContentDialog { Title = "Find in terminal", Content = panel, CloseButtonText = "Done" };
         dialog.Opened += (_, _) => input.Focus(FocusState.Programmatic);
         await ShowDialog(dialog);
-        generation++; await session.FindAsync("",0); session.Select(-1,-1);
+        generation++;
+        try { await session.FindAsync("",0); session.Select(-1,-1); }
+        catch (Exception ex) when (ex is IOException or OperationCanceledException or InvalidOperationException) { System.Diagnostics.Debug.WriteLine(ex); }
     }
     private async void ActivityClick()
     {
         if (_dialogOpen || _selected is null || _focused is null) return;
         var session = _selected.Root.Leaves().FirstOrDefault(p => p.Id == _focused.PaneId)?.Session;
         if (session is null) return;
-        var status = await Task.Run(() => session.Status);
+        TerminalStatusSnapshot status;
+        try { status = await Task.Run(() => session.Status); }
+        catch (Exception ex) when (ex is IOException or OperationCanceledException or InvalidOperationException)
+        { SetStatusMessage("Terminal activity is unavailable: " + ex.Message, true); return; }
         var lines = new List<string>();
         lines.AddRange(status.Programs.Select(item => $"{item.App} · {item.Title} · {item.Body}"));
         lines.AddRange(status.Notices.Reverse().Select(item => $"{item.Time:t} · {item.Title}\n{item.Body}"));

@@ -4,15 +4,28 @@ const vm = require('node:vm');
 const fs = require('node:fs');
 const path = require('node:path');
 const common = path.join(__dirname, '../src/Toiqtty/BrowserCompanion/common');
-function fixture() {
+const crypto = require('node:crypto');
+const sha = bytes => crypto.createHash('sha256').update(bytes).digest('hex').toUpperCase();
+const mac = (key, text) => crypto.createHmac('sha256', key).update(text).digest('hex').toUpperCase();
+// A loopback bridge holding `key`; an impostor signs with a different key.
+function bridgeReply(key, method, url, options, body) {
+  const [scheme, nonce, signature] = options.headers.Authorization.split(' ');
+  assert.equal(scheme, 'Toiqtty-HMAC'); assert.ok(!options.headers.Authorization.includes('A'.repeat(64)), 'the token itself is never sent');
+  const sent = options.body ?? new Uint8Array();
+  if (key === 'A'.repeat(64)) assert.equal(signature, mac(key, `toiqtty-bridge-v2 request\n${method} ${new URL(url).pathname}\n${nonce}\n${sha(sent)}`));
+  const bytes = Buffer.from(JSON.stringify(body));
+  const proof = mac(key, `toiqtty-bridge-v2 response\n${nonce}\n200\n${sha(bytes)}`);
+  return { ok: true, status: 200, headers: { get: name => name === 'X-Toiqtty-Proof' ? proof : null }, arrayBuffer: async () => bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.length) };
+}
+function fixture(serverKey = 'A'.repeat(64)) {
   const sent = [], queried = [], state = { connection: { port: 12345, token: 'A'.repeat(64) }, cookieStoreId: 'firefox-container-2' };
   const cookie = (name, domain, hostOnly = false, extra = {}) => ({ name, value: name, domain, hostOnly, path: '/', secure: true, httpOnly: true, session: false, expirationDate: 2000000000, sameSite: 'strict', ...extra });
   const cookies = [cookie('parent', '.example.com'), cookie('host', 'app.example.com', true), cookie('unrelated', 'evil.test', true), cookie('wrong-host', 'example.com', true), cookie('partitioned', '.example.com', false, { partitionKey: { topLevelSite: 'https://example.com' } })];
   const stores = [{ id: 'firefox-default' }, { id: 'firefox-container-2' }];
-  const context = vm.createContext({ URL, AbortSignal, Error, fetch: async (url, options) => {
+  const context = vm.createContext({ URL, AbortSignal, Error, TextEncoder, TextDecoder, crypto: globalThis.crypto, fetch: async (url, options) => {
     assert.equal(new URL(url).hostname, '127.0.0.1'); assert.equal(options.credentials, 'omit');
-    if (url.endsWith('/config')) return { ok: true, json: async () => ({ origins: ['https://app.example.com', 'https://denied.example.com'] }) };
-    sent.push(JSON.parse(options.body)); return { ok: true, json: async () => ({ accepted: 2, skipped: 1 }) };
+    if (url.endsWith('/config')) return bridgeReply(serverKey, options.method, url, options, { origins: ['https://app.example.com', 'https://denied.example.com'] });
+    sent.push(JSON.parse(new TextDecoder().decode(options.body))); return bridgeReply(serverKey, options.method, url, options, { accepted: 2, skipped: 1 });
   }, chrome: {
     storage: { local: { get: async () => state, set: async values => Object.assign(state, values) } },
     permissions: { contains: async ({ origins }) => !origins[0].includes('denied') },
@@ -26,6 +39,10 @@ test('companion requests only selected-site permissions and uses the loopback br
   assert.deepEqual(Array.from(result.missing), ['https://denied.example.com']);
   assert.equal(f.sent.length, 1); assert.equal(f.sent[0].origin, 'https://app.example.com');
   assert.equal(f.queried[0].storeId, 'firefox-container-2');
+});
+test('an endpoint that cannot prove the connection key receives no cookies', async () => {
+  const f = fixture('B'.repeat(64));
+  await assert.rejects(vm.runInContext('syncCookies()', f.context), /could not prove/); assert.equal(f.sent.length, 0);
 });
 test('snapshots retain cookie attributes, respect host-only scope, and retain partition markers', async () => {
   const f = fixture(); await vm.runInContext('syncCookies()', f.context);

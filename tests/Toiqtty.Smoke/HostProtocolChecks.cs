@@ -162,6 +162,9 @@ internal static class HostProtocolChecks
         try { Keybindings.ParseOverrides("copy = Ctrl+Shift+V"); } catch (FormatException) { duplicate = true; }
         check(duplicate, "settings reject shortcut collisions with existing actions");
         check(ShellIntegration.QuoteDroppedPaths("pwsh.exe", ["C:\\it's here.txt"]) == "'C:\\it''s here.txt' ", "dropped PowerShell paths preserve spaces and apostrophes");
+        check(ShellIntegration.QuoteDroppedPaths("pwsh.exe", ["C:\\x\u2019; calc #.txt"]) == "'C:\\x\u2019\u2019; calc #.txt' ", "dropped PowerShell paths keep typographic quotes literal");
+        check(ShellIntegration.QuoteDroppedPaths("pwsh.exe -File C:\\bash\\wsl.ps1", ["C:\\it's"]) == "'C:\\it''s' ", "shell quoting follows the launched program, not substrings of its arguments");
+        check(ShellIntegration.QuoteDroppedPaths("\"C:\\Program Files\\Git\\bin\\bash.exe\" -l", ["C:\\it's"]) == "'C:\\it'\\''s' ", "quoted POSIX shell paths use POSIX quoting");
         check(ShellIntegration.QuoteDroppedPaths("wsl.exe", ["D:\\some folder\\file.txt"]) == "'/mnt/d/some folder/file.txt' ", "WSL file drops translate drive paths before POSIX quoting");
         var html = WindowsClipboard.EncodeHtml("<b>café 中🙂</b>");
         check(Encoding.UTF8.GetString(WindowsClipboard.DecodeHtml(html)!) == "<b>café 中🙂</b>", "Windows HTML clipboard byte offsets preserve Unicode MIME fragments");

@@ -1,4 +1,4 @@
-toiqtty Browser Companion 0.3.0
+toiqtty Browser Companion 0.4.0
 
 Chromium browsers (Edge, Chrome, Brave, Vivaldi, and compatible browsers):
   1. Open the browser's Extensions page and enable Developer mode.
@@ -33,7 +33,9 @@ cookies, or device-bound session keys are transferred. Some sites require a
 fresh sign-in inside toiqtty even after cookies are copied. Cookie values are
 never logged or written to toiqtty configuration files. Connection tokens are
 protected with Windows DPAPI in toiqtty and kept in extension-local storage.
-The bridge binds to 127.0.0.1 and requires a connection token on every request.
+The bridge binds to 127.0.0.1. Every request is signed with the connection token
+without sending it, and the extension shares nothing with an endpoint that
+cannot prove it holds the same token.
 Each pairing code expires in ten minutes and can be used only once.
 
 Disconnect a profile in toiqtty to revoke its token. Previously copied cookies

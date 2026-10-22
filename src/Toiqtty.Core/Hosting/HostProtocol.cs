@@ -40,6 +40,12 @@ public sealed class HostRequest
     public HostNavigation? Navigation { get; set; }
     [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
     public Dictionary<string, int>? StateVersions { get; set; }
+    // Orders "create" against "sync" from the same frontend: a layout snapshot
+    // never removes a shell that frontend created after taking the snapshot.
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public string? LayoutEpoch { get; set; }
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
+    public long LayoutRevision { get; set; }
 }
 
 public sealed record HostNavigation(string? SelectedWorkspace, HostWorkspaceNavigation[] Workspaces);

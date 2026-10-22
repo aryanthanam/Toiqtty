@@ -817,7 +817,7 @@ struct OtrRenderer {
         uint32_t allocatedWidth=w,allocatedHeight=h;
         if(retainResizeCapacity && swapchain){allocatedWidth=(w+127u)&~127u;allocatedHeight=(h+127u)&~127u;}
         submit();gpu->idle();for(auto& work:submissions)work.retireCompleted(*gpu);
-        backbuffer=nullptr;for(auto& buffer:buffers)buffer.reset();immediate->ClearState();immediate->Flush();gpu->idle();
+        backbuffer=nullptr;width=height=0;for(auto& buffer:buffers)buffer.reset();immediate->ClearState();immediate->Flush();gpu->idle();
         if(!swapchain) {
             ComPtr<IDXGIFactory2> factory;check(CreateDXGIFactory2(0,IID_PPV_ARGS(&factory)));
             // The backing chain has pane lifetime, including alpha changes.
@@ -902,7 +902,7 @@ int32_t otr_begin_frame(OtrRenderer* r) {
     r->frameRecording=true;return S_OK;
 }
 int32_t otr_present(OtrRenderer* r) {
-    if(!r || !r->swapchain)return E_POINTER;r->frameRecording=false;HRESULT ready=otr_acquire_frame(r);if(ready!=S_OK)return ready;
+    if(!r || !r->swapchain)return E_POINTER;r->frameRecording=false;if(!r->backbuffer)return E_UNEXPECTED;HRESULT ready=otr_acquire_frame(r);if(ready!=S_OK)return ready;
     OTR_TRY {
         ProfileScope timer(r->gpu->profiling,r->profile.present_ticks);
         r->transition(r->backbuffer,D3D12_RESOURCE_STATE_PRESENT);r->execute();

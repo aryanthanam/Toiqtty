@@ -21,7 +21,7 @@ internal sealed class TerminalCanvasSurface : Grid, IDisposable
     private float _bufferWidth, _bufferHeight, _bufferDpi, _dpiScale = 1;
     private bool _queued, _suspended, _disposed, _resourcesNeeded = true, _compositionPending;
     private bool _queuedBulk;
-    private int _drawGeneration;
+    private int _drawGeneration, _drawFailures;
     internal long ImmediatePresentsForCheck, BulkPresentsForCheck;
     internal bool CompositionBulkForCheck { get; set; }
     internal bool ReserveResizeForCheck { get; set; } = true;
@@ -189,13 +189,21 @@ internal sealed class TerminalCanvasSurface : Grid, IDisposable
             // Let the compositor use the newest completed buffer without waiting
             // for a vsync on the WinUI input/layout thread.
             if (!_renderer.Present()) { _presentMisses++; Invalidate(false); return; }
-            _submittedFrames++;
+            _submittedFrames++; _drawFailures = 0;
             if (bulk) BulkPresentsForCheck++; else ImmediatePresentsForCheck++;
             Presented?.Invoke();
         }
         catch (Exception ex) when (_device is { } device && device.IsDeviceLost(ex.HResult))
         {
             _device.RaiseDeviceLost();
+        }
+        catch (Exception ex) when (ex is System.Runtime.InteropServices.COMException or InvalidOperationException or OverflowException or ArgumentException)
+        {
+            // One failing pane must not end the process and every session in it.
+            // Rebuild native presentation state and retry a bounded number of times.
+            if (_drawFailures++ == 0) System.Diagnostics.Debug.WriteLine(ex);
+            if (ex is System.Runtime.InteropServices.COMException) ResetDevice();
+            if (_drawFailures <= 3) Invalidate(false);
         }
     }
     private void DeviceLost(CanvasDevice sender, object args)

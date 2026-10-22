@@ -32,12 +32,28 @@ public static partial class ShellIntegration
 
     public static string QuoteDroppedPaths(string command, IEnumerable<string> paths)
     {
-        bool cmd = Path.GetFileName(command.TrimStart().TrimStart('"').Split(' ')[0].TrimEnd('"')).Equals("cmd.exe", StringComparison.OrdinalIgnoreCase);
-        bool wsl = command.Contains("wsl", StringComparison.OrdinalIgnoreCase);
-        bool posix = wsl || command.Contains("bash", StringComparison.OrdinalIgnoreCase) || command.Contains("zsh", StringComparison.OrdinalIgnoreCase);
+        string program = Path.GetFileNameWithoutExtension(CommandProgram(command)).ToLowerInvariant();
+        bool cmd = program == "cmd";
+        bool wsl = program == "wsl";
+        bool posix = wsl || program is "bash" or "zsh" or "sh";
         if (wsl) paths = paths.Select(path => path.Length >= 3 && char.IsAsciiLetter(path[0]) && path[1] == ':' && path[2] is '\\' or '/'
             ? "/mnt/" + char.ToLowerInvariant(path[0]) + path[2..].Replace('\\', '/') : path);
-        return string.Join(' ', paths.Select(path => cmd ? "\"" + path + "\"" : "'" + (posix ? path.Replace("'", "'\\''") : path.Replace("'", "''")) + "'")) + " ";
+        return string.Join(' ', paths.Select(path => cmd ? "\"" + path + "\"" : "'" + (posix ? path.Replace("'", "'\\''") : QuotePowerShellLiteral(path)) + "'")) + " ";
+    }
+    private static string CommandProgram(string command)
+    {
+        string text = command.TrimStart();
+        if (text.StartsWith('"')) { int end = text.IndexOf('"', 1); return end < 0 ? text[1..] : text[1..end]; }
+        int space = text.IndexOf(' ');
+        return space < 0 ? text : text[..space];
+    }
+    // PowerShell also ends single-quoted strings at ‘ ’ ‚ ‛; doubling each one
+    // keeps it literal, so a dropped file name cannot terminate the string.
+    private static string QuotePowerShellLiteral(string text)
+    {
+        var result = new System.Text.StringBuilder(text.Length + 2);
+        foreach (char c in text) { result.Append(c); if (c is '\'' or '‘' or '’' or '‚' or '‛') result.Append(c); }
+        return result.ToString();
     }
     public static string CreateEnvironmentBlock(IEnumerable<KeyValuePair<string, string>> inherited)
     {

@@ -59,13 +59,16 @@ public sealed partial class SessionHostServer
             {
                 _layout = layout;
                 var retained = layout.Workspaces.SelectMany(w => w.AllPanes()).Where(p => !p.IsBrowser).Select(p => p.Id).ToHashSet();
-                removed = _sessions.Keys.Where(id => !retained.Contains(id)).ToArray();
+                removed = _sessions.Where(pair => !retained.Contains(pair.Key) && !CreatedAfter(pair.Value, request)).Select(pair => pair.Key).ToArray();
             }
             foreach (string id in removed) Remove(id);
             return new();
         }
         finally { _layoutWrites.Release(); }
     }
+
+    private static bool CreatedAfter(Entry entry, HostRequest sync)
+        => sync.LayoutEpoch is not null && entry.CreatedEpoch == sync.LayoutEpoch && entry.CreatedRevision > sync.LayoutRevision;
 
     private async Task<HostReply> CreateAsync(HostRequest request)
     {
@@ -85,7 +88,7 @@ public sealed partial class SessionHostServer
                 if (request.Settings is not null) entry.Session.ApplySettings(request.Settings);
                 return new() { State = State(entry) };
             }
-            entry = new(new TerminalSession(request.Text, request.Directory, request.Settings));
+            entry = new(new TerminalSession(request.Text, request.Directory, request.Settings)) { CreatedEpoch = request.LayoutEpoch, CreatedRevision = request.LayoutRevision };
             var observed = entry;
             entry.Session.Attention += () => { Interlocked.Increment(ref observed.Attention); Volatile.Write(ref observed.PendingAttention, 1); };
             entry.Session.OutputChanged += () => OutputChanged(observed);

@@ -106,7 +106,7 @@ public sealed class RemoteTerminalSession : ITerminalSession
     {
         _client = client; _pane = pane;
         _input = new(SendQueuedRequest);
-        _state = client.Call(new() { Operation = "create", Pane = pane, Text = command, Directory = directory, Settings = settings, Layout = layout }).State
+        _state = client.Call(new() { Operation = "create", Pane = pane, Text = command, Directory = directory, Settings = settings, Layout = layout, LayoutEpoch = client.LayoutEpoch, LayoutRevision = client.NextLayoutRevision() }).State
             ?? throw new IOException("The session host did not return shell state.");
         var initialStatus = _state.Status ?? throw new IOException("The session host returned incomplete shell status.");
         _attention = _state.Attention; _notice = initialStatus.Notices.LastOrDefault()?.Time ?? default;

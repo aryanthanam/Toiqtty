@@ -177,25 +177,31 @@ public sealed class BrowserCookieBridge : IDisposable
                 if (headers.GetValueOrDefault("Host") != $"127.0.0.1:{Port}" || headers.ContainsKey("Transfer-Encoding") ||
                     (headers.TryGetValue("Origin", out string? origin) && !origin.StartsWith("chrome-extension://", StringComparison.Ordinal) && !origin.StartsWith("moz-extension://", StringComparison.Ordinal)))
                 { await Reply(stream, 403, new { error = "Extension requests only" }, timeout.Token).ConfigureAwait(false); return; }
-                string token = headers.GetValueOrDefault("Authorization", "");
-                if (!token.StartsWith("Bearer ", StringComparison.Ordinal)) { await Reply(stream, 401, new { error = "Unauthorized" }, timeout.Token).ConfigureAwait(false); return; }
-                token = token[7..];
+                // The token never crosses the socket: requests carry an HMAC over a
+                // fresh nonce, and every authenticated reply proves the same key
+                // back, so an impostor holding this port learns and receives nothing.
+                string[] authorization = headers.GetValueOrDefault("Authorization", "").Split(' ');
+                if (authorization is not [AuthScheme, var nonce, var mac] || !IsKeyHex(nonce) || !IsKeyHex(mac))
+                { await Reply(stream, 401, new { error = "Unauthorized" }, timeout.Token).ConfigureAwait(false); return; }
+                string signed = RequestText(request[0], request[1], nonce, body);
                 BrowserSource? source;
-                bool pairing;
+                string pairingKey = "";
                 lock (_gate)
                 {
-                    pairing = request[1] == "/pair" && _pairingToken.Length > 0 && _pairingExpires > DateTimeOffset.UtcNow && Equal(token, _pairingToken);
-                    source = _registry.Sources.FirstOrDefault(s => Equal(token, s.Token));
+                    if (request[1] == "/pair" && _pairingToken.Length > 0 && _pairingExpires > DateTimeOffset.UtcNow && Equal(mac, Mac(_pairingToken, signed))) pairingKey = _pairingToken;
+                    source = _registry.Sources.FirstOrDefault(s => Equal(mac, Mac(s.Token, signed)));
                 }
+                bool pairing = pairingKey.Length > 0;
                 if (!pairing && source is null) { await Reply(stream, 401, new { error = "Connection expired or revoked" }, timeout.Token).ConfigureAwait(false); return; }
+                var proof = (Key: pairing ? pairingKey : source!.Token, Nonce: nonce);
                 if (request[0] == "GET" && request[1] == "/config" && source is not null)
                 {
                     string[] sites; lock (_gate) sites = source.Origins.ToArray();
-                    await Reply(stream, 200, new { sourceId = source.Id, origins = sites }, timeout.Token).ConfigureAwait(false); return;
+                    await Reply(stream, 200, new { sourceId = source.Id, origins = sites }, timeout.Token, proof).ConfigureAwait(false); return;
                 }
                 if (request[0] != "POST" || !int.TryParse(headers.GetValueOrDefault("Content-Length"), out int size) || size is < 2 or > 2097152 ||
                     !headers.GetValueOrDefault("Content-Type", "").StartsWith("application/json", StringComparison.OrdinalIgnoreCase))
-                { await Reply(stream, 400, new { error = "Expected a bounded JSON request" }, timeout.Token).ConfigureAwait(false); return; }
+                { await Reply(stream, 400, new { error = "Expected a bounded JSON request" }, timeout.Token, proof).ConfigureAwait(false); return; }
                 using var document = JsonDocument.Parse(body);
                 if (request[1] == "/pair" && pairing)
                 {
@@ -203,15 +209,15 @@ public sealed class BrowserCookieBridge : IDisposable
                     if (name.Length is < 1 or > 100) throw new ArgumentException("Enter a browser profile name.");
                     lock (_gate)
                     {
-                        if (_registry.Sources.Count >= 64 || !Equal(token, _pairingToken)) throw new ArgumentException("Pairing is unavailable.");
+                        if (_registry.Sources.Count >= 64 || !Equal(pairingKey, _pairingToken)) throw new ArgumentException("Pairing is unavailable.");
                         string secret = Convert.ToHexString(RandomNumberGenerator.GetBytes(32));
                         source = new() { Name = name, Token = secret, ProtectedToken = BrowserSecret.Protect(secret) };
                         _registry.Sources.Add(source); _pairingToken = ""; Save();
                     }
                     SourcesChanged?.Invoke();
-                    await Reply(stream, 200, new { sourceId = source.Id, token = source.Token }, timeout.Token).ConfigureAwait(false); return;
+                    await Reply(stream, 200, new { sourceId = source.Id, token = source.Token }, timeout.Token, proof).ConfigureAwait(false); return;
                 }
-                if (request[1] != "/cookies" || source is null) { await Reply(stream, 404, new { error = "Unknown endpoint" }, timeout.Token).ConfigureAwait(false); return; }
+                if (request[1] != "/cookies" || source is null) { await Reply(stream, 404, new { error = "Unknown endpoint" }, timeout.Token, proof).ConfigureAwait(false); return; }
                 string site = BrowserAddress.Origin(document.RootElement.GetProperty("origin").GetString() ?? "");
                 var cookies = document.RootElement.GetProperty("cookies").Deserialize<SharedCookie[]>(Json) ?? [];
                 if (cookies.Length > 4096) throw new ArgumentException("Too many cookies.");
@@ -227,7 +233,7 @@ public sealed class BrowserCookieBridge : IDisposable
                     _latest[(source.Id, site)] = snapshot; source.LastSync = DateTimeOffset.UtcNow;
                 }
                 CookiesReceived?.Invoke(snapshot);
-                await Reply(stream, 200, new { accepted = snapshot.Cookies.Length, skipped }, timeout.Token).ConfigureAwait(false);
+                await Reply(stream, 200, new { accepted = snapshot.Cookies.Length, skipped }, timeout.Token, proof).ConfigureAwait(false);
             }
             catch (Exception ex) when (ex is ArgumentException or JsonException or KeyNotFoundException or InvalidOperationException or NullReferenceException)
             {
@@ -239,10 +245,20 @@ public sealed class BrowserCookieBridge : IDisposable
         }
     }
     private static bool Equal(string a, string b) => a.Length == b.Length && CryptographicOperations.FixedTimeEquals(Encoding.UTF8.GetBytes(a), Encoding.UTF8.GetBytes(b));
-    private static async Task Reply(NetworkStream stream, int status, object body, CancellationToken token)
+    internal const string AuthScheme = "Toiqtty-HMAC";
+    private static bool IsKeyHex(string value) => value.Length == 64 && value.All(c => char.IsAsciiDigit(c) || c is >= 'A' and <= 'F');
+    private static string Mac(string key, string text) => Convert.ToHexString(HMACSHA256.HashData(Encoding.UTF8.GetBytes(key), Encoding.UTF8.GetBytes(text)));
+    private static string RequestText(string method, string path, string nonce, byte[] body)
+        => $"toiqtty-bridge-v2 request\n{method} {path}\n{nonce}\n{Convert.ToHexString(SHA256.HashData(body))}";
+    internal static string RequestAuthorization(string key, string method, string path, string nonce, byte[] body)
+        => $"{AuthScheme} {nonce} {Mac(key, RequestText(method, path, nonce, body))}";
+    internal static string ResponseProof(string key, string nonce, int status, byte[] body)
+        => Mac(key, $"toiqtty-bridge-v2 response\n{nonce}\n{status}\n{Convert.ToHexString(SHA256.HashData(body))}");
+    private static async Task Reply(NetworkStream stream, int status, object body, CancellationToken token, (string Key, string Nonce)? proof = null)
     {
         byte[] bytes = JsonSerializer.SerializeToUtf8Bytes(body, Json);
-        byte[] header = Encoding.ASCII.GetBytes($"HTTP/1.1 {status} Response\r\nContent-Type: application/json\r\nContent-Length: {bytes.Length}\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n");
+        string signature = proof is { } signer ? $"X-Toiqtty-Proof: {ResponseProof(signer.Key, signer.Nonce, status, bytes)}\r\n" : "";
+        byte[] header = Encoding.ASCII.GetBytes($"HTTP/1.1 {status} Response\r\nContent-Type: application/json\r\nContent-Length: {bytes.Length}\r\n{signature}Cache-Control: no-store\r\nConnection: close\r\n\r\n");
         await stream.WriteAsync(header, token).ConfigureAwait(false); await stream.WriteAsync(bytes, token).ConfigureAwait(false);
     }
     public void Dispose() { _stop.Cancel(); _listener.Stop(); }

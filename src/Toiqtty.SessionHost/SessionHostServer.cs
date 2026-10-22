@@ -23,6 +23,8 @@ public sealed partial class SessionHostServer(string folder) : IAsyncDisposable
         public bool RenderHeld;
         public long OutputRevision;
         public TaskCompletionSource? OutputPulse;
+        public string? CreatedEpoch;
+        public long CreatedRevision;
     }
     private readonly Lock _gate = new();
     private readonly Dictionary<string, Entry> _sessions = [];
@@ -69,8 +71,18 @@ public sealed partial class SessionHostServer(string folder) : IAsyncDisposable
             while (!_stop.IsCancellationRequested)
             {
                 await _connections.WaitAsync(_stop.Token);
-                var pipe = new NamedPipeServerStream(HostProtocol.PipeName(_folder), PipeDirection.InOut, 32, PipeTransmissionMode.Byte,
-                    PipeOptions.Asynchronous | PipeOptions.CurrentUserOnly);
+                NamedPipeServerStream pipe;
+                try
+                {
+                    pipe = new NamedPipeServerStream(HostProtocol.PipeName(_folder), PipeDirection.InOut, 32, PipeTransmissionMode.Byte,
+                        PipeOptions.Asynchronous | PipeOptions.CurrentUserOnly);
+                }
+                catch (IOException ex)
+                {
+                    // Transport exhaustion must never end the shells this host owns.
+                    _connections.Release(); Interlocked.Increment(ref _transportAcceptRetries); LogFault(ex);
+                    await Task.Delay(50, _stop.Token); continue;
+                }
                 if (readyName is not null)
                 {
                     // A frontend may have exited while the child was loading.
@@ -86,7 +98,12 @@ public sealed partial class SessionHostServer(string folder) : IAsyncDisposable
                     // acceptance. That connection owns no session or request.
                     pipe.Dispose(); _connections.Release(); Interlocked.Increment(ref _transportAcceptRetries); continue;
                 }
-                catch { pipe.Dispose(); _connections.Release(); throw; }
+                catch (OperationCanceledException) when (_stop.IsCancellationRequested) { pipe.Dispose(); _connections.Release(); throw; }
+                catch (Exception ex)
+                {
+                    pipe.Dispose(); _connections.Release(); Interlocked.Increment(ref _transportAcceptRetries); LogFault(ex);
+                    await Task.Delay(50, _stop.Token); continue;
+                }
                 // Async handlers can run synchronously through ready I/O into
                 // native resize/capture work. Do not stall new pipe acceptance
                 // behind that work; the existing connection limit still bounds it.
@@ -103,6 +120,19 @@ public sealed partial class SessionHostServer(string folder) : IAsyncDisposable
         }
     }
     private async Task Handle(NamedPipeServerStream pipe)
+    {
+        // Release the slot only after the pipe instance is closed, so the accept
+        // loop never creates an instance beyond the pipe's instance limit.
+        try { await HandleConnection(pipe); }
+        catch (Exception ex) { LogFault(ex); }
+        finally { _connections.Release(); }
+    }
+    private void LogFault(Exception ex)
+    {
+        try { File.AppendAllText(Path.Combine(_folder, "host-error.log"), DateTimeOffset.Now + " " + ex + Environment.NewLine); }
+        catch (Exception logError) when (logError is IOException or UnauthorizedAccessException) { }
+    }
+    private async Task HandleConnection(NamedPipeServerStream pipe)
     {
         await using (pipe)
         using (var deadline = CancellationTokenSource.CreateLinkedTokenSource(_stop.Token))
@@ -161,7 +191,6 @@ public sealed partial class SessionHostServer(string folder) : IAsyncDisposable
                 // the host after the already-authorized shutdown is processed.
                 if (shutdownReply && Interlocked.Decrement(ref _shutdownReplies) == 0) _stop.Cancel();
                 if (persistentRead) _persistentReads.Release();
-                _connections.Release();
             }
         }
     }
