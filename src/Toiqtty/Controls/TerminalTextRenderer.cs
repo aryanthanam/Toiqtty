@@ -17,6 +17,15 @@ internal sealed class TerminalTextRenderer : IDisposable
     private readonly Dictionary<(string, uint, string), DirectXRenderer.TextLayoutHandle> _nativeLayouts = [];
     private readonly Queue<(string, uint, string)> _nativeLayoutOrder = [];
     private readonly Dictionary<uint, DirectXRenderer.TextFormatHandle> _nativeFormats = [];
+    private readonly Queue<DirectXRenderer.TextFormatHandle> _warmFormats = [];
+    internal bool WarmPending => _warmFormats.Count > 0;
+    internal long WarmedGlyphsForCheck { get; private set; }
+    /// <summary>Called between frames: caches each new font's ASCII glyphs before they are typed.</summary>
+    internal void WarmGlyphs(float dpi)
+    {
+        while (_gpu is { } gpu && _warmFormats.TryDequeue(out var format))
+            if (!format.IsClosed) WarmedGlyphsForCheck += gpu.WarmAsciiGlyphs(format, dpi);
+    }
     private DirectXRenderer.FontFeature[]? _nativeFeaturesOn, _nativeFeaturesOff;
     private bool _nativeLayoutMode;
     private bool _asciiShapeMode;
@@ -244,7 +253,7 @@ internal sealed class TerminalTextRenderer : IDisposable
             if (_nativeFormats.TryGetValue(style, out var existing)) return existing;
             var font = format(style); using var probe = new CanvasTextLayout(resource, "M", font, 1000, cellHeight);
             SetLineMetrics(probe, resource, font, cellHeight, style);
-            var created = _gpu!.CreateTerminalFormat(probe); _nativeFormats.Add(style, created); return created;
+            var created = _gpu!.CreateTerminalFormat(probe); _nativeFormats.Add(style, created); _warmFormats.Enqueue(created); return created;
         }
         void Decorate(in TerminalCell cell, float x, float y)
         {
@@ -278,7 +287,7 @@ internal sealed class TerminalTextRenderer : IDisposable
         foreach (var layout in _layouts.Values) { _gpu?.ForgetTextLayout(layout); layout.Dispose(); }
         foreach (var layout in _nativeLayouts.Values) { _gpu?.ForgetTextLayout(layout); layout.Dispose(); }
         foreach (var shape in _asciiShapes.Values) shape.Dispose(); _asciiShapes.Clear(); _asciiShapeOrder.Clear(); _asciiShapeBytes = 0;
-        foreach (var probe in _nativeFormats.Values) probe.Dispose();
+        foreach (var probe in _nativeFormats.Values) probe.Dispose(); _warmFormats.Clear();
         _nativeLayouts.Clear(); _nativeLayoutOrder.Clear(); _nativeFormats.Clear(); _nativeFeaturesOn = _nativeFeaturesOff = null;
         _gpu = null; _layouts.Clear(); _layoutOrder.Clear(); _baselines.Clear();
         _asciiText = null;

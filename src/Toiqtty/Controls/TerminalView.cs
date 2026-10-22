@@ -77,6 +77,8 @@ public sealed partial class TerminalView : Grid, IDisposable
     private readonly ITerminalSession? _session;
     private readonly Hosting.RemoteTerminalSession? _remote;
     private readonly Microsoft.UI.Dispatching.DispatcherQueue _viewDispatcher;
+    private bool _warmQueued;
+    internal long WarmedGlyphsForCheck => _textRenderer.WarmedGlyphsForCheck;
     private bool _viewAttached;
     private volatile bool _renderSuspended;
     private readonly bool _traceLifecycle = Environment.GetEnvironmentVariable("TOIQTTY_VIEW_LIFECYCLE_TRACE") == "1";
@@ -167,7 +169,7 @@ public sealed partial class TerminalView : Grid, IDisposable
     internal void SetPresentationPolicyForCheck(uint latency, uint interval) { _canvas.FrameLatencyForCheck = latency; _canvas.PresentIntervalForCheck = interval; _canvas.Invalidate(); }
     internal DirectXRenderer.AtlasBuckets NativeAtlasBucketsForCheck => _canvas.Renderer.AtlasBucketsForCheck;
     internal void SetPresentationModesForCheck(bool expanded, bool compositionRetry, bool nativeLayouts = false, bool compositionBulk = false)
-    { _canvas.Renderer.SetQuadModeForCheck(expanded); _canvas.CompositionRetryForCheck = compositionRetry; _textRenderer.UseNativeLayouts = nativeLayouts; _canvas.CompositionBulkForCheck = compositionBulk; }
+    { _canvas.Renderer.SetQuadModeForCheck(expanded); _canvas.CompositionRetryForCheck = compositionRetry; _textRenderer.UseNativeLayouts = nativeLayouts; _canvas.PaceBulkFrames = compositionBulk || _settings.FramePacing; }
     internal bool InputHasFocus => _input.FocusState != FocusState.Unfocused;
     internal bool IsComposing => _composing;
     internal event Action<string, string>? ValidationObserved;
@@ -296,6 +298,17 @@ public sealed partial class TerminalView : Grid, IDisposable
         {
             if (_presentedRows != RowsPainted) { _presentedRows = RowsPainted; TextPresentationsForCheck++; }
             TraceLatency("present-return"); FramePaintedForCheck?.Invoke();
+            if (_textRenderer.WarmPending && !_warmQueued)
+            {
+                // After the frame is visible, never ahead of input or output frames.
+                _warmQueued = _viewDispatcher.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () =>
+                {
+                    _warmQueued = false;
+                    if (_disposed || !_canvas.ReadyToDraw) return;
+                    try { _textRenderer.WarmGlyphs(_canvas.Dpi); }
+                    catch (System.Runtime.InteropServices.COMException ex) { System.Diagnostics.Debug.WriteLine(ex); }
+                });
+            }
         };
         _canvas.CreateResources += () => { if (_disposed) return; ResourceGenerations++; _wallpaper?.ForgetDevice(_canvas.Device); RecreateRenderResources(); };
         _canvas.SizeChanged += (_, _) => ResizeTerminal();
@@ -488,6 +501,7 @@ public sealed partial class TerminalView : Grid, IDisposable
         var padding = _settings.Appearance.Padding;
         _surface.Padding = new Thickness(padding.Left, padding.Top, padding.Right, padding.Bottom);
         _canvas.Transparent = _settings.Window.Backdrop != "none" && _settings.Window.BackgroundOpacity < 1;
+        _canvas.PaceBulkFrames = _settings.FramePacing;
         _canvas.Opacity = _focused ? 1 : _settings.Appearance.InactivePaneOpacity;
         foreach (var format in _formats.Values) format.Dispose();
         ClearCursorGlyphs();

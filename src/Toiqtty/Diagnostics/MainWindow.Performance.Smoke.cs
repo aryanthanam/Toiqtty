@@ -281,7 +281,12 @@ public sealed partial class MainWindow
         string token = Guid.NewGuid().ToString("N")[..6], prefix = "PONG_" + token + "_";
         long origin = Stopwatch.GetTimestamp(), hostTicks = 0, drawBegin = 0, drawEnd = 0; int draws = 0;
         var presented = new TaskCompletionSource<(long Present, long ReadUs, long WriteUs, long DrawBegin, long DrawEnd, int Draws)>(TaskCreationOptions.RunContinuationsAsynchronously);
-        void Stage(string stage, long ticks) { if (stage == "draw-begin") { drawBegin = ticks; draws++; } else if (stage == "draw-end") drawEnd = ticks; }
+        var stages = Environment.GetEnvironmentVariable("TOIQTTY_LATENCY_STAGES") == "1" ? new List<(string Stage, double Ms)>() : null;
+        void Stage(string stage, long ticks)
+        {
+            if (stage == "draw-begin") { drawBegin = ticks; draws++; } else if (stage == "draw-end") drawEnd = ticks;
+            if (stages is not null) lock (stages) stages.Add((stage, Stopwatch.GetElapsedTime(origin, ticks).TotalMilliseconds));
+        }
         void State(ShellState state, long ticks) { if (state.Title == "PING_" + token) Interlocked.CompareExchange(ref hostTicks, ticks, 0); }
         void Painted()
         {
@@ -292,10 +297,20 @@ public sealed partial class MainWindow
                 && long.TryParse(fields[1], NumberStyles.HexNumber, CultureInfo.InvariantCulture, out long write)) presented.TrySetResult((ticks, read, write, drawBegin, drawEnd, draws));
         }
         shell.StateObservedForCheck += State; view.FramePaintedForCheck += Painted; view.LatencyStageForCheck += Stage;
+        if (stages is not null) shell.LatencyStageForCheck += Stage;
+        var statsBefore = stages is not null ? view.NativeRenderStatsForCheck : default;
+        var profileBefore = stages is not null ? view.NativeRenderProfileForCheck : default;
         try
         {
             shell.Paste("ping2 " + token + " " + origin); shell.Key(13, 0);
             var (Present, ReadUs, WriteUs, DrawBegin, DrawEnd, Draws) = await WaitForProbePresentation(presented.Task);
+            if (stages is not null) lock (stages)
+                File.AppendAllText(Path.Combine(SessionStore.Folder, "latency-stages.jsonl"), JsonSerializer.Serialize(new {
+                    pane = view.PaneId, presentMs = Stopwatch.GetElapsedTime(origin, Present).TotalMilliseconds, readMs = ReadUs / 1000d, writeMs = WriteUs / 1000d,
+                    hostStateMs = hostTicks == 0 ? (double?)null : Stopwatch.GetElapsedTime(origin, hostTicks).TotalMilliseconds,
+                    atlasHits = view.NativeRenderStatsForCheck.AtlasHits - statsBefore.AtlasHits, atlasMisses = view.NativeRenderStatsForCheck.AtlasMisses - statsBefore.AtlasMisses,
+                    rasterTransfers = view.NativeRenderProfileForCheck.RasterTransfers - profileBefore.RasterTransfers, fenceWaits = view.NativeRenderProfileForCheck.FenceWaits - profileBefore.FenceWaits,
+                    stages = stages.Select(s => new { s.Stage, s.Ms }) }) + Environment.NewLine);
             return new(view.PaneId, ReadUs / 1000d, WriteUs / 1000d, hostTicks == 0 ? null : Stopwatch.GetElapsedTime(origin, hostTicks).TotalMilliseconds,
                 Stopwatch.GetElapsedTime(origin, Present).TotalMilliseconds, Stopwatch.GetElapsedTime(origin).TotalMilliseconds,
                 Stopwatch.GetElapsedTime(origin, DrawBegin).TotalMilliseconds, Stopwatch.GetElapsedTime(DrawBegin, DrawEnd).TotalMilliseconds, Draws, origin, DrawBegin, Present);
@@ -323,7 +338,7 @@ public sealed partial class MainWindow
             }, new JsonSerializerOptions { WriteIndented = true }));
             throw;
         }
-        finally { shell.StateObservedForCheck -= State; view.FramePaintedForCheck -= Painted; view.LatencyStageForCheck -= Stage; }
+        finally { shell.StateObservedForCheck -= State; view.FramePaintedForCheck -= Painted; view.LatencyStageForCheck -= Stage; if (stages is not null) shell.LatencyStageForCheck -= Stage; }
     }
     private static object Distribution(IEnumerable<double> source)
     {

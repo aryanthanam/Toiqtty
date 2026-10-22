@@ -23,7 +23,10 @@ internal sealed class TerminalCanvasSurface : Grid, IDisposable
     private bool _queuedBulk;
     private int _drawGeneration, _drawFailures;
     internal long ImmediatePresentsForCheck, BulkPresentsForCheck;
-    internal bool CompositionBulkForCheck { get; set; }
+    /// <summary>Output-driven redraws wait for the compositor tick (at most one per display
+    /// refresh). Input-driven redraws are never delayed. Off by default: unpaced output
+    /// redraws as soon as each frame is ready, at a higher CPU cost.</summary>
+    internal bool PaceBulkFrames { get; set; }
     internal bool ReserveResizeForCheck { get; set; } = true;
     internal uint FrameLatencyForCheck = 2, PresentIntervalForCheck;
     internal bool CompositionPendingForCheck => _compositionPending;
@@ -86,7 +89,7 @@ internal sealed class TerminalCanvasSurface : Grid, IDisposable
             // Opaque presentation already has a DXGI readiness event. Do not
             // add an unrelated XAML display tick before admitting its work.
             // Drawing surfaces have no DXGI present and retain their cadence.
-            if (!CompositionBulkForCheck && !_transparent && Opacity == 1)
+            if (!PaceBulkFrames && !_transparent && Opacity == 1)
             { CancelComposition(); QueueDraw(true, DispatcherQueuePriority.Low); return; }
             QueueComposition();
             return;

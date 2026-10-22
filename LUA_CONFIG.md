@@ -41,6 +41,7 @@ Return exactly one table. Conditions, functions, loops, math, strings, tables, b
 | `scrolling` | table | Wheel speed for history and mouse-reporting apps, and optional reverse direction |
 | `restore_sessions` | boolean | Legacy compatibility option; does not replay closed sessions |
 | `ligatures` | boolean | Terminal font ligatures |
+| `frame_pacing` | boolean | Redraw output at most once per display refresh to save CPU during heavy output (default `false`). Responses to typing are never delayed |
 | `desktop_notifications` | boolean | Background terminal notifications |
 | `allow_clipboard_read` / `allow_clipboard_write` | boolean | Existing application clipboard policies |
 | `allow_image_files` | boolean | Kitty graphics file transfers (default `true`). Any program, including one on a remote host, can display a local file you can read; set `false` to allow only direct and temp-file images |

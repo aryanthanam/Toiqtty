@@ -193,6 +193,12 @@ internal sealed unsafe class DirectXRenderer : IDisposable
         GC.KeepAlive(probe); Check(result); return new(format);
     }
     internal static bool AsciiShapesAvailable => Native.AsciiShapeAvailable() != 0;
+    /// <summary>Rasterizes a format's printable ASCII into the atlas between frames.</summary>
+    internal uint WarmAsciiGlyphs(TextFormatHandle format, float dpi)
+    {
+        int result = Native.AsciiWarm(_handle, format, dpi, out uint warmed);
+        Check(result); return warmed;
+    }
     internal bool TryPrepareAsciiText(TextFormatHandle format, ReadOnlySpan<byte> text, FontFeature[] features)
     {
         fixed (byte* textData = text)
@@ -324,6 +330,7 @@ internal sealed unsafe class DirectXRenderer : IDisposable
         [DllImport(Dll, EntryPoint = "otr_presentation_policy_for_check", CallingConvention = CallingConvention.Cdecl)] internal static extern int PresentationPolicyForCheck(RendererHandle r, uint latency, uint interval);
         [DllImport(Dll, EntryPoint = "otr_ascii_shape_available", CallingConvention = CallingConvention.Cdecl)] internal static extern int AsciiShapeAvailable();
         [DllImport(Dll, EntryPoint = "otr_ascii_prepare_utf8", CallingConvention = CallingConvention.Cdecl)] internal static extern int AsciiPrepare(TextFormatHandle format, byte* text, uint length, FontFeature* features, uint featureCount);
+        [DllImport(Dll, EntryPoint = "otr_ascii_warm", CallingConvention = CallingConvention.Cdecl)] internal static extern int AsciiWarm(RendererHandle r, TextFormatHandle format, float dpi, out uint warmed);
         [DllImport(Dll, EntryPoint = "otr_ascii_draw_prepared", CallingConvention = CallingConvention.Cdecl)] internal static extern int AsciiDrawPrepared(RendererHandle r, TextFormatHandle format, float cellWidth, float x, float y, uint color);
         [DllImport(Dll, EntryPoint = "otr_ascii_shape", CallingConvention = CallingConvention.Cdecl)] internal static extern int AsciiShape(RendererHandle r, TextFormatHandle format, char* text, uint length, FontFeature* features, uint featureCount, float cellWidth, out nint shape, out ulong bytes);
         [DllImport(Dll, EntryPoint = "otr_ascii_shape_draw", CallingConvention = CallingConvention.Cdecl)] internal static extern int AsciiShapeDraw(RendererHandle r, TextShapeHandle shape, float x, float y, uint color);

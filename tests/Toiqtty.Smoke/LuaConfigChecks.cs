@@ -95,6 +95,9 @@ internal static class LuaConfigChecks
         check(result.Settings.FontSize==14 && result.Settings.AllowClipboardRead && result.Overrides.Length==0,"removing a config restores the underlying preferences rather than stale Lua overrides");
         result = await Load("return {startup={mode='replace_saved',sessions={{name='Fresh',tabs={{shell='cmd.exe'}}}}}}");
         check(result.Error is null && result.ReplaceSavedStartup,"cold startup layout replacement is an explicit Lua option");
+        var pacing = await Load("return { frame_pacing = true, allow_image_files = false }");
+        check(pacing.Error is null && pacing.Settings.FramePacing && !pacing.Settings.AllowImageFiles
+            && pacing.Overrides.Contains("FramePacing") && pacing.Overrides.Contains("AllowImageFiles"), "Lua sets frame pacing and image-file transfers and owns those preferences");
         result = await Load("local c={}; for i=1,2 do c.font_size=14+i end; if os.getenv('USERPROFILE') then c.ligatures=false end; return c");
         check(result.Error is null && result.Settings.FontSize==16 && !result.Settings.Ligatures,"Lua supports loops, conditions, and environment lookups");
         result = await Load("assert(io==nil and os.execute==nil and os.exit==nil and dofile==nil and loadfile==nil); return {}");

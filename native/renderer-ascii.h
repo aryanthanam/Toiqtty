@@ -86,6 +86,22 @@ int32_t otr_ascii_prepare_utf8(OtrTerminalFormat* format,const uint8_t* text,uin
     (void)length;return S_FALSE;
 #endif
 }
+int32_t otr_ascii_warm(OtrRenderer* r,OtrTerminalFormat* format,float dpi,uint32_t* warmed) {
+    if(!r || !format || !warmed)return E_POINTER;
+    *warmed=0;
+    if(r->active || r->frameRecording)return E_UNEXPECTED;
+    if(!std::isfinite(dpi) || dpi<=0)return E_INVALIDARG;
+#ifdef TOIQTTY_HARFBUZZ
+    if(!format->asciiFace)return S_FALSE;
+    OTR_TRY {
+        UINT32 characters[94];UINT16 glyphs[94];for(UINT32 i=0;i<94;i++)characters[i]=33+i;
+        check(format->asciiFace->GetGlyphIndices(characters,94,glyphs));
+        *warmed=r->warmGlyphs(format->asciiFace.Get(),format->asciiEm,dpi,0,glyphs,94);
+    } OTR_CATCH;
+#else
+    return S_FALSE;
+#endif
+}
 int32_t otr_ascii_draw_prepared(OtrRenderer* r,OtrTerminalFormat* format,float cellWidth,float x,float y,uint32_t argb) {
     if(!r || !format || !r->active)return E_UNEXPECTED;
     if(!std::isfinite(cellWidth) || cellWidth<=0)return E_INVALIDARG;

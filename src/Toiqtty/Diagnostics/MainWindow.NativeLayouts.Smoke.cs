@@ -8,6 +8,45 @@ namespace Toiqtty;
 
 public sealed partial class MainWindow
 {
+    private static void CheckAsciiGlyphWarmup(Action<bool, string> check)
+    {
+        if (!DirectXRenderer.AsciiShapesAvailable) return;
+        var device = CanvasDevice.GetSharedDevice();
+        TerminalCell[] Cells(string text)
+        {
+            using var terminal = new GhosttyTerminal(100, 2); var cells = new TerminalCell[200];
+            byte[] input = System.Text.Encoding.UTF8.GetBytes(text); terminal.Write(input, input.Length); _ = terminal.ReadSnapshot(cells); return cells;
+        }
+        var primer = Cells("........");
+        var cells = Cells("The quick brown fox jumps over the lazy dog 0123456789 ~!@#$%^&*()_+{}|:<>?\r\nPONG_3fa9c1_1F4_2A3 [x] => ok `'\"-=;,/\\");
+        foreach (float dpi in new[] { 96f, 168f })
+        {
+            using var font = new CanvasTextFormat { FontFamily = TerminalFont.Resolve(TerminalFont.BundledFamily, 0), FontSize = 14, WordWrapping = CanvasWordWrapping.NoWrap };
+            byte[] Render(bool warm, out long warmed, out ulong misses)
+            {
+                using var gpu = new DirectXRenderer(device);
+                using var text = new TerminalTextRenderer { UseNativeLayouts = true, UseAsciiShapes = true, UseStreamedAscii = true };
+                using var target = new CanvasRenderTarget(device, 1000, 48, dpi);
+                void Draw(TerminalCell[] source, int rows)
+                {
+                    using var drawing = gpu.CreateDrawingSession(target); drawing.Clear(Microsoft.UI.Colors.Transparent);
+                    // Terminal cells are whole physical pixels, as TerminalView measures them.
+                    float cell = MathF.Round(10 * dpi / 96) * 96 / dpi;
+                    for (int row = 0; row < rows; row++) text.DrawRow(target, drawing, source, row, 100, cell, 24, _ => font, false, true, null, (_, _, _, _, _, _) => { });
+                }
+                Draw(primer, 1);
+                if (warm) text.WarmGlyphs(dpi);
+                ulong before = gpu.GetStats().AtlasMisses;
+                Draw(cells, 2);
+                misses = gpu.GetStats().AtlasMisses - before; warmed = text.WarmedGlyphsForCheck;
+                return target.GetPixelBytes();
+            }
+            var lazy = Render(false, out _, out ulong lazyMisses);
+            var warmedPixels = Render(true, out long warmedCount, out ulong warmMisses);
+            check(lazy.SequenceEqual(warmedPixels), $"Warmed ASCII glyphs render pixels identical to on-demand rasterization at {dpi} DPI");
+            check(warmedCount >= 80 && lazyMisses >= 20 && warmMisses * 10 <= lazyMisses, $"Warming caches printable ASCII so first use avoids at least 90% of rasterization at {dpi} DPI (warmed {warmedCount}, misses {warmMisses} vs {lazyMisses} lazy)");
+        }
+    }
     private static async Task CheckNativeTerminalLayouts(Action<bool, string> check, bool asciiShapes = false, bool streamed = false)
     {
         var device = CanvasDevice.GetSharedDevice(); using var gpu = new DirectXRenderer(device);

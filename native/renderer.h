@@ -93,6 +93,8 @@ OTR_API void otr_ascii_shape_release(OtrTerminalShape*);
 OTR_API int32_t otr_ascii_shape_available(void);
 OTR_API int32_t otr_ascii_prepare_utf8(OtrTerminalFormat*,const uint8_t* text,uint32_t length,const OtrFontFeature* features,uint32_t feature_count);
 OTR_API int32_t otr_ascii_draw_prepared(OtrRenderer*,OtrTerminalFormat*,float cell_width,float x,float y,uint32_t argb);
+/* Rasterizes the format's printable ASCII glyphs into the atlas between frames. */
+OTR_API int32_t otr_ascii_warm(OtrRenderer*,OtrTerminalFormat*,float dpi,uint32_t* warmed);
 OTR_API int32_t otr_terminal_layout(OtrRenderer*, OtrTerminalFormat*,
     const uint16_t* text,uint32_t text_length,const uint16_t* widths,uint32_t widths_length,
     const OtrFontFeature* features,uint32_t feature_count,float cell_width,float cell_height,float advance,

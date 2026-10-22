@@ -31,6 +31,7 @@ public sealed partial class MainWindow
                 await CheckNativeTerminalLayouts(Check);
                 if (DirectXRenderer.AsciiShapesAvailable) { await CheckNativeTerminalLayouts(Check, true); await CheckAsciiShapeFonts(Check); await CheckNativeTerminalLayouts(Check, true, true); await CheckAsciiShapeFonts(Check, true); await CheckStreamedAsciiDecorations(Check); }
                 CheckAtlasHashing(Check);
+                CheckAsciiGlyphWarmup(Check);
                 CheckTerminalTextLifetimes(Check);
                 CheckDirectX12Ownership(Check);
                 CheckDirectX12FrameBatch(Check);

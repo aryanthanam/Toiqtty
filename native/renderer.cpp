@@ -605,11 +605,14 @@ struct OtrRenderer {
         }
     };
     void glyph(IDWriteFontFace* face,float em,UINT16 index,float x,float y,uint32_t argb) {
-        float scale=current->dpi/96,physicalX=x*scale,physicalY=y*scale;
+        float scale=current->dpi/96;
+        // Snap to the 1/64-pixel phase grid first, so a position like 35.9999 is pixel 36
+        // at phase 0 rather than pixel 35 at phase 1 (a duplicate atlas entry).
+        float physicalX=std::round(x*scale*64)/64,physicalY=std::round(y*scale*64)/64;
         // DirectWrite positions are preserved to 1/64 physical pixel, the same
         // precision used by its outline rasterizer. Integer translation shares
         // one atlas glyph across rows and colors.
-        float phaseX=std::round((physicalX-std::floor(physicalX))*64)/64,phaseY=std::round((physicalY-std::floor(physicalY))*64)/64;
+        float phaseX=physicalX-std::floor(physicalX),phaseY=physicalY-std::floor(physicalY);
         AtlasKey key{face,0,current->dpi,static_cast<uint32_t>(index)+1,em,phaseX,phaseY};
         auto found=atlas.find(key);
         if(found==atlas.end()) {
@@ -638,9 +641,64 @@ struct OtrRenderer {
         const auto& entry=found->second; if(entry.source.width==0)return;
         quad(pages[entry.page].texture.get(),{(std::floor(physicalX)+entry.left)/scale,(std::floor(physicalY)+entry.top)/scale,entry.source.width/scale,entry.source.height/scale},entry.source,color(argb),false);
     }
+    // Rasterize a glyph set's atlas misses ahead of use: one interop transfer per atlas
+    // page instead of one per glyph on a keystroke. Keys match grid-aligned glyph()
+    // draws (integral baseline, phaseY 0). Warming never evicts cached entries.
+    uint32_t warmGlyphs(IDWriteFontFace* face,float em,float targetDpi,float phaseX,const UINT16* glyphs,size_t count) {
+        struct Pending {AtlasKey key;UINT16 index;RECT bounds;uint32_t page,x,y,w,h;};
+        float scale=targetDpi/96;phaseX=std::round(phaseX*64)/64;
+        std::vector<Pending> pending;
+        for(size_t i=0;i<count;i++) {
+            AtlasKey key{face,0,targetDpi,static_cast<uint32_t>(glyphs[i])+1,em,phaseX,0};
+            if(atlas.find(key)!=atlas.end() || std::any_of(pending.begin(),pending.end(),[&](const Pending& item){return item.key==key;}))continue;
+            UINT16 index=glyphs[i];float advance=0;DWRITE_GLYPH_RUN run{face,em,1,&index,&advance,nullptr,FALSE,0};
+            ComPtr<IDWriteGlyphRunAnalysis> analysis;
+            check(write->CreateGlyphRunAnalysis(&run,scale,nullptr,DWRITE_RENDERING_MODE_NATURAL_SYMMETRIC,DWRITE_MEASURING_MODE_NATURAL,phaseX/scale,0,&analysis));
+            RECT bounds{};check(analysis->GetAlphaTextureBounds(DWRITE_TEXTURE_CLEARTYPE_3x1,&bounds));
+            if(bounds.left==bounds.right || bounds.top==bounds.bottom) {
+                if(atlas.size()<MaxAtlasEntries)atlas.emplace(key,Entry{ComPtr<IUnknown>(face),0,{0,0,0,0},0,0});
+                continue;
+            }
+            bounds.left-=2;bounds.top-=2;bounds.right+=2;bounds.bottom+=2;
+            uint32_t w=static_cast<uint32_t>(bounds.right-bounds.left),h=static_cast<uint32_t>(bounds.bottom-bounds.top);
+            if(w+2>AtlasSide || h+2>AtlasSide)continue;
+            pending.push_back({key,index,bounds,0,0,0,w,h});
+        }
+        if(pending.empty() || atlas.size()+pending.size()>MaxAtlasEntries)return 0;
+        submit();
+        uint64_t evictions=stats.atlas_evictions;
+        for(auto& item:pending){auto [pageIndex,slotX,slotY]=reserveAtlas(item.w,item.h);item.page=pageIndex;item.x=slotX;item.y=slotY;}
+        // A recycled page may overlap earlier reservations; drop the batch rather than evict.
+        if(stats.atlas_evictions!=evictions)return 0;
+        raster->SetDpi(targetDpi,targetDpi);
+        for(uint32_t pageIndex=0;pageIndex<AtlasPages;pageIndex++) {
+            if(std::none_of(pending.begin(),pending.end(),[&](const Pending& item){return item.page==pageIndex;}))continue;
+            auto& p=page(pageIndex);RasterStateScope state(*this,p.texture.get());ProfileScope timer(gpu->profiling,profile.raster_draw_ticks);
+            raster->SetTarget(p.bitmap.Get());raster->BeginDraw();
+            for(const auto& item:pending) {
+                if(item.page!=pageIndex)continue;
+                D2D1_RECT_F area=D2D1::RectF(static_cast<float>(item.x),static_cast<float>(item.y),static_cast<float>(item.x+item.w),static_cast<float>(item.y+item.h));
+                raster->SetTransform(D2D1::Matrix3x2F::Identity());raster->PushAxisAlignedClip(area,D2D1_ANTIALIAS_MODE_ALIASED);
+                raster->SetPrimitiveBlend(D2D1_PRIMITIVE_BLEND_COPY);brush->SetColor(D2D1::ColorF(0,0));raster->FillRectangle(area,brush.Get());raster->SetPrimitiveBlend(D2D1_PRIMITIVE_BLEND_SOURCE_OVER);
+                raster->SetTransform(D2D1::Matrix3x2F(scale,0,0,scale,item.x-static_cast<float>(item.bounds.left)+phaseX,item.y-static_cast<float>(item.bounds.top)));
+                UINT16 index=item.index;float advance=0;DWRITE_GLYPH_RUN run{face,em,1,&index,&advance,nullptr,FALSE,0};
+                brush->SetColor(D2D1::ColorF(D2D1::ColorF::White));raster->DrawGlyphRun(D2D1::Point2F(0,0),&run,brush.Get(),DWRITE_MEASURING_MODE_NATURAL);
+                raster->PopAxisAlignedClip();
+            }
+            HRESULT hr=raster->EndDraw();raster->SetTarget(nullptr);check(hr);
+        }
+        for(const auto& item:pending)
+            atlas.emplace(item.key,Entry{ComPtr<IUnknown>(face),item.page,{static_cast<float>(item.x),static_cast<float>(item.y),static_cast<float>(item.w),static_cast<float>(item.h)},static_cast<float>(item.bounds.left),static_cast<float>(item.bounds.top)});
+        warmedGlyphs+=pending.size();
+        return static_cast<uint32_t>(pending.size());
+    }
+    uint64_t warmedGlyphs=0;
     void colorGlyph(IDWriteFontFace* face,float em,UINT16 index,float x,float y,uint32_t argb) {
-        float scale=current->dpi/96,physicalX=x*scale,physicalY=y*scale;
-        float phaseX=std::round((physicalX-std::floor(physicalX))*64)/64,phaseY=std::round((physicalY-std::floor(physicalY))*64)/64;
+        float scale=current->dpi/96;
+        // Snap to the 1/64-pixel phase grid first, so a position like 35.9999 is pixel 36
+        // at phase 0 rather than pixel 35 at phase 1 (a duplicate atlas entry).
+        float physicalX=std::round(x*scale*64)/64,physicalY=std::round(y*scale*64)/64;
+        float phaseX=physicalX-std::floor(physicalX),phaseY=physicalY-std::floor(physicalY);
         uint32_t opaque=argb|0xff000000;
         AtlasKey key{face,opaque,current->dpi,static_cast<uint32_t>(index)+1,em,phaseX,phaseY};
         auto found=atlas.find(key);

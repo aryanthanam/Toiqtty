@@ -26,6 +26,7 @@ public sealed class AppSettings
     public bool AllowClipboardWrite { get; set; } = true;
     public bool AllowImageFiles { get; set; } = true;
     public bool Ligatures { get; set; } = true;
+    public bool FramePacing { get; set; }
     public long? ScrollbackLimitBytes { get; set; } = 50_000_000;
     public long? ScrollbackLimitLines { get; set; }
     public ScrollingSettings Scrolling { get; set; } = new();
