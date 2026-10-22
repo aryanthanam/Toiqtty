@@ -52,7 +52,47 @@ public sealed partial class MainWindow
         }
         else node.Session=new TerminalSession(node.Command,node.Directory,_saved.Settings.WithTerminalTheme(workspace.Theme));
         StartupTrace.Mark("shell-connect-end");
-        var shell=node.Session;
+        WireShell(node.Session);
+    }
+    /// <summary>Starts the shells of many panes at once, the selected tab's first. Panes the live
+    /// host already owns (restored from its layout) reattach through one batched attach, off this
+    /// thread, instead of a create each; the rest start as EnsureShell starts them.</summary>
+    private void EnsureShells(IEnumerable<Workspace> workspaces,Workspace? selected,string problem)
+    {
+        var visible=selected?.ActiveTab.Root.Leaves().ToHashSet();
+        var panes=workspaces.SelectMany(w=>w.AllPanes().Select(p=>(Pane:p,Workspace:w))).OrderBy(item=>visible?.Contains(item.Pane)==true?0:1).ToList();
+        List<(PaneNode Pane,Workspace Workspace)>? attach=null;
+        foreach (var item in panes)
+            if (_persistent && _durablePanes.Contains(item.Pane.Id) && !item.Pane.IsBrowser && item.Pane.Session is null && !_shellFailures.ContainsKey(item.Pane.Id)) (attach??=[]).Add(item);
+            else try { EnsureShell(item.Pane,item.Workspace); } catch (Exception ex) { SetStatusMessage(problem+ex.Message, problem: true); }
+        if (attach is null) return;
+        StartupTrace.Mark("shell-connect-begin");
+        // One detached settings copy per distinct theme; the batch sends each copy once.
+        var themed=new Dictionary<object,AppSettings>(); object noTheme=new();
+        var batch=new (string Pane,AppSettings Settings)[attach.Count];
+        for (int i=0;i<attach.Count;i++)
+        {
+            var workspace=attach[i].Workspace; object key=(object?)workspace.Theme??noTheme;
+            if (!themed.TryGetValue(key,out var settings)) themed.Add(key,settings=RemoteTerminalSession.DetachSettings(_saved.Settings.WithTerminalTheme(workspace.Theme)));
+            batch[i]=(attach[i].Pane.Id,settings);
+        }
+        var host=_connector.ConnectAsync();
+        var attached=AttachShells(host,batch);
+        for (int i=0;i<attach.Count;i++)
+        {
+            var (node,_)=attach[i];
+            // Restored from the live host's layout: durable there, so a missing pane's create needs no save.
+            var remote=RemoteTerminalSession.Attach(host,node.Id,attached,node.Command,node.Directory,batch[i].Settings,Task.CompletedTask);
+            node.Session=remote;
+            UiTasks.Observe(ObserveShellStart(node,remote));
+            WireShell(remote);
+        }
+        StartupTrace.Mark("shell-connect-end");
+    }
+    private static async Task<Dictionary<string,ShellState>> AttachShells(Task<SessionHostClient> host,(string Pane,AppSettings Settings)[] batch)
+        => await (await host.ConfigureAwait(false)).AttachAsync(batch).ConfigureAwait(false);
+    private void WireShell(ITerminalSession shell)
+    {
         shell.Notification+=notice=>DispatcherQueue.TryEnqueue(()=>
         {
             if (_closed || !_saved.Settings.DesktopNotifications) return;

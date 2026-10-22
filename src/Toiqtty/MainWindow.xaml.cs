@@ -143,9 +143,14 @@ public sealed partial class MainWindow : Window
             _sessionThemes.LoadInto(_saved.Workspaces); _sessionThemesLoaded = true;
             ApplyAppearanceSettings();
             if (_saved.Workspaces.Count == 0) NewWorkspace();
-            else { RefreshSidebar(); SelectWorkspace(_saved.Workspaces.FirstOrDefault(w => w.Id == _saved.SelectedWorkspace) ?? _saved.Workspaces[0]); }
-            if (_persistent) foreach (var workspace in _saved.Workspaces) foreach (var pane in workspace.AllPanes())
-                try { EnsureShell(pane,workspace); } catch (Exception ex) { SetStatusMessage("Could not restore shell: "+ex.Message, problem: true); }
+            else
+            {
+                var selected = _saved.Workspaces.FirstOrDefault(w => w.Id == _saved.SelectedWorkspace) ?? _saved.Workspaces[0];
+                // Before any view is built, so the visible panes join the one batched reattach
+                // (or lead the creates) instead of each starting alone from BuildNode.
+                if (_persistent) EnsureShells(_saved.Workspaces, selected, "Could not restore shell: ");
+                RefreshSidebar(); SelectWorkspace(selected);
+            }
             UpdateChrome();
             StartupTrace.Mark("sessions-restored");
             if (StartupTrace.Enabled) _ = MarkSessionsReady();

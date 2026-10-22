@@ -28,6 +28,12 @@ public sealed partial class MainWindow
         foreach(var workspace in others) foreach(var pane in workspace.AllPanes()) EnsureShell(pane,workspace);
         await wait(()=>others.SelectMany(w=>w.AllPanes()).All(p=>p.Session!.Performance.BytesRead>0));
         check(_host.CallForCheck(Hosting.HostRequests.Ping()).Panes.Length==80,"One host owns sixteen visible panes and sixty-four shells across thirty-two additional sessions");
+        // What a restarted window sends for this layout: one attach, each workspace's own theme.
+        var restore=_saved.Workspaces.SelectMany(w=>{ var settings=RemoteTerminalSession.DetachSettings(_saved.Settings.WithTerminalTheme(w.Theme)); return w.AllPanes().Where(p=>!p.IsBrowser).Select(p=>(p.Id,settings)); }).ToArray();
+        var heartbeat=new DispatcherHeartbeat(DispatcherQueue); var restoreTimer=Stopwatch.StartNew();
+        var restoredStates=await _host.AttachAsync(restore);
+        double restoreMs=restoreTimer.Elapsed.TotalMilliseconds, restoreGap=heartbeat.Stop();
+        check(restoredStates.Count==80 && restoreGap<100,$"One batched attach reattaches all eighty shells in {restoreMs:0} ms without stalling the UI thread (max dispatcher gap {restoreGap:0} ms)");
         await wait(()=>!_polling); int branchLookups=_branchLookupsForCheck;
         await PollMetadata();
         check(_branchLookupsForCheck-branchLookups==1,"Thirty-three sessions sharing a directory require only one asynchronous Git lookup per metadata pass");
@@ -72,6 +78,7 @@ public sealed partial class MainWindow
         ui.Refresh(); owner.Refresh();
         File.WriteAllText(Path.Combine(SessionStore.Folder,"scale.json"),JsonSerializer.Serialize(new {
             version=BuildInfo.Version,host,shells=80,sessions=33,tabs=65,visiblePanes=16,idle,input=Distribution(latencies),
+            reattach=new { panes=restore.Length,batchedMs=restoreMs,maxDispatcherGapMs=restoreGap },
             cachedViews=_terminalViews.Count,retainedTabLayouts=_tabLayouts.Count,viewsCreated=_terminalViewsCreated,viewsEvicted=_terminalViewsEvicted,
             uiPrivateBytes=ui.PrivateMemorySize64,uiHandles=ui.HandleCount,uiThreads=ui.Threads.Count,hostPrivateBytes=owner.PrivateMemorySize64,hostHandles=owner.HandleCount,
             estimatedGpuBytes=_terminalViews.Values.Sum(item=>item.View.RetainedGpuBytes),

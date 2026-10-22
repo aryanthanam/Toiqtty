@@ -54,7 +54,31 @@ internal static class ArchitectureChecks
             await created.DetachAsync();
             session.DetachView(); await session.DetachAsync();
             check((await client.CallAsync(HostRequests.Ping())).Panes.Contains(id), "Awaited detach completes frontend cleanup while preserving the owned shell");
-            var attached = client.StartForTest(id, "ignored", Environment.CurrentDirectory, new());
+            // A restart reattaches through one batched attach; a pane the host lost creates through its own gate.
+            string lost = Guid.NewGuid().ToString("N");
+            var shared = RemoteTerminalSession.DetachSettings(new AppSettings { ScrollbackLimitLines = 5000 });
+            long attachRequests = client.AttachRequestsForCheck;
+            var batch = client.AttachAsync([(id, shared), (lost, shared)]);
+            var attached = RemoteTerminalSession.Attach(Task.FromResult(client), id, batch, "ignored", Environment.CurrentDirectory, shared, Task.CompletedTask);
+            var recreated = RemoteTerminalSession.Attach(Task.FromResult(client), lost, batch, $"\"{Environment.ProcessPath}\" --persistent-shell-client", Environment.CurrentDirectory, shared, Task.CompletedTask);
+            await Task.WhenAll(attached.Ready, recreated.Ready).WaitAsync(TimeSpan.FromSeconds(15));
+            var states = await batch;
+            check(client.AttachRequestsForCheck - attachRequests == 1 && states.ContainsKey(id) && !states.ContainsKey(lost) && attached.AttachedForCheck && !recreated.AttachedForCheck
+                && (await client.CallAsync(HostRequests.Ping())).Panes.Contains(lost),
+                "Two reattaching panes share one attach round trip, and the pane the host lost falls back to create");
+            await recreated.CloseAsync();
+            check(!(await client.CallAsync(HostRequests.Ping())).Panes.Contains(lost), "The fallback-created shell closes like any other");
+            string third = Guid.NewGuid().ToString("N");
+            await client.StartForTest(third, $"\"{Environment.ProcessPath}\" --persistent-shell-client", Environment.CurrentDirectory, new()).DetachAsync();
+            var inFlight = new TaskCompletionSource<Dictionary<string, ShellState>>(TaskCreationOptions.RunContinuationsAsynchronously);
+            var closing = RemoteTerminalSession.Attach(Task.FromResult(client), third, inFlight.Task, "ignored", Environment.CurrentDirectory, shared, Task.CompletedTask);
+            var closed = closing.CloseAsync().AsTask();
+            await Task.Delay(50);
+            check(!closed.IsCompleted && (await client.CallAsync(HostRequests.Ping())).Panes.Contains(third), "Closing a pane whose attach is in flight waits for that attach");
+            inFlight.SetResult(await client.AttachAsync([(third, shared)]));
+            await closed.WaitAsync(TimeSpan.FromSeconds(10));
+            check(closing.Ready.IsCanceled && !(await client.CallAsync(HostRequests.Ping())).Panes.Contains(third),
+                "A pane closed while its attach was in flight still closes its live shell on the host");
             Task close = attached.CloseAsync().AsTask();
             check(ReferenceEquals(close, attached.CloseAsync().AsTask()), "Repeated explicit closure shares one teardown completion");
             await close.WaitAsync(TimeSpan.FromSeconds(10));

@@ -93,6 +93,9 @@ public sealed partial class MainWindow
                 using var expected=JsonDocument.Parse(File.ReadAllText(Path.Combine(SessionStore.Folder,"session-ui-identity.json")));
                 var value=expected.RootElement;
                 Check(_reattached && _host!.Identity==value.GetProperty("host").GetString(),"a new WinUI process reconnects to the existing host");
+                var restored=_saved.Workspaces.SelectMany(w=>w.AllPanes()).Where(p=>!p.IsBrowser).Select(p=>p.Session).OfType<Hosting.RemoteTerminalSession>().ToArray();
+                Check(_host!.AttachRequestsForCheck==1 && restored.Length==4 && restored.All(s=>s.AttachedForCheck),
+                    "every restored shell reattaches through one batched attach rather than a create each");
                 var session=_selected!;
                 Check(session.Id==value.GetProperty("session").GetString() && session.Tabs.Count==2,"session and tab identities survive closing the window");
                 Check(session.ActiveTab.Id==value.GetProperty("second").GetString() && _views.Count==3,"active tab and nested pane layout are restored");

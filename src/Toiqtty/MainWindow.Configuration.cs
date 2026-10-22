@@ -122,10 +122,10 @@ public sealed partial class MainWindow
         if (sessions.Count == 0) { SetStatusMessage("No startup sessions are configured in Lua.", problem: true); return; }
         if (_saved.Workspaces.Count + sessions.Count > 64 || _saved.Workspaces.SelectMany(w => w.AllPanes()).Count() + sessions.SelectMany(w => w.AllPanes()).Count() > 256)
         { SetStatusMessage("Configured sessions exceed the session/pane limits.", problem: true); return; }
-        _saved.Workspaces.AddRange(sessions); SelectWorkspace(sessions[0]);
-        foreach (var session in sessions) foreach (var pane in session.AllPanes())
-            try { EnsureShell(pane, session); } catch (Exception ex) { SetStatusMessage("Could not start configured shell: " + ex.Message, problem: true); }
-        Save();
+        _saved.Workspaces.AddRange(sessions);
+        // Fresh pane ids are never on the host, so these create (one shared layout commit), visible tab first.
+        EnsureShells(sessions, sessions[0], "Could not start configured shell: ");
+        SelectWorkspace(sessions[0]); Save();
     }
     private async Task OpenLuaConfiguration()
     {

@@ -105,46 +105,69 @@ public sealed class RemoteTerminalSession : ITerminalSession
     private string _failure = "";
     private HostErrorCode _failureCode;
     private int _sized;
-    private RemoteTerminalSession(Task<SessionHostClient> connector, string pane, string command, string directory, AppSettings settings, Task layoutCommitted)
+    private RemoteTerminalSession(Task<SessionHostClient> connector, string pane, string command, string directory, AppSettings settings, Task layoutCommitted,
+        Task<Dictionary<string, ShellState>>? attached = null)
     {
         _pane = pane;
         // Until the host answers: no frame, no mouse tracking, an empty status and the launch directory.
         _state = new(0, false, 0, "", "Starting shell…", directory, directory, null, new(0, 0, 0, 0, 0, 0), new(0, -1, false, null, [], [], []), 0, false);
         // Created last: its open gate starts at once on the thread pool.
-        _input = new(SendQueuedRequest, () => Open(connector, command, directory, settings, layoutCommitted));
+        _input = new(SendQueuedRequest, () => Open(connector, command, directory, settings, layoutCommitted, attached));
     }
     /// <summary>Returns at once without IPC. Entry 0 of the input queue awaits the connection
     /// and the commit of a layout that names this pane, then creates or reattaches the shell;
     /// input queued meanwhile follows it in order. Ready completes then, or faults with the
     /// reason the shell could not start (input is then answered without being sent).</summary>
     public static RemoteTerminalSession Start(Task<SessionHostClient> connector, string pane, string command, string directory, AppSettings settings, Task layoutCommitted)
-    {
-        // The caller's settings graph stays mutable on its thread; send a detached copy.
-        var detached = System.Text.Json.JsonSerializer.Deserialize(System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(settings, HostJsonContext.Default.AppSettings), HostJsonContext.Default.AppSettings)!;
-        return new(connector, pane, command, directory, detached, layoutCommitted);
-    }
-    private async Task<bool> Open(Task<SessionHostClient> connector, string command, string directory, AppSettings settings, Task layoutCommitted)
+        => new(connector, pane, command, directory, DetachSettings(settings), layoutCommitted);
+    /// <summary>Like Start, but entry 0 takes this pane's state from one shared batched attach
+    /// (SessionHostClient.AttachAsync) instead of its own create. A pane the batch reports missing,
+    /// or a failed batch, falls back to create through the same gate. Settings must already be
+    /// detached (DetachSettings); panes of one batch share the instance.</summary>
+    public static RemoteTerminalSession Attach(Task<SessionHostClient> connector, string pane, Task<Dictionary<string, ShellState>> attached,
+        string command, string directory, AppSettings detachedSettings, Task layoutCommitted)
+        => new(connector, pane, command, directory, detachedSettings, layoutCommitted, attached);
+    /// <summary>The caller's settings graph stays mutable on its thread; sessions send a detached copy.</summary>
+    public static AppSettings DetachSettings(AppSettings settings)
+        => System.Text.Json.JsonSerializer.Deserialize(System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(settings, HostJsonContext.Default.AppSettings), HostJsonContext.Default.AppSettings)!;
+    internal bool AttachedForCheck { get; private set; }
+    private async Task<bool> Open(Task<SessionHostClient> connector, string command, string directory, AppSettings settings, Task layoutCommitted,
+        Task<Dictionary<string, ShellState>>? attached)
     {
         try
         {
             var client = await connector.ConfigureAwait(false);
-            // A crash after the spawn must find this pane in the saved layout. The save's
-            // owner reports its own failure; the shell still starts without the guarantee.
-            try { await layoutCommitted.ConfigureAwait(false); } catch (Exception) { }
-            HostReply reply;
-            await client.CreateAdmission.WaitAsync().ConfigureAwait(false);
-            try
+            ShellState? state = null;
+            if (attached is not null)
             {
-                // Closed or detached while queued: no shell is spawned only to be closed.
-                if (Volatile.Read(ref _closed) != 0) { _ready.TrySetCanceled(); return false; }
-                int columns = _columns, rows = _rows;
-                bool sized = Volatile.Read(ref _sized) != 0 && columns is >= 2 and <= 1000 && rows is >= 1 and <= 500;
-                // Stamped at send, after the committed save's revision, so that save never drops it.
-                reply = await client.CallAsync(HostRequests.Create(_pane, command, directory, settings, null, client.LayoutEpoch, client.NextLayoutRevision(),
-                    sized ? columns : 0, sized ? rows : 0)).ConfigureAwait(false);
+                // The batch's own failure is not this pane's: its create below reports one if it persists.
+                try { (await attached.ConfigureAwait(false)).TryGetValue(_pane, out state); }
+                catch (Exception) { }
+                // Detached or closed while the batch was in flight. The shell can live on the
+                // host, unlike a create never sent, so a close must still reach it.
+                if (Volatile.Read(ref _closed) != 0) { Volatile.Write(ref _client, client); _ready.TrySetCanceled(); return false; }
+                AttachedForCheck = state is not null;
             }
-            finally { client.CreateAdmission.Release(); }
-            var state = reply.State ?? throw new IOException("The session host did not return shell state.");
+            if (state is null)
+            {
+                // A crash after the spawn must find this pane in the saved layout. The save's
+                // owner reports its own failure; the shell still starts without the guarantee.
+                try { await layoutCommitted.ConfigureAwait(false); } catch (Exception) { }
+                HostReply reply;
+                await client.CreateAdmission.WaitAsync().ConfigureAwait(false);
+                try
+                {
+                    // Closed or detached while queued: no shell is spawned only to be closed.
+                    if (Volatile.Read(ref _closed) != 0) { _ready.TrySetCanceled(); return false; }
+                    int columns = _columns, rows = _rows;
+                    bool sized = Volatile.Read(ref _sized) != 0 && columns is >= 2 and <= 1000 && rows is >= 1 and <= 500;
+                    // Stamped at send, after the committed save's revision, so that save never drops it.
+                    reply = await client.CallAsync(HostRequests.Create(_pane, command, directory, settings, null, client.LayoutEpoch, client.NextLayoutRevision(),
+                        sized ? columns : 0, sized ? rows : 0)).ConfigureAwait(false);
+                }
+                finally { client.CreateAdmission.Release(); }
+                state = reply.State ?? throw new IOException("The session host did not return shell state.");
+            }
             var status = state.Status ?? throw new IOException("The session host returned incomplete shell status.");
             lock (_gate) { _state = state; _attention = state.Attention; _notice = status.Notices.LastOrDefault()?.Time ?? default; }
             Interlocked.Increment(ref _version);

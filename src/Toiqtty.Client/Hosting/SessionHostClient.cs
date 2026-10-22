@@ -418,6 +418,41 @@ public sealed partial class SessionHostClient
             finally { _layoutSaveGate.Release(); }
         }
     }
+    internal long AttachRequestsForCheck;
+    /// <summary>Reattach many panes in one round trip instead of one create each. Settings are
+    /// sent once per distinct instance. The result maps every live pane to its state; a pane the
+    /// host no longer has is absent. An oversized reply splits the batch, as metadata reads do.</summary>
+    public async Task<Dictionary<string, ShellState>> AttachAsync(IReadOnlyList<(string Pane, AppSettings Settings)> panes)
+    {
+        var states = new Dictionary<string, ShellState>(panes.Count);
+        foreach (var chunk in panes.Chunk(HostProtocol.MaxMetadataPanes)) await AttachBatchAsync(chunk, states).ConfigureAwait(false);
+        return states;
+    }
+    private async Task AttachBatchAsync((string Pane, AppSettings Settings)[] panes, Dictionary<string, ShellState> states)
+    {
+        var settings = new List<AppSettings>(); var attach = new AttachPane[panes.Length];
+        for (int i = 0; i < panes.Length; i++)
+        {
+            int index = settings.FindIndex(s => ReferenceEquals(s, panes[i].Settings));
+            if (index < 0) { index = settings.Count; settings.Add(panes[i].Settings); }
+            attach[i] = new(panes[i].Pane, index);
+        }
+        HostReply reply;
+        try
+        {
+            Interlocked.Increment(ref AttachRequestsForCheck);
+            // Applying settings to many shells can take longer than one create.
+            reply = await CallAsync(HostRequests.Attach(settings.ToArray(), attach), TimeSpan.FromSeconds(15)).ConfigureAwait(false);
+        }
+        catch (HostRejectedException ex) when (ex.Code == HostErrorCode.ReplyTooLarge && panes.Length > 1)
+        {
+            // Reattaching is idempotent; each half strictly reduces the reply.
+            foreach (var half in panes.Chunk((panes.Length + 1) / 2)) await AttachBatchAsync(half, states).ConfigureAwait(false);
+            return;
+        }
+        if (reply.States is null) throw new IOException("The host omitted its attach states.");
+        foreach (var pair in reply.States) states[pair.Key] = pair.Value;
+    }
     public void Detach() => Call(HostRequests.Detach());
     public void Shutdown() => Call(HostRequests.Shutdown());
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
