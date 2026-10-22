@@ -81,7 +81,11 @@ public sealed partial class SessionHostServer
                 try
                 {
                     string[] ids;
-                    lock (_gate) { ids = _sessions.Keys.ToArray(); _created = true; _emptySince = Environment.TickCount64 - 2000; }
+                    lock (_gate)
+                    {
+                        ids = _sessions.Keys.ToArray(); _created = true; _emptySince = Environment.TickCount64 - 2000;
+                        foreach (var pending in _pendingCreates.Values) pending.Cancelled = true;
+                    }
                     foreach (string id in ids) Remove(id);
                 }
                 finally { _layoutWrites.Release(); }

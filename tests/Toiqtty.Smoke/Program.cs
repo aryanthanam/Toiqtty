@@ -64,7 +64,7 @@ if (args.Length == 1 && args[0] == "--console-lifetime") { await ConsoleLifetime
 if (args.Length == 2 && args[0] == "--metadata-batch") { await MetadataBatchChecks.Run(args[1], Check); Console.WriteLine($"{passed} metadata batch checks passed."); return; }
 if (args.Length == 2 && args[0] == "--metadata-payload") { await MetadataPayloadChecks.Run(args[1], Check); return; }
 if (args.Length == 3 && args[0] == "--snapshot-fuzz") { await SnapshotFuzzChecks.Run(int.Parse(args[1]), int.Parse(args[2]), Check); return; }
-if (args.Length == 2 && args[0] == "--host-scheduling") { await HostSchedulingChecks.Run(args[1], Check); Console.WriteLine($"{passed} host scheduling checks passed."); return; }
+if (args.Length == 2 && args[0] == "--host-scheduling") { await HostSchedulingChecks.Run(args[1], Check); await HostSchedulingChecks.Creates(args[1], Check); Console.WriteLine($"{passed} host scheduling checks passed."); return; }
 if (args.Length == 2 && args[0] == "--host-accept-storm") { await HostSchedulingChecks.AcceptStorm(args[1], Check); return; }
 if (args.Contains("--interop-only")) { await InteropChecks.Run(Check); Console.WriteLine($"{passed} interoperability checks passed."); return; }
 if (args.Contains("--navigation-layout")) { NavigationChecks.Run(Check); Console.WriteLine($"{passed} navigation layout checks passed."); return; }

@@ -280,6 +280,11 @@ internal static class PersistentSessionChecks
             && Code("bare",bare)==HostErrorCode.InvalidRequest && Code("create-size",HostRequests.Create(Guid.NewGuid().ToString("N"),"cmd.exe",Environment.CurrentDirectory,null,columns:1,rows:1))==HostErrorCode.InvalidRequest
             && Code("missing",HostRequests.Copy(missing))==HostErrorCode.SessionMissing && Code("watch",HostRequests.Watch(new()))==HostErrorCode.InvalidRequest,
             "invalid key actions, out-of-range sizes, absent payloads and empty watches are InvalidRequest; an absent pane is SessionMissing");
+        // A failed spawn releases its reservation: the same pane fails the same way again rather than waiting on it.
+        string unstartable=Guid.NewGuid().ToString("N"),missingShell="toiqtty-missing-shell-"+unstartable+".exe";
+        var spawnCodes=new[] { Code("spawn",HostRequests.Create(unstartable,missingShell,Environment.CurrentDirectory,null)),Code("respawn",HostRequests.Create(unstartable,missingShell,Environment.CurrentDirectory,null)) };
+        pass(spawnCodes.All(code=>code==HostErrorCode.ShellStartFailed) && !(await client.CallAsync(HostRequests.Ping())).Panes.Contains(unstartable),
+            "a shell that cannot start is ShellStartFailed and leaves no pane or reservation behind");
         string malformed;
         using (var timeout=new CancellationTokenSource(TimeSpan.FromSeconds(5)))
         await using (var pipe=new System.IO.Pipes.NamedPipeClientStream(".",HostProtocol.PipeName(client.Folder),System.IO.Pipes.PipeDirection.InOut,System.IO.Pipes.PipeOptions.Asynchronous|System.IO.Pipes.PipeOptions.CurrentUserOnly))

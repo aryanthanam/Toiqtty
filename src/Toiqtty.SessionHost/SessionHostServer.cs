@@ -26,8 +26,22 @@ public sealed partial class SessionHostServer(string folder) : IAsyncDisposable
         public string? CreatedEpoch;
         public long CreatedRevision;
     }
+    // A shell spawning outside every lock. The id is reserved under _gate so the pane
+    // cap counts it and a concurrent create of the same pane awaits this one.
+    private sealed class PendingCreate(string? epoch, long revision)
+    {
+        public readonly TaskCompletionSource<Entry> Completion = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public readonly string? Epoch = epoch;
+        public readonly long Revision = revision;
+        // Set under _gate by close, shutdown or a sync that drops the pane; the spawn disposes it.
+        public bool Cancelled;
+    }
+    // Smoke checks stretch the spawn to observe what it no longer blocks; shells never inherit it.
+    private const string SpawnDelayVariable = "TOIQTTY_HOST_SPAWN_DELAY_MS";
+    private readonly int _spawnDelayForCheck = int.TryParse(Environment.GetEnvironmentVariable(SpawnDelayVariable), out int delay) ? Math.Clamp(delay, 0, 10000) : 0;
     private readonly Lock _gate = new();
     private readonly Dictionary<string, Entry> _sessions = [];
+    private readonly Dictionary<string, PendingCreate> _pendingCreates = [];
     private readonly CancellationTokenSource _stop = new();
     private readonly SemaphoreSlim _connections = new(32);
     // Leave at least half the accepted connections available to input/control
@@ -37,7 +51,9 @@ public sealed partial class SessionHostServer(string folder) : IAsyncDisposable
     private readonly string _folder = folder, _identity = Guid.NewGuid().ToString("N");
     private SavedSession _layout = SessionStore.Load();
     private bool _created;
-    private int _creating;
+    // The newest (epoch, revision) applied to _layout; an older create layout is not written over it.
+    private string? _layoutEpoch;
+    private long _layoutRevision;
     private bool _shutdownPending;
     private int _shutdownReplies;
     private long _emptySince = Environment.TickCount64;
@@ -64,6 +80,7 @@ public sealed partial class SessionHostServer(string folder) : IAsyncDisposable
         }
         string? readyName = Environment.GetEnvironmentVariable("TOIQTTY_HOST_READY_EVENT");
         Environment.SetEnvironmentVariable("TOIQTTY_HOST_READY_EVENT", null);
+        Environment.SetEnvironmentVariable(SpawnDelayVariable, null);
         Task monitor = MonitorLifetime();
         bool first = true;
         try
@@ -264,6 +281,7 @@ public sealed partial class SessionHostServer(string folder) : IAsyncDisposable
         Entry? removed;
         lock (_gate)
         {
+            if (_pendingCreates.TryGetValue(id, out var pending)) pending.Cancelled = true;
             _sessions.Remove(id, out removed);
             if (_sessions.Count == 0) _emptySince = Environment.TickCount64;
         }
@@ -297,7 +315,7 @@ public sealed partial class SessionHostServer(string folder) : IAsyncDisposable
                 {
                     entries = _sessions.Values.ToArray();
                     // A shell under construction is not yet registered but keeps the host alive.
-                    bool live = _creating > 0 || _sessions.Values.Any(e => !e.Session.HasExited);
+                    bool live = _pendingCreates.Count > 0 || _sessions.Values.Any(e => !e.Session.HasExited);
                     if (live) _emptySince = Environment.TickCount64;
                     else if (!_shutdownPending && Environment.TickCount64 - _emptySince > (_created ? 1500 : 30000)) { _stop.Cancel(); return; }
                 }
