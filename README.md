@@ -144,6 +144,7 @@ dotnet format style Toiqtty.slnx --no-restore --severity info --verify-no-change
 
 ```powershell
 ./scripts/test.ps1                 # Native engine + real ConPTY integration checks
+./scripts/test-frontend.ps1        # Gate for WinUI/renderer/native changes: native lifetimes, DirectX debug layer, WinUI, sessions, browser, Lua (-Performance adds publish + regressions)
 ./scripts/test.ps1 -SkipNative -Ui -Notifications # Also deliver and remove one real Windows toast
 ./scripts/test.ps1 -SkipNative -Ui  # Also exercise the actual WinUI layout in an isolated test session
 ./scripts/test.ps1 -SkipNative -Published # Validate the portable release after publishing

@@ -23,6 +23,11 @@ jobs:
       - name: Build pinned libghostty
         shell: pwsh
         run: ./scripts/build-native.ps1
+      - name: Native arena and capture lifetimes
+        shell: pwsh
+        run: |
+          ./scripts/test-native-lifetimes.ps1
+          ./scripts/test-native-capture.ps1
       - name: Terminal and ConPTY integration
         shell: pwsh
         run: ./scripts/test.ps1 -SkipNative

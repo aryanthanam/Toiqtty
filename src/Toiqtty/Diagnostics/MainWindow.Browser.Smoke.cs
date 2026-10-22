@@ -24,15 +24,20 @@ public sealed partial class MainWindow
             var bridge = _browserRuntime.Bridge ?? throw new InvalidOperationException(_browserRuntime.BridgeError);
             using var http = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{bridge.Port}") };
             var pairing = JsonDocument.Parse(Convert.FromBase64String(bridge.BeginPairing()));
-            http.DefaultRequestHeaders.Authorization = new("Bearer", pairing.RootElement.GetProperty("token").GetString());
+            string key = pairing.RootElement.GetProperty("token").GetString()!;
             async Task<JsonElement> Post(string path, object data)
             {
-                using var response = await http.PostAsync(path, new StringContent(JsonSerializer.Serialize(data, new JsonSerializerOptions(JsonSerializerDefaults.Web)), Encoding.UTF8, "application/json"));
+                byte[] body = JsonSerializer.SerializeToUtf8Bytes(data, new JsonSerializerOptions(JsonSerializerDefaults.Web));
+                using var request = new HttpRequestMessage(HttpMethod.Post, path) { Content = new ByteArrayContent(body) };
+                request.Content.Headers.ContentType = new("application/json") { CharSet = "utf-8" };
+                string nonce = Convert.ToHexString(System.Security.Cryptography.RandomNumberGenerator.GetBytes(32));
+                request.Headers.TryAddWithoutValidation("Authorization", BrowserCookieBridge.RequestAuthorization(key, "POST", path, nonce, body));
+                using var response = await http.SendAsync(request);
                 response.EnsureSuccessStatusCode(); return JsonSerializer.Deserialize<JsonElement>(await response.Content.ReadAsStringAsync());
             }
             var paired = await Post("/pair", new { name = "Browser smoke fixture" });
             string source = paired.GetProperty("sourceId").GetString()!;
-            http.DefaultRequestHeaders.Authorization = new("Bearer", paired.GetProperty("token").GetString());
+            key = paired.GetProperty("token").GetString()!;
             bridge.Configure(source, "Browser smoke fixture", [fixture.Origin]);
             NewBrowser(fixture.Origin + "/first", split: true, sourceId: source);
             var workspace = _selected!; var tab = workspace.ActiveTab;

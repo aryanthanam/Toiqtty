@@ -27,7 +27,7 @@ internal static class PersistentSessionChecks
         using var window = Process.Start(start)!;
         try
         {
-            await Wait(()=> { window.Refresh(); return window.MainWindowTitle=="Toiqtty update"; });
+            await Wait(()=> { window.Refresh(); return window.MainWindowTitle=="toiqtty update"; });
             check(true,"starting a new release against an older host shows a native WinUI upgrade window");
             check(await legacy=="ping" && File.ReadAllText(Path.Combine(folder,"session.json"))==saved,
                 "the upgrade guard preserves saved state and sends no shell creation or layout update to the older host");
