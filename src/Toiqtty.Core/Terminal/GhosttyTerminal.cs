@@ -292,19 +292,46 @@ public sealed class GhosttyTerminal : IDisposable
         if (Native.ot_clipboard_paste(_handle, bytes, (nuint)bytes.Length, clipboard ? 1 : 0) != 0)
             throw new InvalidOperationException("libghostty could not paste the content.");
     }
-    public unsafe void PasteClipboard()
+    /// <summary>An OS clipboard read taken before the caller's parser gate.</summary>
+    public sealed class ClipboardPasteSource(ITerminalClipboard clipboard, IReadOnlyList<string> available, byte[]? text)
+    {
+        internal readonly ITerminalClipboard Clipboard = clipboard;
+        internal readonly IReadOnlyList<string> Available = available;
+        internal readonly byte[]? Text = text;
+    }
+    // Libghostty reads at most the first plain-text representation, and nothing
+    // for a Kitty paste event. One OS read lists and prefetches that text so a
+    // slow clipboard owner never stalls the parser gate. Touches no native state.
+    public ClipboardPasteSource? ReadClipboardPaste()
+    {
+        if (Clipboard is not { } clipboard) return null;
+        var listing = clipboard.Read(["text/plain"], true);
+        byte[]? text = null;
+        if (listing.Result == 0) listing.Contents.TryGetValue("text/plain", out text);
+        // An oversized or unreadable text must not hide the listing a paste event needs.
+        else if ((listing = clipboard.Read([], true)).Result != 0) throw new IOException("The clipboard is currently unavailable.");
+        return new(clipboard, listing.Available, text);
+    }
+    public void PasteClipboard() => PasteClipboard(ReadClipboardPaste());
+    public unsafe void PasteClipboard(ClipboardPasteSource? source)
     {
         ThrowIfDisposed();
-        if (Clipboard is not { } clipboard) return;
-        var listing = clipboard.Read([], true);
-        if (listing.Result != 0) throw new IOException("The clipboard is currently unavailable.");
+        if (source is null) return;
+        var clipboard = source.Clipboard;
         var allocations = new List<nint>();
         Native.MimeReader reader = (_, mime, writer) =>
         {
             try
             {
-                string type = mime.Text(); var result = clipboard.Read([type], false);
-                if (result.Result != 0 || !result.Contents.TryGetValue(type, out var bytes) || bytes.Length > TerminalClipboardLimits.MaxBytes) return false;
+                string type = mime.Text(); byte[]? bytes = null;
+                if (type == "text/plain") bytes = source.Text;
+                else
+                {
+                    // Unexpected representation: read it live, as before prefetching.
+                    var result = clipboard.Read([type], false);
+                    if (result.Result != 0 || !result.Contents.TryGetValue(type, out bytes)) bytes = null;
+                }
+                if (bytes is null || bytes.Length > TerminalClipboardLimits.MaxBytes) return false;
                 var write = Marshal.GetDelegateForFunctionPointer<Native.WriterCallback>(writer.Write);
                 fixed (byte* data = bytes) return write(writer.Context, (nint)data, (nuint)bytes.Length);
             }
@@ -312,7 +339,7 @@ public sealed class GhosttyTerminal : IDisposable
         };
         try
         {
-            var mimes = listing.Available.Where(mime => mime.Length is > 0 and <= 200).Distinct().Take(256).Select(mime =>
+            var mimes = source.Available.Where(mime => mime.Length is > 0 and <= 200).Distinct().Take(256).Select(mime =>
             {
                 var bytes = Encoding.UTF8.GetBytes(mime); var pointer = Marshal.AllocHGlobal(bytes.Length); allocations.Add(pointer);
                 Marshal.Copy(bytes, 0, pointer, bytes.Length); return new Native.String { Pointer = pointer, Length = (nuint)bytes.Length };
@@ -402,8 +429,10 @@ public sealed class GhosttyTerminal : IDisposable
         ThrowIfDisposed(); var bytes = Encoding.UTF8.GetBytes(text);
         if (Native.ot_find(_handle, bytes, (nuint)bytes.Length, direction, out var count, out var index) != 0)
             throw new InvalidOperationException("libghostty search failed.");
-        return (checked((int)count), checked((int)index));
+        return (Saturate(count), Saturate(index));
     }
+    // Huge scrollbacks can exceed int; saturate instead of failing the request.
+    internal static int Saturate(nuint value) => value > int.MaxValue ? int.MaxValue : (int)value;
     private void HandleClipboard(nint pointer)
     {
         var request = Marshal.PtrToStructure<Native.ClipboardRequest>(pointer);

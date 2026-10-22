@@ -169,19 +169,25 @@ public sealed partial class SessionHostServer(string folder) : IAsyncDisposable
                         }
                         else reply = await Dispatch(request, _stop.Token);
                     }
-                    catch (Exception ex) when (ex is IOException or ArgumentException or InvalidOperationException or UnauthorizedAccessException or System.ComponentModel.Win32Exception)
-                    { reply = new() { Error = ex.Message }; }
+                    // Every handled failure is answered. Only cancellation of this
+                    // connection (host stop, deadline, watch disconnect) closes it unanswered.
+                    catch (Exception ex) when (ex is not OperationCanceledException { CancellationToken.IsCancellationRequested: true })
+                    {
+                        if (ex is not (IOException or ArgumentException or InvalidOperationException or UnauthorizedAccessException or System.ComponentModel.Win32Exception)) LogFault(ex);
+                        reply = new() { Error = ex.Message };
+                    }
+                    if (reply.Binary.Length > HostProtocol.MaxSnapshotBytes) reply = new() { Error = HostProtocol.ReplyTooLarge };
                     reply.Host = _identity; reply.ProcessId = Environment.ProcessId; reply.BinaryLength = reply.Binary.Length;
                     bool reusable = request.ReuseReadConnection && (request.Operation is "capture" or "watch" or "states") && reply.Error is null;
                     if (reusable && !persistentRead) persistentRead = _persistentReads.Wait(0);
                     reply.KeepAlive = reusable && persistentRead;
                     try { await HostProtocol.WriteJson(pipe, reply, deadline.Token); }
-                    catch (HostMessageTooLargeException) when (request.Operation == "states")
+                    catch (HostMessageTooLargeException)
                     {
-                        // WriteJson checks its limit before sending any header.
-                        // Report a small, explicit error so a read-only client can
-                        // split the batch without losing unrelated pane metadata.
-                        reply = new() { Host = _identity, ProcessId = Environment.ProcessId, Error = HostProtocol.MetadataBatchTooLarge };
+                        // WriteJson checks its limit before sending any header. A small,
+                        // explicit error keeps the client framed; for states it lets a
+                        // read-only client split the batch without losing unrelated panes.
+                        reply = HostProtocol.OversizedReply(request.Operation, _identity, Environment.ProcessId);
                         await HostProtocol.WriteJson(pipe, reply, deadline.Token);
                     }
                     if (reply.Binary.Length > 0) await pipe.WriteAsync(reply.Binary, deadline.Token);
@@ -362,11 +368,14 @@ public sealed partial class SessionHostServer(string folder) : IAsyncDisposable
         if (layout.Version != 5 || layout.Settings is null || layout.Workspaces is null || layout.Workspaces.Count > 64) throw new ArgumentException("Invalid session layout.");
         if (System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(layout).Length > 1024 * 1024) throw new ArgumentException("Saved sessions exceed the size limit.");
         var identities = new HashSet<string>(); int panes = 0;
+        // JSON can carry nulls the model's non-nullable types do not admit; they
+        // are invalid input, never a NullReferenceException that drops the reply.
         foreach (var session in layout.Workspaces)
         {
+            if (session is null) throw new ArgumentException("Invalid session layout.");
             if (session.Theme is { IsValid: false }) throw new ArgumentException("Invalid session theme.");
             Add(session.Id); if (session.Tabs is null || session.Tabs.Count is < 1 or > 64) throw new ArgumentException("Invalid session tabs.");
-            foreach (var tab in session.Tabs) { Add(tab.Id); Walk(tab.Root, 0); }
+            foreach (var tab in session.Tabs) { if (tab is null) throw new ArgumentException("Invalid session tabs."); Add(tab.Id); Walk(tab.Root, 0); }
         }
         void Add(string id) { if (string.IsNullOrWhiteSpace(id) || id.Length > 128 || !identities.Add(id)) throw new ArgumentException("Duplicate or invalid session identity."); }
         void Walk(PaneNode node, int depth)

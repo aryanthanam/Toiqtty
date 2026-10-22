@@ -131,6 +131,33 @@ internal static class PersistentSessionChecks
             bool rejected=false;
             try { reconnected!.CallForTest(new() { Protocol=999,Operation="ping" }); } catch (IOException) { rejected=true; }
             Pass(rejected && SessionHostClient.TryConnect(folder) is not null,"incompatible IPC requests are rejected without ending live shells");
+            async Task<string?> Answer(HostRequest request)
+            {
+                try { await reconnected!.CallAsync(request); return null; }
+                catch (HostRejectedException ex) { return ex.Message; }
+                catch (IOException ex) { return "EOF: "+ex.Message; }
+            }
+            var nullWorkspace=new SavedSession { Workspaces=[null!] };
+            var nullTab=new SavedSession { Workspaces=[new Workspace { Tabs=[null!] }] };
+            string? syncError=await Answer(new() { Operation="sync",Layout=nullWorkspace });
+            string? createError=await Answer(new() { Operation="create",Pane=Guid.NewGuid().ToString("N"),Text="cmd.exe",Directory=Environment.CurrentDirectory,Layout=nullTab });
+            Pass(syncError?.StartsWith("Invalid session")==true && createError?.StartsWith("Invalid session")==true && !second.HasExited
+                && reconnected!.CallForTest(new()).Panes.SequenceEqual([pane]),"malformed layouts with null workspaces or tabs get an error reply, not EOF, and change no shells");
+            Pass(GhosttyTerminal.Saturate(0)==0 && GhosttyTerminal.Saturate(int.MaxValue)==int.MaxValue && GhosttyTerminal.Saturate((nuint)int.MaxValue+1)==int.MaxValue
+                && GhosttyTerminal.Saturate(nuint.MaxValue)==int.MaxValue && second.Find("PERSIST_MARK",0).Count>0,"find saturates match counts beyond int instead of failing the request");
+            second.Find("",0); second.Select(-1,-1);
+            using (var framed=new MemoryStream())
+            {
+                bool overflow=false;
+                try { await HostProtocol.WriteJson(framed,new HostReply { Text=new string('x',HostProtocol.MaxJsonBytes+1) },CancellationToken.None); }
+                catch (HostMessageTooLargeException) { overflow=true; }
+                long written=framed.Length;
+                foreach (string operation in new[] { "copy","states" }) await HostProtocol.WriteJson(framed,HostProtocol.OversizedReply(operation,"host",1),CancellationToken.None);
+                framed.Position=written;
+                var copy=await HostProtocol.ReadJson<HostReply>(framed,CancellationToken.None); var states=await HostProtocol.ReadJson<HostReply>(framed,CancellationToken.None);
+                Pass(overflow && written==0 && copy.Error==HostProtocol.ReplyTooLarge && states.Error==HostProtocol.MetadataBatchTooLarge && copy.Host=="host",
+                    "an oversized reply for any operation is replaced by a framed error before any header is sent; states keeps its batch-split text");
+            }
             await HostV2Wire.RunHost(folder,Pass);
             Pass(SessionHostClient.TryConnect(folder) is not null && !second.HasExited,"raw protocol-2 requests leave the live host and its shell intact");
             using var owner=Process.GetProcessById(client.ProcessId);

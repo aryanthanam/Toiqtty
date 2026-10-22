@@ -103,6 +103,11 @@ public static class HostProtocol
     public const string ReusableReadCapability = "reusable-read-v1";
     public const string StatusRevisionCapability = "status-revisions-v1";
     public const string MetadataBatchTooLarge = "Metadata batch response exceeds the message size limit.";
+    public const string ReplyTooLarge = "Session host reply exceeds the message size limit.";
+    /// <summary>The small error a host sends in place of a reply over a frame limit. The
+    /// limit is checked before any header is written, so the stream stays framed.</summary>
+    internal static HostReply OversizedReply(string operation, string host, int processId)
+        => new() { Host = host, ProcessId = processId, Error = operation == "states" ? MetadataBatchTooLarge : ReplyTooLarge };
     public static string PipeName(string folder) => "Toiqtty-Sessions-" + Convert.ToHexString(SHA256.HashData(
         Encoding.UTF8.GetBytes(Path.GetFullPath(folder).TrimEnd(Path.DirectorySeparatorChar).ToUpperInvariant())))[..24];
     public static async Task WriteJson<T>(Stream stream, T value, CancellationToken token)

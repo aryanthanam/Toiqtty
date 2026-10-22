@@ -93,6 +93,17 @@ internal static class HostSchedulingChecks
                 "Rapid coalesced navigation persists the latest tab without replacing shell ownership");
             Pass(saved.Layout.Workspaces.Single().AllPanes().All(pane=>pane.Directory==Environment.CurrentDirectory),
                 "Navigation persistence records the host's current shell directories");
+            // Small syncs reach the layout lock almost at once; each then holds it
+            // through a write and fsync. Once one finished, the rest are queued.
+            var syncs=new Task<HostReply>[24];
+            for(int i=0;i<syncs.Length;i++) syncs[i]=client.CallAsync(new() { Operation="sync",Layout=layout },TimeSpan.FromSeconds(60));
+            await Task.WhenAny(syncs);
+            clock.Restart();
+            var reattached=await client.CallAsync(new() { Operation="create",Pane=a,Text="invalid-command-must-not-run",Directory=Environment.CurrentDirectory,Settings=new() },TimeSpan.FromSeconds(60));
+            long reattachMs=clock.ElapsedMilliseconds; int pendingSyncs=syncs.Count(t=>!t.IsCompleted);
+            await Task.WhenAll(syncs); long queueMs=clock.ElapsedMilliseconds;
+            Console.WriteLine($"Reattach create {reattachMs} ms with {pendingSyncs} syncs pending; sync queue drained after {queueMs} ms");
+            Pass(reattached.State is { HasExited: false } && pendingSyncs>=syncs.Length/2 && reattachMs<queueMs,"A reattach create returns without waiting behind in-flight layout syncs and their fsyncs");
             await client.CallAsync(new() { Operation="navigate",Navigation=new("missing",[new(workspace.Id,"removed-tab",new() { [workspace.Tabs[0].Id]="removed-pane" })]) });
             var stale=await client.CallAsync(new());
             Pass(stale.Layout!.SelectedWorkspace==workspace.Id && stale.Layout.Workspaces.Single().ActiveTabId==workspace.Tabs[1].Id && stale.Panes.Length==2,

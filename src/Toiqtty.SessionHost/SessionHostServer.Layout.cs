@@ -73,6 +73,10 @@ public sealed partial class SessionHostServer
     private async Task<HostReply> CreateAsync(HostRequest request)
     {
         if (request.Layout is not null) ValidateLayout(request.Layout);
+        // A reattach writes no layout: answer it without queueing behind syncs,
+        // navigation saves or another pane's shell spawn and fsync.
+        Entry? existing; lock (_gate) existing = _sessions.GetValueOrDefault(request.Pane);
+        if (existing is not null) return Reattach(existing, request);
         await _layoutWrites.WaitAsync(_stop.Token).ConfigureAwait(false);
         try
         {
@@ -84,11 +88,7 @@ public sealed partial class SessionHostServer
                     throw new ArgumentException("Shell creation exceeds the session limits.");
                 if (entry is null) _creating++;
             }
-            if (entry is not null)
-            {
-                if (request.Settings is not null) entry.Session.ApplySettings(request.Settings);
-                return new() { State = State(entry) };
-            }
+            if (entry is not null) return Reattach(entry, request);
             try
             {
                 entry = new(new TerminalSession(request.Text, request.Directory, request.Settings)) { CreatedEpoch = request.LayoutEpoch, CreatedRevision = request.LayoutRevision };
@@ -110,6 +110,12 @@ public sealed partial class SessionHostServer
             return new() { State = State(entry) };
         }
         finally { _layoutWrites.Release(); }
+    }
+
+    private HostReply Reattach(Entry entry, HostRequest request)
+    {
+        if (request.Settings is not null) entry.Session.ApplySettings(request.Settings);
+        return new() { State = State(entry) };
     }
 
     private async Task PersistDirectoriesAsync()

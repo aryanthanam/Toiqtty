@@ -243,11 +243,16 @@ public sealed class TerminalSession : ITerminalSession, IAsyncDisposable
     }
     public void PasteClipboard()
     {
+        if (Volatile.Read(ref _disposed) || HasExited) return;
+        // The OS clipboard owner can render lazily and slowly. Read it before
+        // the parser gate; only the mode-dependent encoding runs under it.
+        GhosttyTerminal.ClipboardPasteSource? source; IOException? failure = null;
+        try { source = _terminal.ReadClipboardPaste(); } catch (IOException ex) { source = null; failure = ex; }
         lock (_gate)
         {
             if (_disposed || HasExited) return;
-            try { PasteCore(_terminal.PasteClipboard); }
-            catch (IOException ex) { _status.Apply(new(TerminalEventKind.Notification, Title: "Clipboard unavailable", Body: ex.Message)); Interlocked.Increment(ref _version); Attention?.Invoke(); }
+            if (failure is null) try { PasteCore(() => _terminal.PasteClipboard(source)); } catch (IOException ex) { failure = ex; }
+            if (failure is not null) { _status.Apply(new(TerminalEventKind.Notification, Title: "Clipboard unavailable", Body: failure.Message)); Interlocked.Increment(ref _version); Attention?.Invoke(); }
         }
     }
     private void PasteCore(Action paste, bool requireAdmission = false)
