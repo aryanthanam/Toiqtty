@@ -71,12 +71,11 @@ public sealed partial class MainWindow
     private void NewTab(string? command=null,string? name=null,string? directory=null)
     {
         if (_selected is null) { NewWorkspace(command,name,directory); return; }
-        if (_selected.Tabs.Count>=64 || _saved.Workspaces.SelectMany(w=>w.AllPanes()).Count()>=256)
-        { SetStatusMessage("Session limit reached.", problem: true); return; }
-        var tab=new TerminalTab { Name=name??$"Shell {_selected.Tabs.Count+1}", Root=new PaneNode {
-            Command=command??_saved.Settings.Shell,
-            Directory=directory??_selected.Root.Leaves().FirstOrDefault(p=>p.Id==_focused?.PaneId)?.Session?.WorkingDirectory??_saved.Settings.StartDirectory } };
-        _selected.Tabs.Add(tab); SelectTab(tab); Save();
+        var root=new PaneNode { Command=command??_saved.Settings.Shell,
+            Directory=directory??_selected.Root.Leaves().FirstOrDefault(p=>p.Id==_focused?.PaneId)?.Session?.WorkingDirectory??_saved.Settings.StartDirectory };
+        if (SessionLayout.AddTab(_saved,_selected,name??$"Shell {_selected.Tabs.Count+1}",root,out string error) is not { } tab)
+        { SetStatusMessage(error, problem: true); return; }
+        SelectTab(tab); Save();
     }
     private void SelectTab(TerminalTab tab)
     {
@@ -206,13 +205,8 @@ public sealed partial class MainWindow
     {
         if (!session.Tabs.Contains(tab)) return;
         bool selected=_selected==session && session.ActiveTab==tab;
-        if (selected) SuspendActiveLayout();
-        ForgetTerminalViews(tab.Root.Leaves());
-        _sessionLifetimes.ClosePanes(tab.Root.Leaves());
-        int index=session.Tabs.IndexOf(tab); session.Tabs.Remove(tab);
-        if (session.Tabs.Count==0) { RemoveWorkspace(session); return; }
-        if (selected) { SelectTab(session.Tabs[Math.Min(index,session.Tabs.Count-1)]); Save(); }
-        else { RefreshTabs(); RefreshSidebar(); Save(); }
+        if (_selected==session && (selected || session.Tabs.Count==1)) SuspendActiveLayout();
+        if (SessionLayout.RemoveTab(_saved,session,tab) is { } removal) ApplyRemoval(session,removal,selected);
     }
     private void ShowEmptySessions()
     {

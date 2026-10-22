@@ -68,6 +68,27 @@ internal static class ArchitectureChecks
         check(typeof(GhosttyTerminal).Assembly.GetName().Name == "Toiqtty.Core"
             && typeof(RemoteTerminalSession).Assembly.GetName().Name == "Toiqtty.Client",
             "Core and client checks exercise the shared production assemblies");
+        var model = new SavedSession { Workspaces = [] };
+        var owner = SessionLayout.AddWorkspace(model, "owner", new PaneNode(), out _)!;
+        var keep = owner.Root.Id;
+        check(SessionLayout.SplitPane(model, owner, keep, true, "cmd.exe", out _) && owner.Root.Leaves().Count() == 2 && owner.Root.First!.Id == keep,
+            "Splitting keeps the original pane identity as the first child");
+        var added = owner.Root.Second!;
+        var paneClosed = SessionLayout.ClosePane(model, owner, added.Id)!;
+        check(paneClosed.Closed.Single() == added && paneClosed.RemovedTab is null && owner.Root.Id == keep,
+            "Closing one of two panes collapses the split and reports only that pane");
+        var second = SessionLayout.AddTab(model, owner, "second", new PaneNode(), out _)!;
+        check(owner.ActiveTab == second, "A new tab becomes the active tab");
+        var tabClosed = SessionLayout.ClosePane(model, owner, second.Root.Id)!;
+        check(tabClosed.RemovedTab == second && tabClosed.TabIndex == 1 && tabClosed.RemovedWorkspace is null && owner.Tabs.Count == 1 && owner.ActiveTab.Root.Id == keep,
+            "Closing a tab's last pane removes that tab and activates its neighbour");
+        var lastClosed = SessionLayout.ClosePane(model, owner, keep)!;
+        check(lastClosed.RemovedWorkspace == owner && lastClosed.Closed.Single().Id == keep && model.Workspaces.Count == 0,
+            "Closing a session's last pane removes the session and reports its shells for closure");
+        var full = SessionLayout.AddWorkspace(model, "full", new PaneNode(), out _)!;
+        while (full.Root.Leaves().Count() < SessionLayout.MaxPanesPerTab) SessionLayout.SplitPane(model, full, full.Root.Leaves().Last().Id, true, "cmd.exe", out _);
+        check(!SessionLayout.SplitPane(model, full, full.Root.Leaves().Last().Id, true, "cmd.exe", out string limit) && limit.StartsWith("Pane limit"),
+            "Splitting beyond the per-tab pane limit is rejected with a reason");
         var rejecting = new OrderedHostInput(request => request.Operation == "busy"
             ? Task.FromException<HostReply>(new HostRejectedException("Input busy: fixture")) : Task.FromResult(new HostReply()));
         var busy = await rejecting.Enqueue(new() { Operation = "busy" });

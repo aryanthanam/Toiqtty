@@ -25,7 +25,7 @@
     <DefineConstants Condition="'$(ToiqttyDiagnostics)' == 'true'">$(DefineConstants);DIAGNOSTICS</DefineConstants>
   </PropertyGroup>
   <ItemGroup Condition="'$(ToiqttyDiagnostics)' != 'true'">
-    <Compile Remove="Diagnostics/**;MainWindow.Smoke.cs" />
+    <Compile Remove="Diagnostics/**" />
     <!-- Kept in product builds: mode parsing rejects diagnostic flags, and the
          startup probe measures the exact shipped binary. -->
     <Compile Include="Diagnostics/WindowDiagnosticOptions.cs;Diagnostics/MainWindow.Startup.Probe.cs" />

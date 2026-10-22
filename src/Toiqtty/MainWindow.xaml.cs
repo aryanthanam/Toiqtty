@@ -205,11 +205,10 @@ public sealed partial class MainWindow : Window
     [System.Runtime.InteropServices.DllImport("user32")] private static extern bool SetForegroundWindow(nint window);
     private void NewWorkspace(string? shell = null, string? name = null, string? directory = null)
     {
-        if (_saved.Workspaces.Count>=64 || _saved.Workspaces.SelectMany(w=>w.AllPanes()).Count()>=256)
-        { SetStatusMessage("Session limit reached.", problem: true); return; }
-        var workspace = new Workspace { Name = name ?? $"Session {_saved.Workspaces.Count + 1}",
-            Root = new PaneNode { Command = shell ?? _saved.Settings.Shell, Directory = directory ?? _selected?.Root.Leaves().FirstOrDefault(p => p.Id == _focused?.PaneId)?.Session?.WorkingDirectory ?? _saved.Settings.StartDirectory } };
-        _saved.Workspaces.Add(workspace); RefreshSidebar(); SelectWorkspace(workspace); Save();
+        var root = new PaneNode { Command = shell ?? _saved.Settings.Shell, Directory = directory ?? _selected?.Root.Leaves().FirstOrDefault(p => p.Id == _focused?.PaneId)?.Session?.WorkingDirectory ?? _saved.Settings.StartDirectory };
+        if (SessionLayout.AddWorkspace(_saved, name ?? $"Session {_saved.Workspaces.Count + 1}", root, out string error) is not { } workspace)
+        { SetStatusMessage(error, problem: true); return; }
+        RefreshSidebar(); SelectWorkspace(workspace); Save();
     }
     private void RefreshSidebar()
     {
@@ -386,9 +385,9 @@ public sealed partial class MainWindow : Window
     private void Split(bool vertical)
     {
         if (_selected is null || (ActivePaneId ?? _selected.FocusedPaneId ?? _selected.Root.Leaves().FirstOrDefault()?.Id) is not { } id) return;
-        if (_selected.Root.Leaves().Count() >= 16 || _saved.Workspaces.SelectMany(w=>w.AllPanes()).Count()>=256) { SetStatusMessage("Pane limit reached (16 per tab, 256 overall).", problem: true); return; }
+        if (!SessionLayout.SplitPane(_saved, _selected, id, vertical, _saved.Settings.Shell, out string error))
+        { if (error.Length > 0) SetStatusMessage(error, problem: true); return; }
         _zoomed = false;
-        _selected.Root.Split(id, vertical, _saved.Settings.Shell);
         var leaves = _selected.Root.Leaves().ToList();
         var oldIndex = leaves.FindIndex(p => p.Id == id);
         RebuildPanes(leaves[Math.Min(oldIndex + 1, leaves.Count - 1)].Id); RefreshSidebar(); Save();
@@ -399,23 +398,34 @@ public sealed partial class MainWindow : Window
         // Suspend views before disposing sessions they may still draw on this frame.
         // Only layouts containing the closed pane are forgotten; other tabs keep theirs.
         SuspendActiveLayout();
-        ForgetTerminalViews(_selected.Root.Leaves().Where(p=>p.Id==id));
-        _sessionLifetimes.ClosePanes(_selected.Root.Leaves().Where(p=>p.Id==id));
-        var root = PaneNode.Remove(_selected.Root, id);
-        if (root is null) { RemoveTab(_selected,_selected.ActiveTab); return; }
-        _selected.Root = root; _zoomed = false; RebuildPanes(); RefreshSidebar(); Save();
+        var workspace = _selected;
+        if (SessionLayout.ClosePane(_saved, workspace, id) is { } removal) ApplyRemoval(workspace, removal, activeTab: true);
+        else RebuildPanes();
+    }
+    /// <summary>View, shell and selection follow-up for a structural removal already applied to the model.</summary>
+    private void ApplyRemoval(Workspace owner, SessionLayout.Removal removal, bool activeTab)
+    {
+        ForgetTerminalViews(removal.Closed);
+        _sessionLifetimes.ClosePanes(removal.Closed);
+        if (removal.RemovedWorkspace is { } removed)
+        {
+            if (_saved.Workspaces.Count == 0) { _selected = null; ShowEmptySessions(); }
+            else if (_selected == removed) SelectWorkspace(_saved.Workspaces[Math.Clamp(removal.WorkspaceIndex - 1, 0, _saved.Workspaces.Count - 1)]);
+            else RefreshSidebar();
+            Save();
+            if (_saved.Workspaces.Count == 0) _host = null;
+        }
+        else if (removal.RemovedTab is not null)
+        {
+            if (_selected == owner && activeTab) { SelectTab(owner.ActiveTab); Save(); }
+            else { RefreshTabs(); RefreshSidebar(); Save(); }
+        }
+        else { _zoomed = false; RebuildPanes(); RefreshSidebar(); Save(); }
     }
     private void RemoveWorkspace(Workspace workspace)
     {
         if (_selected == workspace) SuspendActiveLayout();
-        ForgetTerminalViews(workspace.AllPanes());
-        _sessionLifetimes.ClosePanes(workspace.AllPanes());
-        var index = _saved.Workspaces.IndexOf(workspace); _saved.Workspaces.Remove(workspace);
-        if (_saved.Workspaces.Count == 0) { _selected = null; ShowEmptySessions(); }
-        else if (_selected == workspace) SelectWorkspace(_saved.Workspaces[Math.Clamp(index - 1, 0, _saved.Workspaces.Count - 1)]);
-        else RefreshSidebar();
-        Save();
-        if (_saved.Workspaces.Count==0) _host=null;
+        if (SessionLayout.RemoveWorkspace(_saved, workspace) is { } removal) ApplyRemoval(workspace, removal, activeTab: false);
     }
     private async Task CloseWorkspace(Workspace workspace)
     {
