@@ -82,17 +82,22 @@ public sealed partial class SessionHostServer
                 _sessions.TryGetValue(request.Pane, out entry);
                 if (entry is null && (_sessions.Count >= 256 || request.Text.Length is < 1 or > 32768 || request.Directory.Length > 32768))
                     throw new ArgumentException("Shell creation exceeds the session limits.");
+                if (entry is null) _creating++;
             }
             if (entry is not null)
             {
                 if (request.Settings is not null) entry.Session.ApplySettings(request.Settings);
                 return new() { State = State(entry) };
             }
-            entry = new(new TerminalSession(request.Text, request.Directory, request.Settings)) { CreatedEpoch = request.LayoutEpoch, CreatedRevision = request.LayoutRevision };
-            var observed = entry;
-            entry.Session.Attention += () => { Interlocked.Increment(ref observed.Attention); Volatile.Write(ref observed.PendingAttention, 1); };
-            entry.Session.OutputChanged += () => OutputChanged(observed);
-            lock (_gate) { _sessions.Add(request.Pane, entry); _created = true; _emptySince = Environment.TickCount64; }
+            try
+            {
+                entry = new(new TerminalSession(request.Text, request.Directory, request.Settings)) { CreatedEpoch = request.LayoutEpoch, CreatedRevision = request.LayoutRevision };
+                var observed = entry;
+                entry.Session.Attention += () => { Interlocked.Increment(ref observed.Attention); Volatile.Write(ref observed.PendingAttention, 1); };
+                entry.Session.OutputChanged += () => OutputChanged(observed);
+                lock (_gate) { _sessions.Add(request.Pane, entry); _created = true; _emptySince = Environment.TickCount64; }
+            }
+            finally { lock (_gate) _creating--; }
             if (request.Layout is not null)
             {
                 try

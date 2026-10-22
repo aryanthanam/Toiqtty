@@ -37,6 +37,7 @@ public sealed partial class SessionHostServer(string folder) : IAsyncDisposable
     private readonly string _folder = folder, _identity = Guid.NewGuid().ToString("N");
     private SavedSession _layout = SessionStore.Load();
     private bool _created;
+    private int _creating;
     private bool _shutdownPending;
     private int _shutdownReplies;
     private long _emptySince = Environment.TickCount64;
@@ -409,7 +410,8 @@ public sealed partial class SessionHostServer(string folder) : IAsyncDisposable
                 lock (_gate)
                 {
                     entries = _sessions.Values.ToArray();
-                    bool live = _sessions.Values.Any(e => !e.Session.HasExited);
+                    // A shell under construction is not yet registered but keeps the host alive.
+                    bool live = _creating > 0 || _sessions.Values.Any(e => !e.Session.HasExited);
                     if (live) _emptySince = Environment.TickCount64;
                     else if (!_shutdownPending && Environment.TickCount64 - _emptySince > (_created ? 1500 : 30000)) { _stop.Cancel(); return; }
                 }

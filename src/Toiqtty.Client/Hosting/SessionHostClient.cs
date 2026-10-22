@@ -97,86 +97,98 @@ public sealed partial class SessionHostClient
         using var readConnection = SupportsReusableReads ? new HostReadConnection(this) : null;
         Task? demand = null;
         Task DemandWake() => demand ??= _watchWake.WaitAsync(demandStop.Token);
+        int failures = 0;
         try
         {
             while (!stop.IsCancellationRequested)
             {
-                lock (_watchGate) if (seen.Count > _outputListeners.Count)
-                    foreach (var pane in seen.Keys.Where(pane => !_outputListeners.ContainsKey(pane)).ToArray()) seen.Remove(pane);
-                if (OutputInterests().Length == 0) { await DemandWake().ConfigureAwait(false); demand = null; continue; }
-                // One bounded read covers visible panes through temporary
-                // per-frame capture/backpressure pauses. Request admission
-                // still sleeps whenever none of them currently need output.
-                string[] interests = OutputInterests(visible: !CancelRetiredWatchForCheck);
-                Interlocked.Increment(ref WatchRequestsForCheck);
-                bool filtered = SupportsPaneOutputWatch && !DisablePaneOutputWatchForCheck;
-                HostReply reply;
-                if (filtered)
+                try
                 {
-                    using var requestStop = CancellationTokenSource.CreateLinkedTokenSource(stop);
-                    var pending = CallCoreAsync(new()
+                    while (!stop.IsCancellationRequested)
                     {
-                        Operation = "watch",
-                        Numbers = [revision],
-                        WatchPanes = interests,
-                        WatchRevisions = interests.ToDictionary(id => id, id => seen.GetValueOrDefault(id, -1))
-                    }, TimeSpan.FromSeconds(3), requestStop.Token, null,
-                        readConnection: DisableReusableReadsForCheck ? null : readConnection);
-                    bool changed = false;
-                    while (!pending.IsCompleted)
-                    {
-                        var wake = DemandWake();
-                        if (await Task.WhenAny(pending, wake).ConfigureAwait(false) == pending)
-                            break;
-                        await wake.ConfigureAwait(false);
-                        demand = null;
-                        var current = OutputInterests(visible: !CancelRetiredWatchForCheck);
-                        // Existing interests may retire while a capture covers
-                        // them. Only a newly interested pane needs an early wake.
-                        if ((CancelRetiredWatchForCheck && current.Length == 0) || (!ReferenceEquals(current, interests) && current.Except(interests).Any()))
-                        { changed = true; requestStop.Cancel(); break; }
-                    }
-                    if (changed) { try { await pending.ConfigureAwait(false); } catch (Exception ex) when (ex is OperationCanceledException or IOException) { } continue; }
-                    reply = await pending.ConfigureAwait(false);
-                    // A temporary capture/backpressure pause need not destroy
-                    // its read channel. Finish the bounded outstanding watch,
-                    // but acknowledge only currently demanded panes so a later
-                    // resume still receives output published while it slept.
-                    var active = OutputInterests();
-                    if (reply.OutputRevisions is { } revisions) foreach (var pair in revisions)
-                    {
-                        bool visible = false;
-                        lock (_watchGate) if (_outputListeners.TryGetValue(pair.Key, out var subscriptions))
-                            foreach (var subscription in subscriptions) if (subscription.Visible?.Invoke() == true) { visible = true; break; }
-                        // Remote pane owners explicitly wake captures when a
-                        // frame is consumed or a view resumes. Generic demand
-                        // subscribers retain their unacknowledged catch-up.
-                        if (CancelRetiredWatchForCheck || visible || Array.IndexOf(active, pair.Key) >= 0) seen[pair.Key] = pair.Value;
+                        lock (_watchGate) if (seen.Count > _outputListeners.Count)
+                            foreach (var pane in seen.Keys.Where(pane => !_outputListeners.ContainsKey(pane)).ToArray()) seen.Remove(pane);
+                        if (OutputInterests().Length == 0) { await DemandWake().ConfigureAwait(false); demand = null; continue; }
+                        // One bounded read covers visible panes through temporary
+                        // per-frame capture/backpressure pauses. Request admission
+                        // still sleeps whenever none of them currently need output.
+                        string[] interests = OutputInterests(visible: !CancelRetiredWatchForCheck);
+                        Interlocked.Increment(ref WatchRequestsForCheck);
+                        bool filtered = SupportsPaneOutputWatch && !DisablePaneOutputWatchForCheck;
+                        HostReply reply;
+                        if (filtered)
+                        {
+                            using var requestStop = CancellationTokenSource.CreateLinkedTokenSource(stop);
+                            var pending = CallCoreAsync(new()
+                            {
+                                Operation = "watch",
+                                Numbers = [revision],
+                                WatchPanes = interests,
+                                WatchRevisions = interests.ToDictionary(id => id, id => seen.GetValueOrDefault(id, -1))
+                            }, TimeSpan.FromSeconds(3), requestStop.Token, null,
+                                readConnection: DisableReusableReadsForCheck ? null : readConnection);
+                            bool changed = false;
+                            while (!pending.IsCompleted)
+                            {
+                                var wake = DemandWake();
+                                if (await Task.WhenAny(pending, wake).ConfigureAwait(false) == pending)
+                                    break;
+                                await wake.ConfigureAwait(false);
+                                demand = null;
+                                var current = OutputInterests(visible: !CancelRetiredWatchForCheck);
+                                // Existing interests may retire while a capture covers
+                                // them. Only a newly interested pane needs an early wake.
+                                if ((CancelRetiredWatchForCheck && current.Length == 0) || (!ReferenceEquals(current, interests) && current.Except(interests).Any()))
+                                { changed = true; requestStop.Cancel(); break; }
+                            }
+                            if (changed) { try { await pending.ConfigureAwait(false); } catch (Exception ex) when (ex is OperationCanceledException or IOException) { } continue; }
+                            reply = await pending.ConfigureAwait(false);
+                            // A temporary capture/backpressure pause need not destroy
+                            // its read channel. Finish the bounded outstanding watch,
+                            // but acknowledge only currently demanded panes so a later
+                            // resume still receives output published while it slept.
+                            var active = OutputInterests();
+                            if (reply.OutputRevisions is { } revisions) foreach (var pair in revisions)
+                            {
+                                bool visible = false;
+                                lock (_watchGate) if (_outputListeners.TryGetValue(pair.Key, out var subscriptions))
+                                    foreach (var subscription in subscriptions) if (subscription.Visible?.Invoke() == true) { visible = true; break; }
+                                // Remote pane owners explicitly wake captures when a
+                                // frame is consumed or a view resumes. Generic demand
+                                // subscribers retain their unacknowledged catch-up.
+                                if (CancelRetiredWatchForCheck || visible || Array.IndexOf(active, pair.Key) >= 0) seen[pair.Key] = pair.Value;
+                            }
+                        }
+                        else reply = await CallCoreAsync(new() { Operation = "watch", Numbers = [revision] }, TimeSpan.FromSeconds(3), stop, null,
+                            readConnection: DisableReusableReadsForCheck ? null : readConnection).ConfigureAwait(false);
+                        revision = reply.Numbers.FirstOrDefault(revision); failures = 0;
+                        foreach (var pane in reply.Panes)
+                        {
+                            Interlocked.Increment(ref WatchNotificationsForCheck); OutputSubscription[]? listeners;
+                            lock (_watchGate) _outputListeners.TryGetValue(pane, out listeners);
+                            // Visible pane owners coalesce their own unread-frame
+                            // backpressure. Keep their wake even during a capture: a
+                            // just-acknowledged output revision may be newer than the
+                            // capture reply, including an unchanged/empty reply.
+                            if (listeners is not null) foreach (var listener in listeners)
+                                if (CancelRetiredWatchForCheck || listener.Visible?.Invoke() == true || listener.Demand()) listener.Listener(pane);
+                        }
                     }
                 }
-                else reply = await CallCoreAsync(new() { Operation = "watch", Numbers = [revision] }, TimeSpan.FromSeconds(3), stop, null,
-                    readConnection: DisableReusableReadsForCheck ? null : readConnection).ConfigureAwait(false);
-                revision = reply.Numbers.FirstOrDefault(revision);
-                foreach (var pane in reply.Panes)
+                catch (OperationCanceledException) when (stop.IsCancellationRequested) { break; }
+                catch (IOException) when (stop.IsCancellationRequested) { break; }
+                catch (Exception ex) when (ex is IOException or OperationCanceledException)
                 {
-                    Interlocked.Increment(ref WatchNotificationsForCheck); OutputSubscription[]? listeners;
-                    lock (_watchGate) _outputListeners.TryGetValue(pane, out listeners);
-                    // Visible pane owners coalesce their own unread-frame
-                    // backpressure. Keep their wake even during a capture: a
-                    // just-acknowledged output revision may be newer than the
-                    // capture reply, including an unchanged/empty reply.
-                    if (listeners is not null) foreach (var listener in listeners)
-                        if (CancelRetiredWatchForCheck || listener.Visible?.Invoke() == true || listener.Demand()) listener.Listener(pane);
+                    // Poll while degraded. A transient stall must not cost the
+                    // whole session its output wakeups, so retry with backoff.
+                    Action<string>[] listeners;
+                    bool retire = ++failures >= 5;
+                    lock (_watchGate) { if (retire) SupportsOutputWatch = false; listeners = _outputListeners.Values.SelectMany(items => items.Select(item => item.Listener)).ToArray(); }
+                    foreach (var listener in listeners) listener(""); // Fall back to bounded snapshot polling.
+                    if (retire) break;
+                    try { await Task.Delay(100 << failures, stop).ConfigureAwait(false); } catch (OperationCanceledException) { break; }
                 }
             }
-        }
-        catch (OperationCanceledException) when (stop.IsCancellationRequested) { }
-        catch (IOException) when (stop.IsCancellationRequested) { }
-        catch (Exception ex) when (ex is IOException or OperationCanceledException)
-        {
-            Action<string>[] listeners;
-            lock (_watchGate) { SupportsOutputWatch = false; listeners = _outputListeners.Values.SelectMany(items => items.Select(item => item.Listener)).ToArray(); }
-            foreach (var listener in listeners) listener(""); // Fall back to bounded snapshot polling.
         }
         finally
         {
@@ -219,20 +231,38 @@ public sealed partial class SessionHostClient
         }
     }
     private SessionHostClient(string folder) { Folder = folder; _pipeName = HostProtocol.PipeName(folder); }
-    public static SessionHostClient? TryConnect(string folder)
+    public static SessionHostClient? TryConnect(string folder) => TryConnect(folder, TimeSpan.FromMilliseconds(250));
+    private static SessionHostClient? TryConnect(string folder, TimeSpan timeout)
     {
         // Only fast-fail when Windows says the pipe does not exist. A busy or
         // inaccessible existing pipe still follows the bounded connection path.
         if (!WaitNamedPipeW(@"\\.\pipe\" + HostProtocol.PipeName(folder), 1) && Marshal.GetLastWin32Error() == 2) return null;
         var client = new SessionHostClient(folder);
-        try { client.Accept(client.Call(new(), TimeSpan.FromMilliseconds(250))); return client; }
+        try { client.Accept(client.Call(new(), timeout)); return client; }
         catch (SessionHostVersionException) { throw; }
         catch (Exception ex) when (ex is IOException or OperationCanceledException or TimeoutException) { return null; }
     }
     public static SessionHostClient ConnectOrStart(string folder, string? executable = null)
     {
         if (TryConnect(folder) is { } existing) return existing;
+        // A live but busy host misses the short probe; wait for it rather than
+        // launching replacements that can only lose its lease.
+        if (LiveHostProcess(folder) && TryConnect(folder, TimeSpan.FromSeconds(2)) is { } busy) return busy;
         return Start(folder, executable);
+    }
+    /// <summary>Whether the lease owner recorded in host.json is still running.</summary>
+    private static bool LiveHostProcess(string folder)
+    {
+        try
+        {
+            using var file = File.OpenRead(Path.Combine(folder, "host.json"));
+            if (file.Length > 4096) return false;
+            using var json = System.Text.Json.JsonDocument.Parse(file);
+            using var owner = Process.GetProcessById(json.RootElement.GetProperty("processId").GetInt32());
+            return !owner.HasExited && owner.ProcessName.Equals("Toiqtty.SessionHost", StringComparison.OrdinalIgnoreCase);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Text.Json.JsonException
+            or KeyNotFoundException or InvalidOperationException or ArgumentException or FormatException) { return false; }
     }
     // The application already probed once before constructing its window.
     // A concurrent launcher is safe: the host's exclusive lease still decides ownership.
@@ -253,8 +283,11 @@ public sealed partial class SessionHostClient
             {
                 // A previous host can be releasing its lease after its last
                 // shell exits. Retry startup if our racing launcher exits.
-                if (child is null || child.HasExited) { child?.Dispose(); child = Process.Start(start); }
-                if (TryConnect(folder) is { } ready) return ready;
+                // A child that exits while another live host holds the lease
+                // must not be respawned; connect to that host instead.
+                bool owned = child is not null && child.HasExited && LiveHostProcess(folder);
+                if (!owned && (child is null || child.HasExited)) { child?.Dispose(); child = Process.Start(start); }
+                if (TryConnect(folder, owned ? TimeSpan.FromSeconds(1) : TimeSpan.FromMilliseconds(250)) is { } ready) return ready;
                 // Current hosts signal after creating their first pipe. The
                 // bounded timeout also supports older hosts and lease races.
                 readyEvent.WaitOne(50);
