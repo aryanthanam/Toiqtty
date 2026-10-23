@@ -360,11 +360,23 @@ Check(shellEnvironment.Contains("PATH=kept\0") && shellEnvironment.Contains("NO_
     "Unicode child environment preserves user variables and color preferences");
 using (var session = new TerminalSession("powershell.exe -NoLogo -NoProfile", Environment.CurrentDirectory))
 {
-    var deadline = DateTime.UtcNow.AddSeconds(15);
-    while (session.Version == 0 && DateTime.UtcNow < deadline) await Task.Delay(100);
+    var cells = new TerminalCell[3000];
+    // Wait for the integrated prompt; slow runners can still be starting PowerShell after its first output.
+    var deadline = DateTime.UtcNow.AddSeconds(30);
+    bool prompted = false;
+    while (!prompted && DateTime.UtcNow < deadline)
+    {
+        await Task.Delay(100); session.ReadFrame(cells);
+        prompted = Enumerable.Range(0, 30).Any(y => Row(cells, 100, y).StartsWith("PS ", StringComparison.Ordinal));
+    }
     session.Paste("Set-Location $env:TEMP"); session.Key(13, 0);
     while (!string.Equals(Path.TrimEndingDirectorySeparator(session.Directory), Path.TrimEndingDirectorySeparator(Path.GetTempPath()), StringComparison.OrdinalIgnoreCase)
         && DateTime.UtcNow < deadline) await Task.Delay(100);
+    if (!string.Equals(Path.TrimEndingDirectorySeparator(session.Directory), Path.TrimEndingDirectorySeparator(Path.GetTempPath()), StringComparison.OrdinalIgnoreCase))
+    {
+        session.ReadFrame(cells);
+        Console.WriteLine($"Prompt seen: {prompted}; directory '{session.Directory}'; temp '{Path.GetTempPath()}'; screen: " + string.Join(" | ", Enumerable.Range(0, 30).Select(y => Row(cells, 100, y)).Where(row => row.Length > 0)));
+    }
     Check(string.Equals(Path.TrimEndingDirectorySeparator(session.Directory), Path.TrimEndingDirectorySeparator(Path.GetTempPath()), StringComparison.OrdinalIgnoreCase),
         "PowerShell prompt reports live directory changes through OSC 7");
     Check(string.Equals(Path.TrimEndingDirectorySeparator(session.LocalDirectory ?? ""), Path.TrimEndingDirectorySeparator(Path.GetTempPath()), StringComparison.OrdinalIgnoreCase),
