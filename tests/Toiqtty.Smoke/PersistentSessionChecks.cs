@@ -229,7 +229,12 @@ internal static class PersistentSessionChecks
         shell.QueueResize(90,24,8,20); shell.Paste("mark"); shell.Key(13,0); shell.Focus(true);
         long started=timer.ElapsedMilliseconds;
         await Task.Delay(100);
-        pass(started<50 && !shell.Ready.IsCompleted && shell.PendingInput==4 && !(await client.CallAsync(HostRequests.Ping())).Panes.Contains(pane) && shell.StatusSummary.StartsWith("Starting"),
+        // The connection never completes before this check, so a blocking Start would hang, not run
+        // slowly; the bound only allows for first-call JIT on a cold CI runner.
+        bool hostHasPane=(await client.CallAsync(HostRequests.Ping())).Panes.Contains(pane);
+        bool placeholder=started<1000 && !shell.Ready.IsCompleted && shell.PendingInput==4 && !hostHasPane && shell.StatusSummary.StartsWith("Starting");
+        if (!placeholder) Console.WriteLine($"Async create: started {started} ms, ready {shell.Ready.Status}, pending {shell.PendingInput}, host has pane {hostHasPane}, status '{shell.StatusSummary}'");
+        pass(placeholder,
             "starting a shell returns at once with a placeholder state while the host connection is pending, and queues its input");
         connection.SetResult(client);
         await shell.Ready.WaitAsync(TimeSpan.FromSeconds(15));
