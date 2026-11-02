@@ -48,7 +48,7 @@ public sealed partial class MainWindow
     private void SetSessionTheme(Workspace workspace, SessionTheme? theme)
     {
         workspace.Theme = theme;
-        uint accent = Chrome.For(theme).Accent;
+        uint accent = Chrome.For(ThemeFor(workspace)).Accent;
         foreach (var pane in workspace.AllPanes())
         {
             pane.Session?.ApplySettings(_saved.Settings.WithTerminalTheme(theme));

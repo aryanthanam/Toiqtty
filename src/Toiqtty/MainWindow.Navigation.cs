@@ -43,7 +43,7 @@ public sealed partial class MainWindow
         var order = WorkspaceList.Items.Cast<ListViewItem>().Select(item => (Workspace)item.Tag).ToList();
         _draggingSessions = false;
         CommitSessionOrder(order);
-        _sidebarFingerprint = ""; RefreshSidebar();
+        RefreshSidebar();
         RestorePaneFocusAfterDrag();
     }
 

@@ -46,6 +46,7 @@ public sealed partial class MainWindow
             FocusView(_views.First());
             var activeTab=TabStrip.Items.OfType<ListViewItem>().First(b=>Microsoft.UI.Xaml.Automation.AutomationProperties.GetAutomationId(b)=="Tab-"+project.ActiveTab.Id);
             Check(!Microsoft.UI.Xaml.Automation.AutomationProperties.GetName(activeTab).Contains("needs attention") && Microsoft.UI.Xaml.Automation.AutomationProperties.GetItemStatus(activeTab)=="Selected","Focusing a pane clears its tab attention indicator and announces selection");
+            RunSidebarChecks(Check);
             await RunExplorerChecks(Check);
             await RunStatusBarChecks(Check, Capture);
             await RunSessionThemeChecks(Check, Capture);

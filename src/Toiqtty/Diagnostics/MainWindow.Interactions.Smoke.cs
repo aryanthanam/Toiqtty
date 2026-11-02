@@ -76,12 +76,46 @@ public sealed partial class MainWindow
             search.Text="cliwrk";
             await Wait(()=>list.Items.Count>0 && list.Items[0] is SessionChoice choice && choice.Session==added);
             check(list.Items.Count>0 && list.Items[0] is SessionChoice choice && choice.Session==added,"Native session switching ranks fuzzy session-name matches");
+            var matchedChoice=list.Items[0];
+            search.Text=new string('z',80);
+            await Wait(()=>list.Items.Count==0);
+            check(list.Items.Count==0 && list.SelectedIndex==-1 && ((TextBlock)panel.Children[2]).Visibility==Visibility.Visible,
+                "A switcher search without matches clears its selection and shows the empty state");
+            search.Text="cliwrk";
+            await Wait(()=>list.Items.Count>0);
+            check(ReferenceEquals(list.Items[0],matchedChoice) && list.SelectedIndex==0 && ((TextBlock)panel.Children[2]).Visibility==Visibility.Collapsed,
+                "Filtering reuses session choices and restores the best match after an empty search");
+            var matchingSource=list.ItemsSource;
+            search.Text="  cliwrk  ";
+            await Task.Yield();
+            check(ReferenceEquals(list.ItemsSource,matchingSource),"Equivalent searches retain the existing result collection");
             list.UpdateLayout(); await Wait(()=>list.ContainerFromIndex(0) is ListViewItem);
             var peer=FrameworkElementAutomationPeer.CreatePeerForElement((ListViewItem)list.ContainerFromIndex(0))!;
             ((IInvokeProvider)peer.GetPattern(PatternInterface.Invoke)).Invoke(); await switching.WaitAsync(TimeSpan.FromSeconds(3));
             check(_selected==added,"Invoking a native fuzzy-switcher result selects the correct existing session");
             switching=SwitchSession(); await Wait(()=>Dialog() is not null); Dialog()!.Hide(); await switching;
             check(_selected==added,"Cancelling fuzzy switching preserves the active session");
+            var sidebarVisibility=Sidebar.Visibility;
+            var paletteTask=ShowCommandPalette(); ContentDialog? paletteDialog=null;
+            try
+            {
+                await Wait(()=>Dialog() is not null); paletteDialog=Dialog()!;
+                var palettePanel=(StackPanel)paletteDialog.Content;
+                var paletteSearch=(TextBox)palettePanel.Children[0]; var paletteList=(ListView)palettePanel.Children[1];
+                paletteSearch.Text="Toggle sidebar";
+                await Wait(()=>paletteList.Items.Count==1 && paletteList.Items[0] is ListViewItem item
+                    && Microsoft.UI.Xaml.Automation.AutomationProperties.GetName(item).StartsWith("Toggle sidebar",StringComparison.Ordinal));
+                paletteList.UpdateLayout(); await Wait(()=>paletteList.ContainerFromIndex(0) is ListViewItem);
+                var palettePeer=FrameworkElementAutomationPeer.CreatePeerForElement((ListViewItem)paletteList.ContainerFromIndex(0))!;
+                ((IInvokeProvider)palettePeer.GetPattern(PatternInterface.Invoke)).Invoke();
+                await paletteTask.WaitAsync(TimeSpan.FromSeconds(3));
+                check(Sidebar.Visibility!=sidebarVisibility,"Native command-palette item invocation executes the clicked command");
+            }
+            finally
+            {
+                if(!paletteTask.IsCompleted && paletteDialog is not null) { paletteDialog.Hide(); await paletteTask; }
+                if(Sidebar.Visibility!=sidebarVisibility) ToggleSidebar();
+            }
             check((await Cli("focus","missing-session")).Exit!=0 && _selected==added,"Invalid CLI targets fail without changing the selected session");
             string marker="CLI_RAW_"+Guid.NewGuid().ToString("N");
             var sent=await Cli("send-text","--pane",ActivePaneId!,"--text","Write-Output ('"+marker[..20]+"'+'"+marker[20..]+"')\r");

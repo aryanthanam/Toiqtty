@@ -115,7 +115,7 @@ public sealed partial class MainWindow
             "native session reorder completion publishes the final container order");
         check(!CommitSessionOrder([other, other]) && _saved.Workspaces[1] == destination,
             "an incomplete or duplicate reorder result leaves the session layout intact");
-        _sidebarFingerprint = ""; RefreshSidebar();
+        RefreshSidebar();
 
         foreach (var workspace in _saved.Workspaces) { workspace.Attention = false; foreach (var p in workspace.AllPanes()) p.Attention = false; }
         SelectWorkspace(other);

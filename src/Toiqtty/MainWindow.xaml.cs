@@ -22,7 +22,6 @@ public sealed partial class MainWindow : Window
     private readonly DispatcherTimer _metadataTimer = new() { Interval = TimeSpan.FromSeconds(2) };
     private bool _polling;
     private bool _closed, _closing;
-    private string _sidebarFingerprint = "";
     private readonly WindowPowerNotifications _power;
     private int _resumeCount;
     private readonly Notifications.DesktopNotifications? _notifications;
@@ -121,7 +120,7 @@ public sealed partial class MainWindow : Window
             StartupTrace.Mark("lua-begin");
             await InitializeLua();
             StartupTrace.Mark("lua-end");
-            if (_closed) return;
+            if (_closed || _closing) return;
             // Size once using the loaded root's DPI and evaluated preferences,
             // including baseline preferences when Lua is absent or invalid.
             ApplyWindowSettings(initial: true);
@@ -130,27 +129,31 @@ public sealed partial class MainWindow : Window
                 try { if (await startingHost is { } started) _connector.Adopt(started); }
                 catch (Exception ex) when (ex is IOException or System.ComponentModel.Win32Exception or UnauthorizedAccessException or InvalidOperationException)
                 { SetStatusMessage("Could not start session host: " + ex.Message, problem: true); }
-                if (_closed) return;
+                if (_closed || _closing) return;
             }
             ApplyStartupConfiguration();
+            if (_saved.Workspaces.Count == 0)
+                SessionLayout.AddWorkspace(_saved, "Session 1", new PaneNode {
+                    Command = _saved.Settings.Shell, Directory = _saved.Settings.StartDirectory
+                }, out _);
+            _sessionThemes.LoadInto(_saved.Workspaces); _sessionThemesLoaded = true;
+            ApplyAppearanceSettings();
+            var selected = _saved.Workspaces.FirstOrDefault(w => w.Id == _saved.SelectedWorkspace) ?? _saved.Workspaces[0];
+            // Shell creation/reattach and graphics preparation are independent. Start
+            // the host work now so profiles load while the graphics device initializes.
+            if (_persistent) EnsureShells(_saved.Workspaces, selected, "Could not restore shell: ");
             if (_startupGraphics is not null)
             {
-                if (_saved.Workspaces.Count == 0 || _saved.Workspaces.SelectMany(w => w.AllPanes()).Any(p => !p.IsBrowser))
+                if (_saved.Workspaces.SelectMany(w => w.AllPanes()).Any(p => !p.IsBrowser))
                     await _startupGraphics.Install();
                 else _startupGraphics.Dispose();
             }
-            if (_closed) return;
-            _sessionThemes.LoadInto(_saved.Workspaces); _sessionThemesLoaded = true;
-            ApplyAppearanceSettings();
-            if (_saved.Workspaces.Count == 0) NewWorkspace();
-            else
-            {
-                var selected = _saved.Workspaces.FirstOrDefault(w => w.Id == _saved.SelectedWorkspace) ?? _saved.Workspaces[0];
-                // Before any view is built, so the visible panes join the one batched reattach
-                // (or lead the creates) instead of each starting alone from BuildNode.
-                if (_persistent) EnsureShells(_saved.Workspaces, selected, "Could not restore shell: ");
-                RefreshSidebar(); SelectWorkspace(selected);
-            }
+            if (_closed || _closing) return;
+            // The sidebar remains usable while graphics prepares. Honor navigation
+            // or closures during that await instead of reviving the earlier target.
+            selected = _saved.Workspaces.FirstOrDefault(w => w.Id == _saved.SelectedWorkspace) ?? _saved.Workspaces.FirstOrDefault();
+            if (selected is null) ShowEmptySessions();
+            else SelectWorkspace(selected);
             UpdateChrome();
             StartupTrace.Mark("sessions-restored");
             if (StartupTrace.Enabled) _ = MarkSessionsReady();
@@ -236,75 +239,6 @@ public sealed partial class MainWindow : Window
         if (SessionLayout.AddWorkspace(_saved, name ?? $"Session {_saved.Workspaces.Count + 1}", root, out string error) is not { } workspace)
         { SetStatusMessage(error, problem: true); return; }
         RefreshSidebar(); SelectWorkspace(workspace); Save();
-    }
-    private void RefreshSidebar()
-    {
-        UpdateChrome();
-        if (_closed || _closing || _draggingSessions || _draggedPaneId is not null) return;
-        var fingerprint = string.Join("|", _saved.Workspaces.Select(w =>
-            w.Id + ":" + w.Name + ":" + w.Theme?.Key + ":" + w.Branch + ":" + w.Attention + ":" + w.AllPanes().Count() + ":" + w.Tabs.Count + ":" +
-            (w.Root.Leaves().FirstOrDefault()?.Session?.Directory ?? w.Root.Leaves().FirstOrDefault()?.Directory)));
-        if (_sidebarFingerprint == fingerprint) { SyncSidebarSelection(); return; }
-        _sidebarFingerprint = fingerprint;
-        _refreshing = true;
-        WorkspaceList.Items.Clear();
-        foreach (var workspace in _saved.Workspaces)
-        {
-            var leaves = workspace.AllPanes().ToList();
-            var directory = leaves.FirstOrDefault()?.Session?.Directory ?? leaves.FirstOrDefault()?.Directory ?? "";
-            bool selected = workspace == _selected;
-            var colors = Chrome.For(ThemeFor(workspace));
-            var stack = new StackPanel { Spacing = 3, Padding = new Thickness(10, 7, 10, 7) };
-            var title = new TextBlock { Text = workspace.Name, FontSize = 12,
-                FontWeight = selected?Microsoft.UI.Text.FontWeights.SemiBold:Microsoft.UI.Text.FontWeights.Normal, TextTrimming = TextTrimming.CharacterEllipsis,
-                Foreground = Chrome.Brush(workspace.Attention ? colors.Accent : colors.Text) };
-            var heading = new Grid { ColumnSpacing = workspace.Attention ? 8 : 0 };
-            heading.ColumnDefinitions.Add(new() { Width = GridLength.Auto }); heading.ColumnDefinitions.Add(new() { Width = new(1, GridUnitType.Star) });
-            heading.Children.Add(new Border { Width=4,Height=4,CornerRadius=new CornerRadius(2),Background=Chrome.Brush(colors.Accent),
-                Visibility=workspace.Attention?Visibility.Visible:Visibility.Collapsed,VerticalAlignment=VerticalAlignment.Center });
-            Grid.SetColumn(title, 1); heading.Children.Add(title); stack.Children.Add(heading);
-            stack.Children.Add(new TextBlock { Text = DisplayDirectory(directory), FontSize = 10, TextTrimming = TextTrimming.CharacterEllipsis,
-                Foreground = Chrome.Brush(workspace.Theme is null ? Chrome.Muted : colors.Secondary) });
-            var meta = new List<string>();
-            if (workspace.Tabs.Count > 1) meta.Add($"{workspace.Tabs.Count} tabs");
-            if (workspace.Branch.Length > 0) meta.Add("git · " + workspace.Branch);
-            if (leaves.Count > 1) meta.Add($"{leaves.Count} panes");
-            if (workspace.Attention) meta.Add("Needs attention");
-            if (meta.Count > 0) stack.Children.Add(new TextBlock { Text = string.Join("  ·  ", meta), FontSize = 10, Foreground = Chrome.Brush(workspace.Attention ? colors.Accent : colors.Secondary), TextTrimming = TextTrimming.CharacterEllipsis });
-            var card = new Border { Child = stack, Background = Chrome.Brush(SessionCardBackground(workspace, selected)),
-                BorderBrush = Chrome.Brush(selected || ThemeFor(workspace) is not null ? colors.Accent : 0x00000000), BorderThickness = new Thickness(2,0,0,0) };
-            var item = new ListViewItem { Content = card, Tag = workspace };
-            Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(item, "Session " + workspace.Name + ", " + leaves.Count + " panes" + (workspace.Attention ? ", needs attention" : ""));
-            ToolTipService.SetToolTip(item, directory);
-            var menu = new MenuFlyout();
-            var rename = new MenuFlyoutItem { Text = "Rename session" }; rename.Click += (_, _) => UiTasks.Observe(Rename(workspace));
-            var theme = new MenuFlyoutItem { Text = "Session theme…" }; theme.Click += (_, _) => UiTasks.Observe(EditSessionTheme(workspace));
-            var close = new MenuFlyoutItem { Text = "Close session" }; close.Click += (_, _) => UiTasks.Observe(CloseWorkspace(workspace));
-            var openDirectory = new MenuFlyoutItem { Text = "Open in Windows Explorer" };
-            openDirectory.Click += (_, _) => UiTasks.Observe(OpenDirectory(workspace));
-            menu.Items.Add(openDirectory); menu.Items.Add(theme); menu.Items.Add(rename); menu.Items.Add(close); item.ContextFlyout = menu;
-            AddSessionOrderMenu(menu, workspace);
-            WorkspaceList.Items.Add(item);
-            if (workspace == _selected) WorkspaceList.SelectedItem = item;
-        }
-        _refreshing = false;
-    }
-    private void SyncSidebarSelection()
-    {
-        _refreshing = true;
-        foreach (var value in WorkspaceList.Items)
-        {
-            var item = (ListViewItem)value;
-            if (item.Tag is not Workspace workspace || item.Content is not Border card) continue;
-            bool selected = workspace == _selected;
-            var colors = Chrome.For(ThemeFor(workspace));
-            card.Background = Chrome.Brush(SessionCardBackground(workspace, selected));
-            card.BorderBrush = Chrome.Brush(selected || ThemeFor(workspace) is not null ? colors.Accent : 0x00000000);
-            if (card.Child is StackPanel stack && stack.Children[0] is Grid heading && heading.Children[1] is TextBlock title)
-                title.FontWeight = selected ? Microsoft.UI.Text.FontWeights.SemiBold : Microsoft.UI.Text.FontWeights.Normal;
-            if (selected) WorkspaceList.SelectedItem = item;
-        }
-        _refreshing = false;
     }
     private void WorkspaceSelectionChanged(object _1, SelectionChangedEventArgs _2)
     {
@@ -538,7 +472,7 @@ public sealed partial class MainWindow : Window
                 // A move/close can remove a session while the previous Git
                 // lookup awaits. Its captured workspace can now have no tabs.
                 if (!_saved.Workspaces.Contains(workspace) || workspace.Tabs.Count == 0) continue;
-                var directory = workspace.Root.Leaves().FirstOrDefault()?.Session?.LocalDirectory;
+                var directory = SidebarPane(workspace)?.Session?.LocalDirectory;
                 if (directory is null) { workspace.Branch = ""; continue; }
                 if(!branches.TryGetValue(directory,out var branch))
                 { branch=await ReadBranch(directory); branches.Add(directory,branch); }
@@ -546,7 +480,7 @@ public sealed partial class MainWindow : Window
                 // The shell may change directory or its session may close while
                 // Git is running. Do not publish a result for an older identity.
                 if(_saved.Workspaces.Contains(workspace) && workspace.Tabs.Count>0
-                    && workspace.Root.Leaves().FirstOrDefault()?.Session?.LocalDirectory==directory) workspace.Branch=branch;
+                    && SidebarPane(workspace)?.Session?.LocalDirectory==directory) workspace.Branch=branch;
             }
             RefreshSidebar(); UpdateStatus();
         }
@@ -689,7 +623,11 @@ public sealed partial class MainWindow : Window
         void Execute() { if (list.SelectedItem is ListViewItem { Tag: Action action }) { selected = action; dialog.Hide(); } }
         search.TextChanged += (_, _) => Filter();
         search.KeyDown += (_, args) => { if (args.Key == VirtualKey.Enter) { Execute(); args.Handled = true; } else if (args.Key is VirtualKey.Down or VirtualKey.Up) { list.SelectedIndex = Math.Clamp(list.SelectedIndex + (args.Key == VirtualKey.Down ? 1 : -1), 0, Math.Max(0, list.Items.Count - 1)); args.Handled = true; } };
-        list.ItemClick += (_, args) => { if (args.ClickedItem is ListViewItem { Tag: Action action }) { selected = action; dialog.Hide(); } };
+        list.ItemClick += (_, args) => {
+            var item = args.ClickedItem as ListViewItem ?? list.Items.OfType<ListViewItem>()
+                .FirstOrDefault(item => ReferenceEquals(item.Content, args.ClickedItem));
+            if (item?.Tag is Action action) { selected = action; dialog.Hide(); }
+        };
         dialog.Opened += (_, _) => search.Focus(FocusState.Programmatic);
         Filter(); await ShowDialog(dialog); selected?.Invoke();
     }

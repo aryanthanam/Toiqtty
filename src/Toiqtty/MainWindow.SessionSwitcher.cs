@@ -7,7 +7,15 @@ namespace Toiqtty;
 
 public sealed partial class MainWindow
 {
-    private sealed record SessionChoice(Workspace Session, string Label) { public override string ToString() => Label; }
+    private sealed record SessionChoice(Workspace Session, string Name, string Metadata, string Label, int Order, bool Current)
+    {
+        public override string ToString() => Label;
+        internal int Score(string query)
+        {
+            int nameScore = FuzzyMatch.Score(query, Name);
+            return Math.Max(nameScore < 0 ? -1 : nameScore + 100, FuzzyMatch.Score(query, Metadata));
+        }
+    }
     private async Task SwitchSession()
     {
         if (_dialogOpen || _saved.Workspaces.Count == 0) return;
@@ -16,17 +24,29 @@ public sealed partial class MainWindow
         var empty = new TextBlock { Text = "No matching sessions", Visibility = Visibility.Collapsed };
         var panel = new StackPanel { Spacing = 10 }; panel.Children.Add(search); panel.Children.Add(list); panel.Children.Add(empty);
         var dialog = new ContentDialog { Title = "Switch session", Content = panel, CloseButtonText = "Cancel" };
+        // Metadata is already cached by the sessions. Read it and walk pane trees once
+        // per opening, rather than rebuilding every result object on every keystroke.
+        var choices = _saved.Workspaces.Select((session, order) => {
+            var pane = SidebarPane(session);
+            string directory = pane?.Session?.Directory ?? pane?.Directory ?? "";
+            string metadata = string.Join("  •  ", new[] { directory, session.Branch }.Where(value => !string.IsNullOrEmpty(value)));
+            bool current = session == _selected;
+            string label = session.Name + (current ? "  • current" : "") + (metadata.Length > 0 ? "\n" + metadata : "");
+            return new SessionChoice(session, session.Name, metadata, label, order, current);
+        }).ToArray();
+        SessionChoice[]? matches = null;
         Workspace? selected = null;
         void Filter()
         {
-            list.Items.Clear();
-            foreach (var entry in _saved.Workspaces.Select((session, order) => {
-                string directory = session.AllPanes().FirstOrDefault(p => !p.IsBrowser)?.Session?.Directory ?? "";
-                int nameScore = FuzzyMatch.Score(search.Text, session.Name);
-                int metadataScore = FuzzyMatch.Score(search.Text, directory + " " + session.Branch);
-                return (Session: session, Directory: directory, Score: Math.Max(nameScore < 0 ? -1 : nameScore + 100, metadataScore), Order: order);
-            }).Where(e => e.Score >= 0).OrderByDescending(e => e.Score).ThenByDescending(e => e.Session == _selected).ThenBy(e => e.Order))
-                list.Items.Add(new SessionChoice(entry.Session, entry.Session.Name + (entry.Session == _selected ? "  • current" : "") + "\n" + entry.Directory));
+            var filtered = choices.Select(choice => (Choice: choice, Score: choice.Score(search.Text)))
+                .Where(entry => entry.Score >= 0).OrderByDescending(entry => entry.Score)
+                .ThenByDescending(entry => entry.Choice.Current).ThenBy(entry => entry.Choice.Order)
+                .Select(entry => entry.Choice).ToArray();
+            if (matches is not null && matches.SequenceEqual(filtered)) return;
+            // One collection replacement avoids a separate layout/selection notification
+            // per row, and stable choices let unchanged results retain their selection.
+            matches = filtered;
+            list.ItemsSource = matches;
             list.SelectedIndex = list.Items.Count > 0 ? 0 : -1; empty.Visibility = list.Items.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
         }
         void Choose(SessionChoice choice) { selected = choice.Session; dialog.Hide(); }

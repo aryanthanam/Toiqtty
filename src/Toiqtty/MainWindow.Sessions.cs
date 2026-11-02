@@ -195,7 +195,7 @@ public sealed partial class MainWindow
     private void RefreshTabs()
     {
         if (_draggingTabs || _draggedPaneId is not null) return;
-        string fingerprint=_selected?.Id+":"+_selected?.Theme?.Key+":"+string.Join("|",_selected?.Tabs.Select(t=>t.Id+":"+t.Name+":"+t.Root.Leaves().Any(p=>p.Attention)+":"+t.Root.Leaves().Count()+":"+t.Root.Leaves().All(p=>p.IsBrowser))??[]);
+        string fingerprint=_selected?.Id+":"+ThemeFor(_selected)?.Key+":"+string.Join("|",_selected?.Tabs.Select(t=>t.Id+":"+t.Name+":"+t.Root.Leaves().Any(p=>p.Attention)+":"+t.Root.Leaves().Count()+":"+t.Root.Leaves().All(p=>p.IsBrowser))??[]);
         _refreshingTabs=true;
         try
         {

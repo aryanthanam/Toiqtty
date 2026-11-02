@@ -28,6 +28,12 @@ internal static class InteractionChecks
         check(FuzzyMatch.Score("dvp","Development")>=0 && FuzzyMatch.Score("xyz","Development")==-1,"Session switching supports subsequence matching and excludes nonmatches");
         check(FuzzyMatch.Score("dev","dev")>FuzzyMatch.Score("dev","Development"),"Exact session names rank above partial matches");
         check(FuzzyMatch.Score("日本","日本語")>=0,"Session matching preserves Unicode names");
+        check(FuzzyMatch.Score("  DEV  ","dev")==FuzzyMatch.Score("dev","dev") && FuzzyMatch.Score("   ","")==0,
+            "Session matching trims queries consistently, including an empty search");
+        for(int i=0;i<100;i++) FuzzyMatch.Score("  DvP  ","Development");
+        long allocated=GC.GetAllocatedBytesForCurrentThread();
+        for(int i=0;i<1000;i++) FuzzyMatch.Score("  DvP  ","Development");
+        check(GC.GetAllocatedBytesForCurrentThread()-allocated<4096,"Session fuzzy scoring avoids allocating strings per query character");
     }
     internal static async Task RunConfig(string helper,Action<bool,string> check)
     {

@@ -65,6 +65,36 @@ public sealed partial class MainWindow
         check(Root.RequestedTheme == ElementTheme.Dark && ((SolidColorBrush)TitleBar.Background).Color == Chrome.Brush(Chrome.Background).Color
             && ((SolidColorBrush)Sidebar.Background).Color == Chrome.Brush(Chrome.Sidebar).Color,
             "Reset to default restores the normal interface without replacing shells");
+        var previousGlobalTheme = _saved.Settings.TerminalTheme;
+        var activeTab = workspace.ActiveTab;
+        try
+        {
+            foreach (var theme in new[] { SessionThemePresets.Find("Cobalt2"), SessionThemePresets.Find("Hot Dog Stand (Mustard)") })
+            {
+                _saved.Settings.TerminalTheme = theme;
+                ApplyAppearanceSettings();
+                var colors = Chrome.For(theme);
+                check(workspace.ActiveTab == activeTab && _tabCards.All(pair =>
+                    ((SolidColorBrush)pair.Value.Card.Background).Color == Chrome.Brush(pair.Key == activeTab.Id ? colors.Selected : colors.Background).Color
+                    && ((SolidColorBrush)pair.Value.Label.Foreground).Color == Chrome.Brush(pair.Key == activeTab.Id ? colors.Text : colors.Secondary).Color
+                    && ((SolidColorBrush)pair.Value.Close.Foreground).Color == Chrome.Brush(colors.Text).Color),
+                    "Reloading the global " + theme!.Name + " theme updates active and inactive tabs without requiring a tab switch");
+            }
+            SetSessionTheme(workspace, SessionThemePresets.Find("Alien Blood"));
+            SetSessionTheme(workspace, null);
+            var inherited = Chrome.For(_saved.Settings.TerminalTheme);
+            check(_paneDragSurfaces.Count > 0 && _paneDragSurfaces.Values.All(drag =>
+                ((SolidColorBrush)drag.Preview.BorderBrush).Color == Chrome.Brush(inherited.Accent).Color)
+                && _views.All(view => view.SessionAccent == inherited.Accent),
+                "Resetting a session theme uses the global palette for pane focus and drag previews");
+            check(workspace.AllPanes().Select(p => p.Session).SequenceEqual(shells) && _views.SequenceEqual(views),
+                "Global theme reload and resetting a session theme preserve running shells and terminal views");
+        }
+        finally
+        {
+            _saved.Settings.TerminalTheme = previousGlobalTheme;
+            ApplyAppearanceSettings();
+        }
         SetSessionTheme(workspace, SessionThemePresets.Find("Cobalt2"));
         SetSessionTheme(_saved.Workspaces.Last(w => w != workspace && w != other), SessionThemePresets.Find("Dracula"));
         static IEnumerable<DependencyObject> Walk(DependencyObject? node)

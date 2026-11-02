@@ -94,6 +94,7 @@
     <Grid Padding="0,3,0,5" RowSpacing="6">
      <Grid.RowDefinitions><RowDefinition Height="*"/><RowDefinition Height="28"/></Grid.RowDefinitions>
      <ListView x:Name="WorkspaceList" Grid.Row="0" SelectionChanged="WorkspaceSelectionChanged" DoubleTapped="WorkspaceDoubleTapped" IsDoubleTapEnabled="True" Background="Transparent" BorderThickness="0" Padding="0" SelectionMode="Single" IsItemClickEnabled="False" CanDragItems="True" CanReorderItems="True" AllowDrop="True" DragItemsStarting="SessionDragStarting" DragItemsCompleted="SessionDragCompleted">
+      <ListView.Resources><x:Boolean x:Key="ListViewItemSelectionIndicatorVisualEnabled">False</x:Boolean></ListView.Resources>
       <ListView.ItemContainerStyle>
        <Style TargetType="ListViewItem"><Setter Property="Padding" Value="0"/><Setter Property="Margin" Value="0,1"/><Setter Property="HorizontalContentAlignment" Value="Stretch"/><Setter Property="MinHeight" Value="52"/><Setter Property="CornerRadius" Value="0"/></Style>
       </ListView.ItemContainerStyle>

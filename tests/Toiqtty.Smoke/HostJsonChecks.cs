@@ -4,6 +4,7 @@ using System.Text.Json.Serialization.Metadata;
 using Toiqtty.Hosting;
 using Toiqtty.Terminal;
 using Toiqtty.Configuration;
+using Toiqtty.Models;
 
 internal static class HostJsonChecks
 {
@@ -81,6 +82,7 @@ internal static class HostJsonChecks
         Compare(new LuaConfigResult { Settings = Request().Settings!, StartupSessions = Request().Layout!.Workspaces, Hooks = ["format_status"] }, ConfigurationJsonContext.Default.LuaConfigResult, "Lua worker startup result and hooks");
         Compare(new LuaPresentationRequest { Status = new() { ["title"] = "café 中🙂", ["count"] = 3, ["revision"] = 123L, ["font_size"] = 14.5, ["active"] = true, ["missing"] = null }, Tabs = [new() { ["id"] = "tab", ["is_active"] = true, ["panes"] = 2 }] }, ConfigurationJsonContext.Default.LuaPresentationRequest, "Mixed runtime callback context values");
         Compare(new LuaPresentationResult { Titles = new() { ["tab"] = [new("café 中🙂", "#abcdef", true)] }, Action = Request().Settings!.Bindings[0].Action }, ConfigurationJsonContext.Default.LuaPresentationResult, "Styled callback results and recursive actions");
+        CheckLayoutSnapshot(check);
         await CheckFrames(check);
         void Compare<T>(T value, JsonTypeInfo<T> info, string label)
         {
@@ -92,6 +94,40 @@ internal static class HostJsonChecks
             string extra = text.Insert(text.Length - 1, ",\"future_field\":{\"x\":[1,2]}");
             check(JsonSerializer.SerializeToUtf8Bytes(JsonSerializer.Deserialize(extra, info) ?? throw new Exception("Decoded JSON is null."), info).SequenceEqual(reference), label + ": unknown future fields retain forward compatibility");
         }
+    }
+    private static void CheckLayoutSnapshot(Action<bool, string> check)
+    {
+        var source = Request().Layout!;
+        source.Settings = Request().Settings!;
+        var workspace = source.Workspaces[0];
+        source.SelectedWorkspace = workspace.Id;
+        workspace.Theme = new() { Name = "Snapshot theme", Accent = "#abcdef" };
+        workspace.Tabs.Add(new() { Name = "Browser", Root = new() { Kind = "browser", BrowserUrl = "https://example.com/path", BrowserSourceId = "profile" } });
+        workspace.ActiveTabId = workspace.Tabs[0].Id;
+        workspace.Root.Split(workspace.Root.Id, false, "cmd.exe");
+        workspace.Root.Ratio = .37;
+        workspace.Root.Second!.Directory = "D:/snapshot/中";
+        workspace.FocusedPaneId = workspace.Root.Second.Id;
+        workspace.Attention = true; workspace.Branch = "runtime-only";
+        workspace.Root.First!.Attention = true;
+        byte[] before = JsonSerializer.SerializeToUtf8Bytes(source);
+        var snapshot = SavedSessionSnapshot.Capture(source);
+        check(JsonSerializer.SerializeToUtf8Bytes(snapshot).SequenceEqual(before),
+            "Direct layout snapshots preserve persisted settings, themes, split geometry, browser profiles and selection exactly");
+        check(!snapshot.Workspaces[0].Attention && snapshot.Workspaces[0].Branch.Length == 0 && !snapshot.Workspaces[0].Root.First!.Attention
+            && snapshot.Workspaces[0].AllPanes().All(p => p.Session is null),
+            "Layout snapshots exclude transient attention, branch and live session state");
+        snapshot.Settings.Bindings[0].Action.Steps![0].Value = "changed";
+        snapshot.Workspaces[0].Root.Second!.Directory = "changed";
+        snapshot.Workspaces[0].Tabs[1].Root.BrowserUrl = "about:blank";
+        snapshot.Workspaces.Add(new());
+        check(JsonSerializer.SerializeToUtf8Bytes(source).SequenceEqual(before) && !ReferenceEquals(snapshot.Workspaces[0].Theme, workspace.Theme),
+            "Snapshot edits cannot mutate the source's nested settings, panes, tabs, session list or theme objects");
+        byte[] captured = JsonSerializer.SerializeToUtf8Bytes(snapshot);
+        workspace.Root.First!.Command = "changed";
+        workspace.Tabs.RemoveAt(1); source.Settings.Bindings.Clear();
+        check(JsonSerializer.SerializeToUtf8Bytes(snapshot).SequenceEqual(captured),
+            "Later source edits cannot change a queued layout snapshot");
     }
     private static byte[] Frame<T>(T value)
     {
