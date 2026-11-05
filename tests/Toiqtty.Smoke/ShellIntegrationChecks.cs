@@ -37,9 +37,8 @@ internal static class ShellIntegrationChecks
             var cells = new TerminalCell[3000]; session.ReadFrame(cells);
             Console.WriteLine(string.Concat(cells.Select(c => c.GetText()))); return false;
         }
-        check(await Wait(() => session.Title != "Terminal" || session.Version > 0), "integrated PowerShell starts through ConPTY");
-        // Wait for the prompt's cwd report, not merely the PowerShell banner.
-        await Task.Delay(700);
+        await PowerShellPrompt.Wait(session);
+        check(true, "integrated PowerShell reaches its prompt through ConPTY");
         async Task<TerminalCommand> Command(string command)
         {
             int before = session.Status.Commands.Count;
@@ -75,16 +74,20 @@ internal static class ShellIntegrationChecks
             "shell exit completes the final command when no next prompt is produced");
         using (var legacy = new TerminalSession("powershell.exe -NoLogo -NoProfile", Environment.CurrentDirectory))
         {
-            await Task.Delay(900); legacy.Paste("Write-Output 'legacy'"); legacy.Key(13, 0);
+            await PowerShellPrompt.Wait(legacy);
+            legacy.Paste("Write-Output 'legacy'"); legacy.Key(13, 0);
             var until = DateTime.UtcNow.AddSeconds(15);
             while ((legacy.Status.Commands.Count == 0 || legacy.Status.Commands[^1].Finished is null) && DateTime.UtcNow < until) await Task.Delay(30);
             check(legacy.Status.Commands.Count == 1 && legacy.Status.LastExitCode == 0, "Windows PowerShell 5.1 receives automatic command integration");
         }
-        string strictScript = "Set-StrictMode -Version Latest; . '" + Path.Combine(AppContext.BaseDirectory, "Integration", "powershell.ps1").Replace("'", "''") + "'";
+        // Delay initialization beyond the old fixed startup sleep to exercise
+        // prompt readiness before command input, including strict-mode startup.
+        string strictScript = "Start-Sleep -Seconds 2; Set-StrictMode -Version Latest; . '" + Path.Combine(AppContext.BaseDirectory, "Integration", "powershell.ps1").Replace("'", "''") + "'";
         string encodedStrict = Convert.ToBase64String(System.Text.Encoding.Unicode.GetBytes(strictScript));
         using (var strict = new TerminalSession(ShellDefaults.Command + " -NoProfile -NoExit -EncodedCommand " + encodedStrict, Environment.CurrentDirectory))
         {
-            await Task.Delay(900); strict.Paste("Write-Output 'strict startup'"); strict.Key(13, 0);
+            await PowerShellPrompt.Wait(strict);
+            strict.Paste("Write-Output 'strict startup'"); strict.Key(13, 0);
             var until = DateTime.UtcNow.AddSeconds(15);
             while ((strict.Status.Commands.Count == 0 || strict.Status.Commands[^1].Finished is null) && DateTime.UtcNow < until) await Task.Delay(30);
             check(strict.Status.Commands.Count == 1 && strict.Status.LastExitCode == 0, "integration initializes when a profile already enabled strict mode");
